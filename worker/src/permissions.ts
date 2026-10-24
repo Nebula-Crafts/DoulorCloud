@@ -24,15 +24,14 @@ import { ApiError } from "./http"
 import { getSetting } from "./settings"
 import type { Env } from "./env"
 
-export const FEATURES = ["r2", "ai", "proxy", "doulor", "dns", "relay_auto"] as const
+export const FEATURES = ["r2", "ai", "proxy", "doulor", "relay_auto"] as const
 export type Feature = (typeof FEATURES)[number]
 
 export const FEATURE_LABELS: Record<Feature, string> = {
   r2: "直链网盘",
   ai: "AI 中转站",
   proxy: "代理节点",
-  doulor: "doulor.cn 专属域名与邮箱",
-  dns: "DNS 解析",
+  doulor: "doulor.cn 专属邮箱",
   // 「中转站入驻免审」：**不是**一个功能模块，而是「这个人的中转站登记直接批准」的资格位。
   // 它之所以挂在 permissions 里（而不是单加一列/一张表），是因为它天然就是「按用户逐个授权」
   // 的语义，复用现成的成员详情开关、权限审计、邀请码/券的读写链路，不必再造一套。

@@ -89,7 +89,6 @@ describe("computeAchievements", () => {
     const byId = new Map(snap.achievements.map((a) => [a.id, a]))
     // 测试库里用户总数远小于 20，所以「元老」对谁都是解锁的（生产不会）——
     // 这里把它排除掉，只断言其余成就都是 0
-    expect(byId.get("subdomain")?.level).toBe(0)
     expect(byId.get("posts")?.level).toBe(0)
     expect(byId.get("donor")?.level).toBe(0)
     expect(byId.get("visit")?.level).toBe(0)
@@ -162,7 +161,6 @@ describe("computeAchievements", () => {
     // 新成就必须存在于列表（防止只在 SQL 里加列、忘了定义成就）
     for (const id of [
       "mail_read",
-      "dns_types",
       "post_edits",
       "post_images",
       "comment_replies",
@@ -214,20 +212,20 @@ describe("computeAchievements", () => {
   it("分级成就按阈值算等级，不越界", async () => {
     const u = await makeUser()
     const now = new Date().toISOString()
-    // 3 条子域名 → 「开疆拓土」Lv.2（阈值 1/3/5）
+    // 3 个邮箱 → 「信箱林立」Lv.2（阈值 1/3）
     for (let i = 0; i < 3; i++) {
       await env.DB.prepare(
-        `INSERT INTO subdomains (id, user_id, name, fqdn, status, created_at)
-         VALUES (?, ?, ?, ?, 'active', ?)`
+        `INSERT INTO mailboxes (id, user_id, address, forwarding_to, created_at, is_temp)
+         VALUES (?, ?, ?, NULL, ?, 0)`
       )
-        .bind(`s_${i}_${u.id}`, u.id, `sub${i}`, `sub${i}.u${u.id.slice(0, 4)}.doulor.cn`, now)
+        .bind(`mb_${i}_${u.id}`, u.id, `mx${i}_${u.id.slice(0, 8)}@doulor.cn`, now)
         .run()
     }
     const snap = computeAchievements(await loadUserCounts(env, u.id))
-    const a = snap.achievements.find((x) => x.id === "subdomain")!
+    const a = snap.achievements.find((x) => x.id === "mailbox")!
     expect(a.level).toBe(2)
-    expect(a.nextTier).toBe(5)
-    expect(a.maxed).toBe(false)
+    expect(a.nextTier).toBeNull()
+    expect(a.maxed).toBe(true)
   })
 })
 

@@ -13,7 +13,7 @@ import {
 import { getBasicFeatures } from "../quotas"
 import { parseEmailDomains } from "../email-domains"
 import { isIpBlacklisted } from "./moderation-lists"
-import { getDefaultRootDomain, resolveZoneId, isOwnDomain } from "../root-domains"
+import { getDefaultRootDomain, isOwnDomain } from "../root-domains"
 import { grantInvitePoints } from "../points"
 import { evaluateTwoFactorGate, createLoginChallenge, maskEmail } from "./two-factor"
 import { createSession, destroySession, requireUser, sessionCookie, clearedSessionCookie, getSessionTokens, toPublicUser, loadPendingReply, type UserRow, isPrivileged } from "../auth"
@@ -315,39 +315,14 @@ export async function register(env: Env, request: Request): Promise<Response> {
   }
 
   // 先查占用，避免因用户名/邮箱冲突而白烧邀请码。
-  //
-  // 用户名会同时占用 domains.name / subdomains.fqdn / mailboxes.address 的
-  // UNIQUE 约束，而其它用户可以通过「创建子域名」「添加邮箱别名」抢先占用
-  // 这些名字。必须把这三种情况一并查出，否则：
-  //   - 名字被抢先后本人注册会在 batch 阶段失败，而邀请码已被消费（白烧一个码）；
-  //   - subdomains.fqdn 被占用时该名字将永久无法注册。
-  // ⚠️ 发给用户的域名取自 `root_domains` 表的**默认行**（当前 tyu.me），
-  // **不是** `env.ROOT_DOMAIN` —— 后者是站点自身域名（cloud.doulor.cn、
-  // 密码重置链接都从它拼），把它当作用户域会让所有用户把滥用风险记在主域声誉上，
-  // 而主域还担着「发验证码/找回密码」的发件人角色。详见 src/root-domains.ts。
-  const root = await getDefaultRootDomain(env)
-  const rootZoneId = (await resolveZoneId(env, root.name)) ?? env.ZONE_ID
-  const requestedFqdn = `${username}.${root.name}`
-  const mailboxAddress = `${username}@${root.name}`
-
   const conflicts = await env.DB.batch([
     env.DB.prepare(
       "SELECT id FROM users WHERE username = ? COLLATE NOCASE OR email = ? COLLATE NOCASE LIMIT 1"
     ).bind(username, email),
-    env.DB.prepare(
-      "SELECT id FROM subdomains WHERE fqdn = ? COLLATE NOCASE LIMIT 1"
-    ).bind(requestedFqdn),
-    env.DB.prepare(
-      "SELECT id FROM domains WHERE name = ? COLLATE NOCASE LIMIT 1"
-    ).bind(requestedFqdn),
-    env.DB.prepare(
-      "SELECT id FROM mailboxes WHERE address = ? COLLATE NOCASE LIMIT 1"
-    ).bind(mailboxAddress),
     // ⚠️ 2026-09-25 审计（M12）：`storage_accounts.prefix` 也有 UNIQUE 约束，
     // 且它的值就是 `users.username`（storage.ts 开通网盘时写入），**但改名不会迁移它**。
-    // 于是：A（bob）改名 alice 并删掉 bob.doulor.cn 之后，B 可以正常注册 bob ——
+    // 于是：A（bob）改名 alice 并释放旧存储之前，B 可以正常注册 bob ——
     // 直到 B 去开通网盘时 INSERT 触发 UNIQUE 冲突，未捕获 → 500，B 永久无法开通。
-    // 更糟的是 A 的旧文件仍在 /dl/bob/... 对外服务，而 "bob" 已经属于另一个人。
     // 把 prefix 一并纳入注册预检：宁可让这个用户名在旧存储释放前不可注册
     // （明确 409），也不要让人先注册成功、再在开通网盘时撞上一个无法理解的 500。
     env.DB.prepare(
@@ -365,9 +340,30 @@ export async function register(env: Env, request: Request): Promise<Response> {
   if (await isOwnDomain(env, email)) {
     throw new ApiError(
       400,
-      `真实邮箱不能是本站域名邮箱（如 @${root.name}）`,
+      `真实邮箱不能是本站域名邮箱（如 @${env.ROOT_DOMAIN}）`,
       "INVALID_EMAIL"
     )
+  }
+
+  // 站内邮箱地址 = **随机前缀** @ 根域（域名功能已移除，邮箱不再跟随用户名，
+  // 也避免用户名本身暴露在收件地址里）。前缀取 12 个 hex 字符，碰撞概率可忽略；
+  // 入库前仍做一次 UNIQUE 预检，极小概率撞上就换一个再试。
+  const root = await getDefaultRootDomain(env)
+  let mailboxAddress = ""
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const candidate = `mx-${generateToken().slice(0, 12)}@${root.name}`
+    const taken = await env.DB.prepare(
+      "SELECT id FROM mailboxes WHERE address = ? COLLATE NOCASE LIMIT 1"
+    )
+      .bind(candidate)
+      .first()
+    if (!taken) {
+      mailboxAddress = candidate
+      break
+    }
+  }
+  if (!mailboxAddress) {
+    throw new ApiError(500, "站内邮箱地址分配失败，请重试", "MAILBOX_ALLOC_FAILED")
   }
 
   const passwordHash = await hashPassword(password)
@@ -460,12 +456,6 @@ export async function register(env: Env, request: Request): Promise<Response> {
         `INSERT INTO users (id, username, email, password_hash, namespace, status, permissions, invite_code_id, uid, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'active', ?, ?, (SELECT COALESCE(MAX(uid), 0) + 1 FROM users), ?, ?)`
       ).bind(id, username, email, passwordHash, username, invitePermissions, invite?.id ?? null, now, now),
-      env.DB.prepare(
-        "INSERT INTO domains (id, user_id, name, zone_id, status, created_at) VALUES (?, ?, ?, ?, 'active', ?)"
-      ).bind(uuid(), id, requestedFqdn, rootZoneId, now),
-      env.DB.prepare(
-        "INSERT INTO subdomains (id, user_id, name, fqdn, status, created_at) VALUES (?, ?, '@', ?, 'active', ?)"
-      ).bind(uuid(), id, requestedFqdn, now),
       env.DB.prepare(
         "INSERT INTO mailboxes (id, user_id, address, forwarding_to, created_at) VALUES (?, ?, ?, ?, ?)"
       ).bind(uuid(), id, mailboxAddress, JSON.stringify([email]), now),
@@ -766,19 +756,9 @@ export async function me(
   // D1 的 batch() 在一个往返里把这些语句一起发出去（语句内部仍是串行执行，
   // 省掉的是网络往返开销）。这是 /api/me，每次页面加载都会调，收益明显。
   //
-  // 注意：domain 的查询结果被 dnsCount 依赖（要用 domain.id），
-  // 不能放进同一个 batch，因此先取 domain，再把它之后的所有查询打包。
-  const domain = await env.DB.prepare(
-    "SELECT * FROM domains WHERE user_id = ? LIMIT 1"
-  )
-    .bind(user.id)
-    .first<{ id: string; name: string; status: string; created_at: string }>()
-
   const [
-    dnsRes,
     mailRes,
     unreadRes,
-    subdomainRes,
     mailboxRes,
     storageUsedRes,
     storageAccountRes,
@@ -787,17 +767,11 @@ export async function me(
     recentRes,
   ] = await env.DB.batch(
     [
-      env.DB.prepare("SELECT COUNT(*) AS c FROM dns_records WHERE domain_id = ?").bind(
-        domain?.id ?? ""
-      ),
       env.DB.prepare(
         "SELECT COUNT(*) AS c FROM messages m JOIN mailboxes mb ON m.mailbox_id = mb.id WHERE mb.user_id = ?"
       ).bind(user.id),
       env.DB.prepare(
         "SELECT COUNT(*) AS c FROM messages m JOIN mailboxes mb ON m.mailbox_id = mb.id WHERE mb.user_id = ? AND m.read = 0"
-      ).bind(user.id),
-      env.DB.prepare(
-        "SELECT COUNT(*) AS c FROM subdomains WHERE user_id = ? AND name != '@'"
       ).bind(user.id),
       env.DB.prepare("SELECT COUNT(*) AS c FROM mailboxes WHERE user_id = ?").bind(user.id),
       env.DB.prepare(
@@ -826,10 +800,8 @@ export async function me(
   const rowsOf = <T,>(r: unknown): T[] =>
     ((r as { results?: T[] }).results ?? []) as T[]
 
-  const dnsRecords = num(dnsRes)
   const emails = num(mailRes)
   const unread = num(unreadRes)
-  const subdomains = num(subdomainRes)
   const mailboxes = num(mailboxRes)
   const storageUsedBytes = num(storageUsedRes)
   const storageQuotaBytes =
@@ -856,20 +828,9 @@ export async function me(
 
   return json({
     user: toPublicUser(user),
-    domain: domain
-      ? {
-          id: domain.id,
-          name: domain.name,
-          status: domain.status,
-          createdAt: domain.created_at,
-        }
-      : null,
     stats: {
-      domains: domain ? 1 : 0,
-      subdomains,
       emails,
       unread,
-      dnsRecords,
       mailboxes,
       emailForwards: 0,
       // 网盘（未开通：usedBytes 0、quotaBytes 0）

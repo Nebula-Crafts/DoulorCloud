@@ -15,7 +15,6 @@ import {
   LayoutDashboard,
   Link2,
   Loader2,
-  Network,
   Plus,
   Send,
   Sparkles,
@@ -65,7 +64,6 @@ import {
 import {
   authApi,
   donationApi,
-  frpApi,
   myInviteApi,
   voucherApi,
   wb2apiApi,
@@ -97,7 +95,6 @@ const TYPE_META: Record<string, { label: string; desc: string }> = {
   // 卡片标题用「AI 模型」而不是「AI 中转站」：这里捐的是模型（渠道是载体），
   // 叫「中转站」会把「站点」和「模型资源」混起来，用户容易不知道该填什么。
   ai: { label: "don.type.ai", desc: "don.type.aiDesc" },
-  frp: { label: "don.type.frp", desc: "don.type.frpDesc" },
   proxy: { label: "don.type.proxy", desc: "don.type.proxyDesc" },
   sensenova: { label: "don.type.sensenova", desc: "don.type.sensenovaDesc" },
 }
@@ -108,7 +105,7 @@ const TYPE_META: Record<string, { label: string; desc: string }> = {
  * 排除 `sensenova`：它有自己的卡片（走免审核通道，不经过那个弹窗表单），
  * 放进这个列表会让用户点「贡献」后弹出一个不认识的表单。
  */
-const LISTED_TYPES = ["ai", "frp", "proxy"]
+const LISTED_TYPES = ["ai", "proxy"]
 
 /**
  * AI 上游的接口格式选项。
@@ -124,7 +121,7 @@ const AI_FORMATS: { value: string; label: string; channelType: number }[] = [
 ]
 
 /** 捐献页的分区（与 URL 的 `?tab=` 一一对应；缺省 = overview） */
-const DONATION_TABS = ["overview", "invite", "relay", "ai", "frp", "proxy"] as const
+const DONATION_TABS = ["overview", "invite", "relay", "ai", "proxy"] as const
 
 export default function DonationPage() {
   const { t } = useT()
@@ -512,8 +509,7 @@ export default function DonationPage() {
             它根本不走权限这条路，改成积分租用。显示一个恒为"未解锁"的徽章
             会让用户以为"我还没被批准"，而他其实现在就能用。
           */}
-          {type !== "frp" &&
-            (perms?.[type as keyof Permissions] ? (
+          {(perms?.[type as keyof Permissions] ? (
               <Badge variant="success">{t("don.unlocked")}</Badge>
             ) : (
               <Badge variant="secondary">{t("don.locked")}</Badge>
@@ -527,11 +523,9 @@ export default function DonationPage() {
               谁都能进这个页面，真正使用时用积分下单租节点。
               所以这里不能再显示「通过即解锁对应功能权限」——那句话已经不对了。
             */}
-            {type === "frp"
-              ? t("don.card.noteRental")
-              : grantPermissions?.[type] !== false
-                ? t("don.card.note")
-                : t("don.card.noteNoGrant")}
+            {grantPermissions?.[type] !== false
+              ? t("don.card.note")
+              : t("don.card.noteNoGrant")}
           {grantPermissions?.[type] === false && (
             <span className="mt-1 block font-semibold text-destructive">
               {t("don.grantOff")}
@@ -545,14 +539,10 @@ export default function DonationPage() {
             这里不放「贡献一份…」按钮 —— 留着它会把人引到那个已废弃的表单上。
             （上面的卡片就是新的入口。）
           */}
-          {type === "frp" ? (
-            <p className="text-xs text-muted-foreground">{t("don.frp1.noConfig")}</p>
-          ) : (
-            <Button size="sm" onClick={() => setDialogType(type)}>
-              <Plus className="h-4 w-4" />
-              {t("don.card.contribute", { label: t(TYPE_META[type]?.label ?? "") })}
-            </Button>
-          )}
+          <Button size="sm" onClick={() => setDialogType(type)}>
+            <Plus className="h-4 w-4" />
+            {t("don.card.contribute", { label: t(TYPE_META[type]?.label ?? "") })}
+          </Button>
         </CardContent>
     </Card>
   )
@@ -604,12 +594,6 @@ export default function DonationPage() {
                   icon={Sparkles}
                   label={t("don.type.ai")}
                   onClick={() => changeTab("ai")}
-                />
-                <NavItem
-                  active={activeTab === "frp"}
-                  icon={Network}
-                  label={t("don.type.frp")}
-                  onClick={() => changeTab("frp")}
                 />
                 <NavItem
                   active={activeTab === "proxy"}
@@ -1038,12 +1022,6 @@ export default function DonationPage() {
               />
               {renderResourceIntro("ai")}
               {renderRecords("ai", "sensenova")}
-            </TabsContent>
-
-            <TabsContent value="frp">
-              <FrpNodeOneClickDonate />
-              {renderResourceIntro("frp")}
-              {renderRecords("frp")}
             </TabsContent>
 
             <TabsContent value="proxy">
@@ -2921,110 +2899,3 @@ function Qoder2ApiLoginDialog({
   )
 }
 
-/**
- * 「一键捐献服务器节点」（2026-10-14）
- *
- * 用户只要填自己的 IPv4，就能拿到一条命令；把命令粘到那台服务器上跑完，
- * 脚本会自检 frps 和面板都在运行，然后自动登记 + 自动上架默认套餐。
- *
- * 为什么把「生成命令」放在前端而不是后端返回一整段文本：
- *   令牌是**一次性**的、1 小时过期，页面每次点「生成命令」都要重新领。
- *   后端返回死文本的话，用户刷新页面就拿到一个过期命令，报错还看不懂。
- */
-function FrpNodeOneClickDonate() {
-  const { t } = useT()
-  const [ip, setIp] = React.useState("")
-  const [cmd, setCmd] = React.useState("")
-  const [busy, setBusy] = React.useState(false)
-  const [err, setErr] = React.useState("")
-
-  const CDN = "https://pub-4362b2869bc5460aa18128ac9126e59c.r2.dev/install"
-
-  const gen = async () => {
-    setErr("")
-    const v = ip.trim()
-    const parts = v.split(".")
-    const okIp =
-      parts.length === 4 &&
-      parts.every((x) => /^\d{1,3}$/.test(x) && Number(x) >= 0 && Number(x) <= 255)
-    if (!okIp) {
-      setErr(t("don.frp1.badIp"))
-      return
-    }
-    setBusy(true)
-    try {
-      const res = await frpApi.issueDonateToken()
-      setCmd(`curl -fsSL ${CDN}/frp-node.sh | bash -s -- ${v} ${res.token}`)
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : t("don.frp1.failed"))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(cmd)
-      toast.success(t("don.frp1.copied"))
-    } catch {
-      toast.error(t("don.frp1.copyFailed"))
-    }
-  }
-
-  return (
-    <div className="mb-4 rounded-lg border bg-card p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium">{t("don.frp1.title")}</span>
-        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
-          {t("don.frp1.badge")}
-        </span>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">{t("don.frp1.desc")}</p>
-
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <div className="min-w-[200px] flex-1">
-          <label htmlFor="frp-donate-ip" className="text-xs text-muted-foreground">
-            {t("don.frp1.ipLabel")}
-          </label>
-          <Input
-            id="frp-donate-ip"
-            value={ip}
-            onChange={(e) => {
-              setIp(e.target.value)
-              setErr("")
-            }}
-            placeholder="1.2.3.4"
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </div>
-        <Button onClick={() => void gen()} disabled={busy}>
-          {busy ? t("don.frp1.generating") : t("don.frp1.gen")}
-        </Button>
-      </div>
-      {err ? <p className="mt-2 text-xs text-destructive">{err}</p> : null}
-
-      {cmd ? (
-        <div className="mt-3 space-y-2">
-          <p className="text-xs text-muted-foreground">{t("don.frp1.howto")}</p>
-          <div className="flex items-start gap-2">
-            <pre className="min-w-0 flex-1 overflow-x-auto rounded-md border bg-muted/40 p-2 text-xs">
-              <code>{cmd}</code>
-            </pre>
-            <Button variant="outline" size="sm" onClick={() => void copy()}>
-              {t("don.frp1.copy")}
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">{t("don.frp1.note")}</p>
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer">{t("don.frp1.winTitle")}</summary>
-            <p className="mt-1">{t("don.frp1.winDesc")}</p>
-            <pre className="mt-1 overflow-x-auto rounded-md border bg-muted/40 p-2">
-              <code>{`irm ${CDN}/frp-node.ps1 -OutFile $env:TEMP\\frp-node.ps1\npowershell -ExecutionPolicy Bypass -File $env:TEMP\\frp-node.ps1 -Ip ${ip.trim() || "你的IPv4"} -Token ${cmd.split(" ").pop()}`}</code>
-            </pre>
-          </details>
-        </div>
-      ) : null}
-    </div>
-  )
-}

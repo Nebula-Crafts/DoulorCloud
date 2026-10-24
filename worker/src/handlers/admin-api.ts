@@ -13,7 +13,7 @@ import { getSettingBool } from "../settings"
 import type { Env } from "../env"
 
 /** 功能清单：固定这三类（以后加功能在这里登记） */
-const KNOWN_FEATURES = ["dns", "mailbox", "temp_mailbox"] as const
+const KNOWN_FEATURES = ["mailbox", "temp_mailbox"] as const
 
 /** GET /api/admin/api-config —— 读全部功能配置 + 计入成就开关 */
 export async function getApiConfig(env: Env, request: Request): Promise<Response> {

@@ -46,7 +46,6 @@ import {
   isReservedNickname,
   parseReservedNicknames,
 } from "../identity"
-import { listReservedSubdomains } from "../reserved-names"
 import { getSettingNumber } from "../settings"
 import { revokeAllUserTokens } from "../oauth-provider"
 // 帖子分类的归一化：与读取侧（community.ts 的 postCategoryDefs）用同一份实现，
@@ -61,7 +60,6 @@ import {
   quotaFeaturesFromStored,
 } from "../quotas"
 import { purgeUserStorage, recalculateUsage } from "./storage"
-import { suspendUserResources, restoreUserResources } from "../user-suspension"
 import { normalizeBaseUrl } from "../donation-provision"
 import { purgeUserExternalResources } from "../user-cleanup"
 
@@ -85,7 +83,6 @@ interface AdminUserRow {
   /** 自定义管理白名单（JSON 数组；非空 = 覆盖权限组，前端标记「自定义」） */
   admin_scope?: string | null
   /** 用户级子域名配额覆盖；NULL = 用全局默认 */
-  max_subdomains?: number | null
   /** 展示用昵称（社区/名片），NULL = 未设置 */
   nickname?: string | null
   /** 邮箱是否已验证（验证后才能在设置里改真实收件地址等） */
@@ -231,31 +228,16 @@ async function userDetail(env: Env, user: AdminUserRow) {
   // 之前这里是 13 个串行 await，每个 D1 往返 ~150ms，串起来 2 秒+；
   // 并行后总耗时 ≈ 最慢那一个查询。D1 支持同请求内并发读，这里没有写后读依赖。
   const [
-    subdomains,
-    dns,
     mailboxes,
     mails,
     sessions,
     storage,
     newapi,
-    frp,
-    frpApplications,
-    frpPorts,
     proxy,
     profile,
     activity,
     inviteBase,
   ] = await Promise.all([
-    env.DB.prepare(
-      "SELECT id, name, fqdn, status, created_at FROM subdomains WHERE user_id = ? ORDER BY created_at ASC"
-    )
-      .bind(user.id)
-      .all(),
-    env.DB.prepare(
-      "SELECT id, subdomain_id, name, fqdn, type, content, ttl, proxied, status, created_at FROM dns_records WHERE domain_id IN (SELECT id FROM domains WHERE user_id = ?) ORDER BY created_at ASC LIMIT 200"
-    )
-      .bind(user.id)
-      .all(),
     env.DB.prepare(
       "SELECT id, address, forwarding_to, created_at FROM mailboxes WHERE user_id = ? ORDER BY created_at ASC"
     )
@@ -306,36 +288,6 @@ async function userDetail(env: Env, user: AdminUserRow) {
         synced_at: string | null
         created_at: string
       }>(),
-    env.DB.prepare(
-      "SELECT enabled, created_at, updated_at FROM frp_accounts WHERE user_id = ?"
-    )
-      .bind(user.id)
-      .first<{ enabled: number; created_at: string; updated_at: string }>(),
-    env.DB.prepare(
-      `SELECT id, status, frp_user, ports, notify_email, remark, review_note,
-              reviewed_at, created_at
-         FROM frp_applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
-    )
-      .bind(user.id)
-      .all<{
-        id: string
-        status: string
-        frp_user: string
-        ports: string
-        notify_email: string
-        remark: string | null
-        review_note: string | null
-        reviewed_at: string | null
-        created_at: string
-      }>(),
-    env.DB.prepare(
-      `SELECT p.remote_port, p.created_at, n.name AS node_name
-         FROM frp_ports p
-         LEFT JOIN frp_nodes n ON n.id = p.node_id
-        WHERE p.user_id = ? ORDER BY p.remote_port ASC`
-    )
-      .bind(user.id)
-      .all<{ remote_port: number; created_at: string; node_name: string | null }>(),
     env.DB.prepare(
       "SELECT enabled, consent_version, consented_at, created_at, updated_at FROM proxy_activation WHERE user_id = ?"
     )
@@ -392,12 +344,9 @@ async function userDetail(env: Env, user: AdminUserRow) {
       notifyEnabled: (user.notify_enabled ?? 1) === 1,
       hasAvatar: Boolean(user.avatar_key),
       permissions: parsePermissions(user.permissions),
-      maxSubdomains: user.max_subdomains ?? null,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
     },
-    subdomains: subdomains.results ?? [],
-    dns: dns.results ?? [],
     mailboxes: (mailboxes.results ?? []).map((m: Record<string, unknown>) => ({
       ...m,
       forwarding_to: m.forwarding_to ?? null,
@@ -429,29 +378,6 @@ async function userDetail(env: Env, user: AdminUserRow) {
           createdAt: newapi.created_at,
         }
       : null,
-    frp: frp
-      ? {
-          enabled: frp.enabled === 1,
-          createdAt: frp.created_at,
-          updatedAt: frp.updated_at,
-        }
-      : null,
-    frpApplications: (frpApplications.results ?? []).map((a) => ({
-      id: a.id,
-      status: a.status,
-      frpUser: a.frp_user,
-      ports: parseJsonArray(a.ports),
-      notifyEmail: a.notify_email,
-      remark: a.remark,
-      reviewNote: a.review_note,
-      reviewedAt: a.reviewed_at,
-      createdAt: a.created_at,
-    })),
-    frpPorts: (frpPorts.results ?? []).map((p) => ({
-      remotePort: p.remote_port,
-      nodeName: p.node_name,
-      createdAt: p.created_at,
-    })),
     proxy: proxy
       ? {
           enabled: proxy.enabled === 1,
@@ -492,17 +418,6 @@ async function userDetail(env: Env, user: AdminUserRow) {
   }
 }
 
-/** 解析 JSON 数组字段（如 frp_applications.ports）；损坏数据回退为空数组 */
-function parseJsonArray(raw: string | null): number[] {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "number") : []
-  } catch {
-    return []
-  }
-}
-
 // GET /api/admin/users —— 用户列表
 // 2026-10-08 性能：实测（1399 用户）该接口 ~1.7s 才回首字节，大头是**串行 D1 往返**
 // （权限 1 次 + 主查询 1 次 + 注销留痕 1 次）。两处改法：
@@ -539,14 +454,13 @@ export async function listUsers(env: Env, request: Request): Promise<Response> {
       // 列表只展示「各模块是否已开通」与「名片是否已启用」，不再回传子域名/DNS/
       // 邮箱/邮件的计数 —— 那些明细在用户详情里看。四个模块的判定与各 handler
       // 里的 isActivated / loadAccount 完全一致（有记录 **且** enabled=1）。
-      `SELECT u.id, u.uid, u.username, u.email, u.namespace, u.role, u.status, u.permissions, u.max_subdomains, u.created_at,
+      `SELECT u.id, u.uid, u.username, u.email, u.namespace, u.role, u.status, u.permissions, u.created_at,
               u.invite_code_id,
               ic.code AS invite_code,
               ic.created_at AS invite_created_at,
               creator.username AS invite_created_by,
               EXISTS(SELECT 1 FROM storage_accounts sa WHERE sa.user_id = u.id AND sa.enabled = 1) AS storage_on,
               EXISTS(SELECT 1 FROM newapi_accounts na WHERE na.user_id = u.id) AS ai_on,
-              EXISTS(SELECT 1 FROM frp_accounts fa WHERE fa.user_id = u.id AND fa.enabled = 1) AS frp_on,
               EXISTS(SELECT 1 FROM proxy_activation pa WHERE pa.user_id = u.id AND pa.enabled = 1) AS proxy_on,
               p.published AS profile_published,
               p.slug AS profile_slug,
@@ -599,7 +513,6 @@ export async function listUsers(env: Env, request: Request): Promise<Response> {
     role: r.role,
     status: r.status,
     permissions: parsePermissions(r.permissions as string | null),
-    maxSubdomains: (r.max_subdomains as number | null) ?? null,
     createdAt: r.created_at,
     // 邀请码溯源：老用户没有 invite_code_id（或码已删除），回退为 null
     inviteCode: (r.invite_code as string | null) ?? null,
@@ -608,7 +521,6 @@ export async function listUsers(env: Env, request: Request): Promise<Response> {
     // 各模块的实际开通状态（有记录且 enabled=1）
     storageEnabled: Number(r.storage_on) === 1,
     aiEnabled: Number(r.ai_on) === 1,
-    frpEnabled: Number(r.frp_on) === 1,
     proxyEnabled: Number(r.proxy_on) === 1,
     // 个人名片：未建记录时 published 为 NULL → 视为未启用
     profileEnabled: Number(r.profile_published) === 1,
@@ -647,15 +559,13 @@ export async function listUsers(env: Env, request: Request): Promise<Response> {
     role: t.role ?? "user",
     status: "deleted",
     // 留痕行不参与鉴权，权限一律视为无（避免误导）
-    permissions: { r2: false, ai: false, frp: false, proxy: false },
-    maxSubdomains: null as number | null,
+    permissions: { r2: false, ai: false, proxy: false },
     createdAt: t.created_at ?? t.deleted_at,
     inviteCode: null as string | null,
     inviteCreatedBy: null as string | null,
     inviteCreatedAt: null as string | null,
     storageEnabled: false,
     aiEnabled: false,
-    frpEnabled: false,
     proxyEnabled: false,
     profileEnabled: false,
     profileSlug: null as string | null,
@@ -780,39 +690,6 @@ export async function applyUserStatusChange(
       .run()
 
     /**
-     * 停用**对外生效**的资源（2026-10-08 站长要求）。
-     *
-     * 此前封禁只拦住「本人登录」，但他留下的 DNS 解析、子域名照样对外响应
-     * （邮箱与邀请码分别在 email-delivery / 注册流程里就地校验，无需改数据）。
-     * 这里把 CF 上的记录删掉并标记，解封时按本地留存字段重建。
-     *
-     * ⚠️ 失败**不阻断封禁**：cloud 侧 status 已经落库、才是主操作。
-     *    删不掉的记录会保留 cf_id 并由维护任务兜底（见 user-suspension.ts）。
-     */
-    try {
-      const res = await suspendUserResources(env, user.id)
-      await recordAudit(
-        env,
-        user.id,
-        "admin.user.resources_suspended",
-        `封禁联动停用资源：DNS 记录 ${res.dnsSuspended} 条` +
-          (res.dnsDeferred > 0 ? `（另有 ${res.dnsDeferred} 条排入维护任务）` : "") +
-          `、子域名 ${res.subdomainsSuspended} 个` +
-          (res.errors.length > 0 ? `；部分失败：${res.errors.slice(0, 3).join("；")}` : ""),
-        request.headers.get("CF-Connecting-IP")
-      )
-    } catch (err) {
-      // 连本地标记都失败（表未迁移等）：只记审计，不让封禁失败
-      await recordAudit(
-        env,
-        user.id,
-        "admin.user.resources_suspend_failed",
-        `封禁已生效，但停用其 DNS/子域名失败：${err instanceof Error ? err.message : String(err)}`,
-        request.headers.get("CF-Connecting-IP")
-      )
-    }
-
-    /**
      * 封禁联动黑名单（站长 2026-10-03）：
      * 把这个账号的**注册 IP** 自动加进黑名单 —— 同一 IP 批量注册的小号被封后，新注册直接挡。
      * 取的是「注册时的 IP」（audit_logs 的 register 行），不是最后一次登录 IP。
@@ -832,30 +709,6 @@ export async function applyUserStatusChange(
     )
       .bind(user.id)
       .run()
-
-    /**
-     * 恢复被停用的资源（与上面的停用严格对称）：在 Cloudflare 上重建记录。
-     * 同样**不阻断解封** —— 重建失败的记录保留 banned_at，下次会再试。
-     */
-    try {
-      const res = await restoreUserResources(env, user.id)
-      if (res.dnsRestored > 0 || res.subdomainsRestored > 0 || res.dnsFailed > 0) {
-        await recordAudit(
-          env,
-          user.id,
-          "admin.user.resources_restored",
-          `解封联动恢复资源：DNS 记录 ${res.dnsRestored} 条、子域名 ${res.subdomainsRestored} 个` +
-            (res.dnsFailed > 0 ? `；${res.dnsFailed} 条重建失败待重试` : "")
-        )
-      }
-    } catch (err) {
-      await recordAudit(
-        env,
-        user.id,
-        "admin.user.resources_restore_failed",
-        `解封已生效，但恢复其 DNS/子域名失败：${err instanceof Error ? err.message : String(err)}`
-      )
-    }
 
     /**
      * 解封时**对称地**把「封禁联动」加进来的 IP 撤掉 —— 否则误封一次，
@@ -952,8 +805,6 @@ export async function updateUser(env: Env, request: Request, username: string): 
     status?: string
     role?: string
     permissions?: unknown
-    /** 该用户可创建的一级子域名数量；null 表示恢复为全局默认 */
-    maxSubdomains?: number | null
     /** 展示昵称；null 或空串表示清空 */
     nickname?: string | null
     /** 邮箱是否已验证 */
@@ -1017,7 +868,6 @@ export async function updateUser(env: Env, request: Request, username: string): 
   // 改配额要 users.quota。root/superadmin 直接放行。
   if (statusChanged !== null) await assertAdminScope(env, operator, "users.suspend")
   if (perms !== null) await assertAdminScope(env, operator, "users.permissions")
-  if (body.maxSubdomains !== undefined) await assertAdminScope(env, operator, "users.quota")
 
   /**
    * 白名单用户不会被封禁（站长 2026-10-03 要求）；
@@ -1052,22 +902,6 @@ export async function updateUser(env: Env, request: Request, username: string): 
           "USER_WHITELISTED"
         )
       }
-    }
-  }
-
-  // 子域名配额：undefined 保持原值；null 清除覆盖（回落到全局默认）
-  let quotaUpdate = false
-  let quotaValue: number | null = null
-  if (body.maxSubdomains !== undefined) {
-    quotaUpdate = true
-    if (body.maxSubdomains === null) {
-      quotaValue = null
-    } else {
-      const n = Math.trunc(Number(body.maxSubdomains))
-      if (!Number.isFinite(n) || n < 0 || n > 100) {
-        throw new ApiError(400, "子域名配额需为 0-100 的整数", "INVALID_INPUT")
-      }
-      quotaValue = n
     }
   }
 
@@ -1137,12 +971,6 @@ export async function updateUser(env: Env, request: Request, username: string): 
         : null,
       request
     )
-  }
-
-  if (quotaUpdate) {
-    await env.DB.prepare("UPDATE users SET max_subdomains = ? WHERE id = ?")
-      .bind(quotaValue, user.id)
-      .run()
   }
 
   // 昵称：null/空串清空；非空则校验格式与占用（复用身份模块的规则，
@@ -1297,10 +1125,9 @@ export async function deleteUser(env: Env, request: Request, username: string): 
     env,
     admin.id,
     "admin.user.delete",
-    `删除用户 ${user.username}。清理：邮箱规则 ${cleanup.emailRules}、DNS 记录 ${cleanup.dnsRecords}、` +
-      `自定义域 ${cleanup.customDomains}、R2 对象 ${cleanup.storageObjects}、` +
+    `删除用户 ${user.username}。清理：邮箱规则 ${cleanup.emailRules}、R2 对象 ${cleanup.storageObjects}、` +
       `捐献渠道 ${cleanup.releasedChannels}、订阅源 ${cleanup.releasedSubscriptions}、` +
-      `frp 节点 ${cleanup.releasedFrpNodes}、反代账号 ${cleanup.wb2Removed}、` +
+      `反代账号 ${cleanup.wb2Removed}、` +
       `Qoder2API 账号 ${cleanup.qoder2Removed}、积分商店商品 ${cleanup.shopProducts}` +
       `${cleanup.newapiDisabled ? "、已禁用 NewAPI 账号" : ""}` +
       `${cleanup.errors.length > 0 ? `。⚠️ ${cleanup.errors.length} 项未清理成功：${cleanup.errors.join("；")}` : ""}`
@@ -2317,30 +2144,6 @@ export async function updateSettingsHandler(env: Env, request: Request): Promise
       continue
     }
 
-    // dns_rental_days：DNS 解析租用的租期（天）。
-    //
-    // 为什么要单开一条而不是走上面那条通用数值分支（/bytes|quota|count/）：
-    //   1. 键名**刻意不含** quota/count/bytes —— 通用分支只要求「非负」，
-    //      也就是允许 0，而 0 天的租约 = 用户付了积分当场到期；
-    //   2. 上限也要卡：3650 天 ≈ 10 年，防手滑把 365 写成 365000 开出一份
-    //      「百年租约」。
-    // 于是本分支只接受 **[1, 3650] 的整数**，越界直接 400、不入库（挡住绕过管理面板
-    // 直接打 API 写入脏值的路）。
-    //
-    // ⚠️ 与读取侧（handlers/dns-rental.ts 的 rentalDays）**不是同一种口径**，别混：
-    //    读取侧面对的是「库里已经存在的值」，对空串 / 0 / 负数一律回落成 **365 天**
-    //    而不是夹到 1 天 —— 1 天的租约同样是「付完当场到期」，站长填错时宁可多给；
-    //    管理面板提交前也会把空 / 非法输入换成 365 再发过来。
-    //    所以这里收到脏值属于「有人绕过面板」，直接拒掉比悄悄改一个值更好排查。
-    if (key === "dns_rental_days") {
-      const n = Number(str)
-      if (!Number.isFinite(n) || n < 1 || n > 3650) {
-        throw new ApiError(400, "DNS 租用租期需为 1 ~ 3650 天（整数）", "INVALID_INPUT")
-      }
-      values[key] = String(Math.trunc(n))
-      continue
-    }
-
     // wb2api_base_url：网关地址。必须是 http(s) 绝对地址。
     // 留空 = 用内置默认值 —— 空串已在上面 `str === "" continue` 处跳过，
     // 即「提交空串」等价于不修改本项（前端也提示了「留空则用内置默认值」）。
@@ -2668,86 +2471,6 @@ export async function updateInvite(
     .bind(id)
     .first<InviteRow>()
   return json({ invite: toPublicInvite(updated!) })
-}
-
-// ---- 保留子域名（管理员可增删） ----
-
-// GET /api/admin/reserved-subdomains
-export async function listReserved(
-  env: Env,
-  request: Request
-): Promise<Response> {
-  await requireAdminScope(env, request, "reserved")
-  return json({ reserved: await listReservedSubdomains(env.DB) })
-}
-
-// POST /api/admin/reserved-subdomains —— { name, note? }
-export async function addReserved(env: Env, request: Request): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "reserved")
-  const body = (await request.json()) as { name?: string; note?: string }
-
-  const name = (body.name ?? "").trim().toLowerCase().replace(/\.doulor\.cn$/i, "")
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) {
-    throw new ApiError(400, "名称只能包含小写字母、数字和连字符", "INVALID_NAME")
-  }
-
-  const exists = await env.DB.prepare(
-    "SELECT name FROM reserved_subdomains WHERE name = ? COLLATE NOCASE LIMIT 1"
-  )
-    .bind(name)
-    .first()
-  if (exists) {
-    throw new ApiError(409, "该名称已在保留列表中", "CONFLICT")
-  }
-
-  await env.DB.prepare(
-    "INSERT INTO reserved_subdomains (name, note, created_at) VALUES (?, ?, ?)"
-  )
-    .bind(name, body.note?.trim().slice(0, 100) ?? null, new Date().toISOString())
-    .run()
-
-  await recordAudit(
-    env,
-    admin.id,
-    "admin.reserved.add",
-    `保留子域名 ${name}`,
-    request.headers.get("CF-Connecting-IP")
-  )
-
-  return json({ reserved: await listReservedSubdomains(env.DB) }, 201)
-}
-
-// DELETE /api/admin/reserved-subdomains/:name
-export async function removeReserved(
-  env: Env,
-  request: Request,
-  name: string
-): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "reserved")
-  const target = decodeURIComponent(name).trim().toLowerCase()
-
-  const exists = await env.DB.prepare(
-    "SELECT name FROM reserved_subdomains WHERE name = ? COLLATE NOCASE LIMIT 1"
-  )
-    .bind(target)
-    .first()
-  if (!exists) {
-    throw new ApiError(404, "该名称不在保留列表中", "NOT_FOUND")
-  }
-
-  await env.DB.prepare("DELETE FROM reserved_subdomains WHERE name = ? COLLATE NOCASE")
-    .bind(target)
-    .run()
-
-  await recordAudit(
-    env,
-    admin.id,
-    "admin.reserved.remove",
-    `取消保留 ${target}`,
-    request.headers.get("CF-Connecting-IP")
-  )
-
-  return json({ reserved: await listReservedSubdomains(env.DB) })
 }
 
 // ---- 用户邀请码额度 ----

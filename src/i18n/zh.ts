@@ -230,12 +230,12 @@ export const zh = {
 
   // —— 落地页 · 首屏 ——
   "landing.heroLine1": "一站式云端平台",
-  "landing.heroLine2": "域名与服务，开箱即用",
+  "landing.heroLine2": "邮箱、网盘与 AI，开箱即用",
   "landing.heroSub":
     "子域名、域名邮箱、网页收件箱、DNS 管理、个人名片 —— 注册即用。AI 中转站、直链网盘、内网穿透、代理节点 —— 贡献一份资源即可解锁。",
 
   // —— 落地页 · 功能网格 ——
-  "landing.featuresTitle": "九大能力，一个账号",
+  "landing.featuresTitle": "六大能力，一个账号",
   "landing.featuresSub":
     "基础能力注册即用；消耗真实资源的模块走「贡献换权限」，贡献一份资源即可永久解锁对应模块。",
   "landing.tierFree": "注册即用",
@@ -246,7 +246,7 @@ export const zh = {
   "landing.f1.p2": "可添加 blog、api 等子域名",
   "landing.f1.p3": "支持多级嵌套",
   "landing.f2.title": "域名邮箱",
-  "landing.f2.p1": "yourname@tyu.me 自动开通",
+  "landing.f2.p1": "注册即自动开通（随机地址）",
   "landing.f2.p2": "可添加多个地址",
   "landing.f2.p3": "转发到常用邮箱",
   "landing.f3.title": "网页收件箱",
@@ -264,10 +264,10 @@ export const zh = {
   "landing.f6.title": "个人名片",
   "landing.f6.p1": "对外展示的个人主页",
   "landing.f6.p2": "主题、动效、排版混搭",
-  "landing.f6.p3": "绑定自定义域名",
+  "landing.f6.p3": "音乐、图库、链接卡片",
   "landing.f7.title": "直链网盘",
   "landing.f7.p1": "上传即得公开直链",
-  "landing.f7.p2": "绑定自定义子域名",
+  "landing.f7.p2": "目录分享、时效链接",
   "landing.f7.p3": "配额可视、进度条",
   "landing.f8.title": "AI 中转站",
   "landing.f8.p1": "开箱即用的 API Key",

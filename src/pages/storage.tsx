@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ChevronRight, Cloud, Copy, ExternalLink, Eye, EyeOff, Folder, FolderPlus, Globe, HardDrive, Home, Link2, Loader2, Power, RefreshCw, ScrollText, Share2, Trash2, Upload, X } from "lucide-react"
+import { ChevronRight, Cloud, Copy, Globe, ExternalLink, Eye, EyeOff, Folder, FolderPlus, HardDrive, Home, Link2, Loader2, Power, RefreshCw, ScrollText, Share2, Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageHeader } from "@/components/page-header"
@@ -25,13 +25,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -111,8 +104,6 @@ export default function StoragePage() {
   const [uploading, setUploading] = React.useState<Uploading[]>([])
   const [uploadActive, setUploadActive] = React.useState(false)
   const [dragging, setDragging] = React.useState(false)
-  const [domainOpen, setDomainOpen] = React.useState(false)
-  const [selectedSub, setSelectedSub] = React.useState("")
   // 新建目录
   const [folderOpen, setFolderOpen] = React.useState(false)
   const [folderName, setFolderName] = React.useState("")
@@ -255,9 +246,6 @@ export default function StoragePage() {
   const directLinkFor = (relativePath: string) => {
     if (!overview?.account) return ""
     const enc = relativePath.split("/").filter(Boolean).map(encodeURIComponent).join("/")
-    if (overview.defaultPrefix) {
-      return `https://${overview.defaultPrefix.fqdn}/${enc}`
-    }
     return `${window.location.origin}/dl/${encodeURIComponent(
       overview.account.prefix
     )}/${enc}`
@@ -333,19 +321,6 @@ export default function StoragePage() {
       await load(true)
     } catch (err) {
       toast.error(err instanceof HttpError ? err.message : t("em.err.delete"))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleSetDefaultPrefix = async (prefixId: string | null) => {
-    setBusy(true)
-    try {
-      await storageApi.setDefaultPrefix(prefixId)
-      toast.success(prefixId ? t("st.ok.defaultPrefixSet") : t("st.ok.defaultPrefixReset"))
-      await load(true)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("st.err.setting"))
     } finally {
       setBusy(false)
     }
@@ -519,36 +494,6 @@ export default function StoragePage() {
       await load(true)
     } catch (err) {
       toast.error(err instanceof HttpError ? err.message : t("em.err.delete"))
-    }
-  }
-
-  const handleBindDomain = async () => {
-    if (!selectedSub) return
-    setBusy(true)
-    try {
-      const res = await storageApi.bindDomain(selectedSub)
-      toast.success(
-        res.prefix.dnsCreated
-          ? t("st.ok.domainBoundDns")
-          : t("st.ok.domainBound")
-      )
-      setDomainOpen(false)
-      setSelectedSub("")
-      await load(true)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("pf.err.bind"))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleUnbind = async (id: string) => {
-    try {
-      await storageApi.unbindDomain(id)
-      toast.success(t("pf.ok.unbound"))
-      await load(true)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("pf.err.unbind"))
     }
   }
 
@@ -824,87 +769,8 @@ export default function StoragePage() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              {overview.defaultPrefix
-                ? t("st.links.defaultFqdn", { fqdn: overview.defaultPrefix.fqdn })
-                : t("st.links.defaultPath")}
+              {t("st.links.defaultPath")}
             </p>
-
-            {overview.prefixes.length > 0 && (
-              <div className="space-y-2">
-                {overview.prefixes.map((p) => {
-                  const isDefault = account.defaultPrefixId === p.id
-                  return (
-                    <div key={p.id} className="flex items-center gap-2">
-                      <Input
-                        readOnly
-                        value={`https://${p.fqdn}/`}
-                        className="font-mono text-xs"
-                      />
-                      {isDefault ? (
-                        <Badge variant="success" className="shrink-0">
-                          {t("st.links.isDefault")}
-                        </Badge>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0"
-                          onClick={() => void handleSetDefaultPrefix(p.id)}
-                          disabled={busy}
-                          title={t("st.links.setDefaultHint")}
-                        >
-                          {t("st.links.setDefault")}
-                        </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => void copyText(`https://${p.fqdn}/`)}
-                        title={t("common.copy")}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={() => void handleUnbind(p.id)}
-                        title={t("st.links.unbind")}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )
-                })}
-                {account.defaultPrefixId && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground"
-                    onClick={() => void handleSetDefaultPrefix(null)}
-                    disabled={busy}
-                  >
-                    {t("st.links.resetDefault")}
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {overview.customDomainSupported ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDomainOpen(true)}
-                disabled={overview.availableSubdomains.length === 0}
-              >
-                <Globe className="h-3.5 w-3.5" />
-                {t("st.bind.title")}
-              </Button>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {t("st.bind.disabled")}
-              </p>
-            )}
           </CardContent>
         </Card>
 
@@ -1278,48 +1144,6 @@ export default function StoragePage() {
             <Button onClick={() => void handleCreateFolder()} disabled={busy || !folderName.trim()}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               {t("st.folder.submit")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 绑定二级域名 */}
-      <Dialog open={domainOpen} onOpenChange={setDomainOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("st.bind.dialogTitle")}</DialogTitle>
-            <DialogDescription>
-              {t("st.bind.desc")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="domainSelect">{t("st.bind.subdomain")}</Label>
-            <Select value={selectedSub} onValueChange={setSelectedSub}>
-              <SelectTrigger id="domainSelect">
-                <SelectValue placeholder={t("st.bind.selectPh")} />
-              </SelectTrigger>
-              <SelectContent>
-                {overview.availableSubdomains.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.fqdn}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {t("st.bind.note")}
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDomainOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              onClick={() => void handleBindDomain()}
-              disabled={busy || !selectedSub}
-            >
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t("st.bind.submit")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -27,13 +27,6 @@ function post(body: unknown): RequestInit {
 }
 
 describe("未验证邮箱：写操作被拦", () => {
-  it("建子域名 → 403 EMAIL_NOT_VERIFIED", async () => {
-    const u = await makeUser({ emailVerified: false })
-    const res = await fetchSelf(authRequest(u, "/api/subdomains", post({ name: "whatever" })))
-    expect(res.status).toBe(403)
-    expect((await res.json<{ code?: string }>()).code).toBe("EMAIL_NOT_VERIFIED")
-  })
-
   it("社区发帖 → 403 EMAIL_NOT_VERIFIED", async () => {
     const u = await makeUser({ emailVerified: false })
     const res = await fetchSelf(

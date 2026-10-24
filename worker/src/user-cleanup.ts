@@ -11,14 +11,13 @@
  *   · WorkBuddy 反代网关账号 —— 仍挂在共享池里
  *
  * ⚠️ 顺序铁律：所有「需要从表里读句柄」的清理都必须在删 `users` 行**之前**完成
- * （mailboxes / dns_records / subdomains 等会随 CASCADE 一起消失，之后取不到 id）。
+ * （mailboxes 等会随 CASCADE 一起消失，之后取不到 id）。
  *
  * 单项失败**不中断**整体流程，而是收集进 `errors` 回报给管理员 ——
  * 一个坏掉的 CF 规则不应该让整个删号操作失败、并把用户留在半清理状态。
  */
-import { cfDeleteDnsRecord, cfDeleteEmailRule } from "./cloudflare"
+import { cfDeleteEmailRule } from "./cloudflare"
 import { deleteObject, deletePrefix, getPlatformBucketId } from "./r2"
-import { detachCustomDomain } from "./custom-domain"
 import { purgeUserStorage } from "./handlers/storage"
 import { releaseDonationChannel } from "./donation-provision"
 import { releaseSenseNovaKey } from "./sensenova"
@@ -31,8 +30,6 @@ import type { Env } from "./env"
 /** 删号清理的执行结果（写进审计日志，便于事后核对） */
 export interface UserCleanupReport {
   emailRules: number
-  dnsRecords: number
-  customDomains: number
   storageObjects: number
   releasedChannels: number
   releasedSubscriptions: number
@@ -59,8 +56,6 @@ export async function purgeUserExternalResources(
 ): Promise<UserCleanupReport> {
   const report: UserCleanupReport = {
     emailRules: 0,
-    dnsRecords: 0,
-    customDomains: 0,
     storageObjects: 0,
     releasedChannels: 0,
     releasedSubscriptions: 0,
@@ -89,44 +84,7 @@ export async function purgeUserExternalResources(
     }
   }
 
-  // ---------- 2. Cloudflare：DNS 记录 + 自定义域 Worker Route ----------
-  const dnsRows = await env.DB.prepare(
-    `SELECT cf_id FROM dns_records
-      WHERE cf_id IS NOT NULL AND cf_id != ''
-        AND (domain_id IN (SELECT id FROM domains WHERE user_id = ?)
-             OR subdomain_id IN (SELECT id FROM subdomains WHERE user_id = ?))`
-  )
-    .bind(userId, userId)
-    .all<{ cf_id: string }>()
-  for (const d of dnsRows.results ?? []) {
-    try {
-      await cfDeleteDnsRecord(env, env.ZONE_ID, d.cf_id)
-      report.dnsRecords++
-    } catch (err) {
-      report.errors.push(`DNS 记录 ${d.cf_id}：${errText(err)}`)
-    }
-  }
-
-  // 绑过「自定义直链域名」的子域名各有一条 Worker Route，必须摘掉，
-  // 否则该域名永久指向本 Worker。detachCustomDomain 是幂等的（找不到 Route 就跳过），
-  // 所以子域名与直链前缀都过一遍是安全的。
-  const fqdnRows = await env.DB.prepare(
-    `SELECT fqdn FROM subdomains WHERE user_id = ?
-     UNION
-     SELECT fqdn FROM storage_prefixes WHERE user_id = ?`
-  )
-    .bind(userId, userId)
-    .all<{ fqdn: string }>()
-  for (const r of fqdnRows.results ?? []) {
-    try {
-      await detachCustomDomain(env, r.fqdn)
-      report.customDomains++
-    } catch (err) {
-      report.errors.push(`自定义域 ${r.fqdn}：${errText(err)}`)
-    }
-  }
-
-  // ---------- 3. R2：网盘 / 头像 / 社区图 / 临时箱 ----------
+  // ---------- 2. R2：网盘 / 头像 / 社区图 / 临时箱 ----------
   const platformBucket = await getPlatformBucketId(env)
 
   // 网盘：走现成的 purgeUserStorage（内部按 storage_accounts.prefix 删整个目录）

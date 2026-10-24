@@ -72,10 +72,6 @@ import {
 } from "../donation-url-blocklist"
 import { pushMessage } from "../user-messages"
 import { grantInviteReward } from "../invite-rewards"
-import {
-  buildTemplateFromSample,
-  normalizeFrpDonationPayload,
-} from "../frp-config"
 import type { Env } from "../env"
 
 interface DonationRow {
@@ -178,20 +174,9 @@ async function hasDuplicateUpstream(
 
 /**
  * 捐献类型 → 对应的功能权限。
- *
- * ⚠️ 值为 `null` 表示「这个捐献类型不再授予任何功能权限」。
- *
- * `frp` 就是这种情况（2026-10-13）：内网穿透改成了「积分租用」，
- * 任何登录用户都能自己购买，不再需要管理员授权 —— 于是「捐 frp 服务器换 frp 权限」
- * 这件事失去了意义。但**捐献本身仍然受理**：资源照收、积分与邀请码额度照发，
- * 只是不再往 users.permissions 里写 frp。
- *
- * 因此判断「这个类型是否受支持」必须用 `type in DONATION_TYPES`，
- * 不能用 `if (!DONATION_TYPES[type])` —— 后者会把 frp 当成未知类型拒掉。
  */
 const DONATION_TYPES: Record<string, Feature | null> = {
   ai: "ai",
-  frp: null,
   proxy: "proxy",
   /**
    * 商汤 Key 捐献：权限仍映射到 `ai`（捐的是一个 AI 上游的 Key）。
@@ -212,10 +197,6 @@ const DONATION_TYPES: Record<string, Feature | null> = {
  * 未列出的类型默认授予（保守，宁可多授不漏）。
  */
 const DONATION_GRANT_SETTING: Record<string, SettingKey> = {
-  // ⚠️ 这里**故意没有 frp**（2026-10-14 明确）：内网穿透已完全改为积分租用，
-  //    不再有「捐献换 frp 权限」这件事，所以也没有对应的授权开关。
-  //    捐献类型 frp 本身仍然有效（用于展示历史捐献记录），只是它 feature 为 null、
-  //    不写任何权限 —— 见下面 donationGrantsPermission 的说明。
   ai: "donation_grant_ai",
   sensenova: "donation_grant_sensenova",
   proxy: "donation_grant_proxy",
@@ -237,7 +218,6 @@ async function donationGrantsPermission(env: Env, type: string): Promise<boolean
  */
 export const DONATION_TYPE_LABELS: Record<string, string> = {
   ai: "AI 模型",
-  frp: "内网穿透",
   proxy: "代理节点",
   sensenova: "商汤 Key",
 }
@@ -475,67 +455,6 @@ async function resolveDonationChannelSeq(env: Env): Promise<number> {
     "SELECT COUNT(*) AS n FROM donations WHERE newapi_channel_id IS NOT NULL"
   ).first<{ n: number }>()
   return Number(row?.n ?? 0) + 1
-}
-
-/**
- * 批准一笔 frp 捐献时，把捐献的服务端落成一条 `frp_nodes`。
- *
- * 节点名统一成「捐献-<用户名>」，便于在节点管理里一眼认出来源；
- * `source_donation_id` 指向本单，撤销捐献时据此反查停用。
- * `config_template` 由捐献者的 frpc.toml 样例参数化而来（个人凭据已剥掉）。
- *
- * 若同一笔捐献重复批准（管理员误操作），幂等：已存在 source_donation_id
- * 的节点就直接复用，不重复建。
- *
- * 返回值：`{ok, nodeId?, reason?}` —— 让调用方把「没建成节点」显式告诉管理员，
- * 而不是静默吞掉（2026-09-27 修复：旧格式单批准后节点建不出，管理员完全无感）。
- */
-async function provisionFrpNodeFromDonation(
-  env: Env,
-  app: DonationRowWithUser
-): Promise<{ ok: boolean; nodeId?: string; reason?: string }> {
-  let normalized
-  try {
-    normalized = normalizeFrpDonationPayload(JSON.parse(app.payload))
-  } catch {
-    return { ok: false, reason: "捐献 payload 无法解析（可能是旧格式）" }
-  }
-  if (!normalized.ok) {
-    return { ok: false, reason: `节点未上架：${normalized.error}` }
-  }
-  const v = normalized.value
-
-  const existing = await env.DB.prepare(
-    "SELECT id FROM frp_nodes WHERE source_donation_id = ? LIMIT 1"
-  )
-    .bind(app.id)
-    .first<{ id: string }>()
-  if (existing) return { ok: true, nodeId: existing.id }
-
-  const template = buildTemplateFromSample(v.configSample, v.authMode)
-  const id = uuid()
-  const now = new Date().toISOString()
-  const name = `捐献-${app.username}`
-
-  try {
-    await env.DB.prepare(
-      `INSERT INTO frp_nodes
-         (id, name, region, server_addr, server_port, auth_token, token_prefix,
-          port_min, port_max, max_ports, enabled, sort_order, note,
-          status, status_note, status_updated_at, auth_mode, config_template,
-          source_donation_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, 1, 0, ?, 'unknown', NULL, NULL, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        id, name, v.region, v.serverAddr, v.serverPort, v.authToken,
-        v.portMin, v.portMax, v.maxPorts, v.note,
-        v.authMode, template, app.id, now, now
-      )
-      .run()
-    return { ok: true, nodeId: id }
-  } catch (err) {
-    return { ok: false, reason: `节点入库失败：${err instanceof Error ? err.message : String(err)}` }
-  }
 }
 
 /**
@@ -778,22 +697,6 @@ async function applyDonationApproval(
     })
   }
 
-  // 内网穿透捐献：批准时把捐献的服务端落成一条 frp_nodes，用户立刻能申请端口。
-  // 失败不回滚权限，但要把原因显式写进 review_note —— 让管理员当场知道「节点没上架」，
-  // 而不是批准后以为上架了（旧格式单就会走这里）。
-  let frpProvisionWarning: string | null = null
-  if (app.type === "frp") {
-    const provision = await provisionFrpNodeFromDonation(env, app)
-    if (!provision.ok) {
-      frpProvisionWarning = provision.reason ?? "节点未上架"
-      await env.DB.prepare(
-        `UPDATE donations SET review_note = COALESCE(review_note || '\n', '') || ? WHERE id = ?`
-      )
-        .bind(`⚠️ ${frpProvisionWarning}（需在节点管理里手工补建）`, app.id)
-        .run()
-    }
-  }
-
   await env.DB.prepare(
     "INSERT INTO audit_logs (id, user_id, action, detail, created_at) VALUES (?, ?, 'donation.review', ?, ?)"
   )
@@ -1015,80 +918,12 @@ export function parseAutoReviewFeatures(raw: string | null | undefined): string[
   for (const part of (raw ?? "").split(",")) {
     const f = part.trim().toLowerCase()
     if (!f) continue
-    if (!["ai", "frp", "proxy"].includes(f)) continue
+    if (!["ai", "proxy"].includes(f)) continue
     if (seen.has(f)) continue
     seen.add(f)
     out.push(f)
   }
   return out
-}
-
-/**
- * frp 捐献的自动审核：解析 frpc.toml 样例，批准后建出节点。
- *
- * ⚠️ 本站**验证不了对端 frps 的连通性**：frpc↔frps 是 frp 私有 TCP 协议（默认
- * 7000 端口），而 Worker 跑在 Cloudflare 上，出站只能发 HTTP/HTTPS、不能建立
- * 任意 TCP 连接，所以没法握手。能做的只有**静态校验**：
- *   - frpc.toml 样例能解析、且 serverAddr 与表单填的一致
- *   - 鉴权方式与全局 token 一致
- *
- * 按「自动判断错了的不能直接算失败」的最高原则：这些静态校验**全对**、但
- * 「服务器到底能不能用」我们一无所知 —— 所以即便全对也不自动通过，
- * 一律转人工（管理员复核后才真正建节点、解锁权限）。
- *
- * 只有「样例解析不出来 / 与表单不一致」这种**属于我们输入规则**的问题，
- * 才在提交时就拒绝（用户当场改），但那是 `normalizeFrpDonationPayload` 在
- * 提交阶段做的，走不到这里。
- *
- * 因此这个函数**永远不自动 approve、也永远不自动 reject**：要么 pending
- * （走人工），要么把「样例解析失败」也归到 pending 让管理员拍板。
- */
-async function autoReviewFrpDonation(
-  env: Env,
-  input: { id: string; payloadStr: string }
-): Promise<{
-  status: "pending" | "approved" | "rejected"
-  note: string | null
-  channelId: null
-  voucherCode?: string | null
-}> {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(input.payloadStr)
-  } catch {
-    return { status: "pending", note: "frp 捐献 payload 无法解析，转人工复核", channelId: null }
-  }
-
-  const app = await env.DB.prepare(
-    `SELECT d.*, u.username, u.permissions FROM donations d
-       JOIN users u ON u.id = d.user_id
-      WHERE d.id = ?`
-  )
-    .bind(input.id)
-    .first<DonationRowWithUser>()
-  if (!app) return { status: "pending", note: null, channelId: null }
-
-  // 重新归一化一遍（提交时已校验过，这里防御性地再来一次，失败转人工而非拒绝）
-  const normalized = normalizeFrpDonationPayload(parsed)
-  if (!normalized.ok) {
-    return {
-      status: "pending",
-      note: `frp 捐献自动校验未能确认（转人工复核）：${normalized.error}`,
-      channelId: null,
-    }
-  }
-  const value = normalized.value
-
-  // 生成参数化模板（剥掉捐献者自己的个人凭据），写进 review_note 供管理员参考。
-  // 这里只生成、不建节点 —— 建节点在管理员批准（applyDonationApproval）时才做。
-  const template = buildTemplateFromSample(value.configSample, value.authMode)
-  await env.DB.prepare(
-    `UPDATE donations SET review_note = ?, auto_reviewed = 1 WHERE id = ?`
-  )
-    .bind(`frp 服务端已通过静态校验（serverAddr=${value.serverAddr}:${value.serverPort}，鉴权=${value.authMode}），等待管理员复核并建节点`, input.id)
-    .run()
-
-  return { status: "pending", note: template ? "已生成配置模板" : null, channelId: null }
 }
 
 /**
@@ -1819,10 +1654,8 @@ export async function createDonation(env: Env, request: Request): Promise<Respon
     p.baseUrl = normalizedUrl
   }
 
-  // frp 的 payload 含 frpc.toml 样例（最长 16 KB），放宽上限；
-  // 其它类型仍按 10000 字符封顶。
   const payloadStr = JSON.stringify(body.payload)
-  const payloadMax = type === "frp" ? 20000 : 10000
+  const payloadMax = 10000
   if (payloadStr.length > payloadMax) {
     throw new ApiError(400, "资源详情过长", "TOO_LARGE")
   }
@@ -1978,44 +1811,6 @@ export async function createDonation(env: Env, request: Request): Promise<Respon
     }
   }
 
-  // 内网穿透捐献：捐献的是一台 **frps 服务端**（不是客户端配置）。
-  // 提交时只做「我们自己的输入规则」校验（字段缺失 / 地址格式 / 端口范围 /
-  // 样例与表单是否一致）——这些错了当场让用户改；能不能连上本站测不了，
-  // 一律转人工复核（见 autoReviewFrpDonation）。
-  if (type === "frp") {
-    const normalized = normalizeFrpDonationPayload(body.payload)
-    if (!normalized.ok) {
-      throw new ApiError(400, normalized.error, "INVALID_PAYLOAD")
-    }
-    // 归一化后回写，入库的是「真正会拿去建节点的值」（去掉空白、补默认端口等）
-    const v = normalized.value
-    body.payload = {
-      nodeName: v.nodeName,
-      region: v.region,
-      serverAddr: v.serverAddr,
-      serverPort: v.serverPort,
-      portMin: v.portMin,
-      portMax: v.portMax,
-      maxPorts: v.maxPorts,
-      authMode: v.authMode,
-      authToken: v.authToken,
-      configSample: v.configSample,
-      note: v.note,
-    }
-    // 同一服务器重复提交无意义（会建出重复节点）—— 只挡未被拒绝的那些。
-    // ⚠️ 同上：LIKE 模式里还要加 `%"serverAddr":"` 这种固定前缀，
-    //    **域名只要超过约 25 字符就会撞 50 字符上限** —— 比 AI 那条更容易炸。
-    if (
-      await hasDuplicateUpstream(env, {
-        userId: user.id,
-        type: "frp",
-        jsonPath: "$.serverAddr",
-        value: v.serverAddr,
-      })
-    ) {
-      throw new ApiError(409, "这台服务器你已经提交过了", "DUPLICATE_UPSTREAM")
-    }
-  }
 
   // 通知邮箱：优先用已验证的真实邮箱
   const notifyEmail = user.email
@@ -2041,8 +1836,7 @@ export async function createDonation(env: Env, request: Request): Promise<Respon
   // 覆盖 → 复用命中单据的 id（更新它）；否则新建一条。
   const id = overwriteId ?? uuid()
   const now = new Date().toISOString()
-  // frp 类型在上面被归一化回写过 body.payload，入库的是归一化后的值
-  const finalPayloadStr = type === "frp" ? JSON.stringify(body.payload) : payloadStr
+  const finalPayloadStr = payloadStr
   const remarkVal = (body.remark ?? "").trim().slice(0, 500) || null
   if (overwriteId) {
     // 覆盖：写入新 payload / 邮箱 / 备注，重置为待审核并清掉上次的审核痕迹
@@ -2084,7 +1878,7 @@ export async function createDonation(env: Env, request: Request): Promise<Respon
   // 是否对该模块开自动审核 —— 由管理员在「设置」里控制（auto_review_features）。
   const settings = await getSettings(env)
   const autoReviewOn = parseAutoReviewFeatures(settings.auto_review_features).includes(
-    type as "ai" | "proxy" | "frp"
+    type as "ai" | "proxy"
   )
 
   if (type === "ai" && autoReviewOn) {
@@ -2103,16 +1897,6 @@ export async function createDonation(env: Env, request: Request): Promise<Respon
       console.error("代理捐献自动审核失败，转为待人工审核:", err)
       auto = { status: "pending", note: null, channelId: null }
     }
-  } else if (type === "frp" && autoReviewOn) {
-    // frp 的自动审核只能做「config.yml 语法 + 必填字段」的静态校验，
-    // **不验证连通性**（yml 指向用户自己的服务，服务器侧够不到）。
-    // 见 autoReviewFrpDonation 的说明。默认不开启。
-    try {
-      auto = await autoReviewFrpDonation(env, { id, payloadStr })
-    } catch (err) {
-      console.error("frp 捐献自动审核失败，转为待人工审核:", err)
-      auto = { status: "pending", note: null, channelId: null }
-    }
   } else if (type === "sensenova") {
     // 商汤通道**不受 auto_review_features 约束**（与反代账号通道同一语义）：
     // 它的门槛极低（提交一个 Key 即可），若也走「自动审核」开关，管理员关掉
@@ -2129,7 +1913,7 @@ export async function createDonation(env: Env, request: Request): Promise<Respon
   // 管理员邮件通知：只有真正需要人工介入时才发（自动通过的没必要打扰）
   const needsHuman = !auto || auto.status === "pending"
   const adminRow = await env.DB.prepare(
-    "SELECT value FROM app_settings WHERE key = 'frp_admin_notify_email'"
+    "SELECT value FROM app_settings WHERE key = 'donation_admin_notify_email'"
   )
     .first<{ value: string }>()
   const adminEmail = adminRow?.value?.trim() ?? ""
@@ -2201,10 +1985,7 @@ export async function reviewDonation(env: Env, request: Request): Promise<Respon
   if (!app) throw new ApiError(404, "申请不存在", "NOT_FOUND")
 
   // 细粒度：审核不同类型要对应节点（站长 2026-10-04 要求分 ai / 代理 / 内网穿透）
-  const reviewPerm =
-    app.type === "proxy" ? "donations.proxy"
-    : app.type === "frp" ? "donations.frp"
-    : "donations.ai"
+  const reviewPerm = app.type === "proxy" ? "donations.proxy" : "donations.ai"
   await assertAdminScope(env, admin, reviewPerm)
 
   const approve = body.action === "approve"
@@ -2725,29 +2506,13 @@ export async function revokeDonation(env: Env, request: Request, id: string): Pr
     }
   }
 
-  // 内网穿透捐献：撤销时把捐献的服务端节点**停用**（不删，删了会级联
-  // 清掉已分配端口与申请单，产生额外副作用）。只停 source_donation_id
-  // 指向本单的节点，管理员手工建的节点（该列为 NULL）不受影响。
-  let releasedFrpNode = false
-  if (app.type === "frp") {
-    const upd = await env.DB.prepare(
-      `UPDATE frp_nodes
-         SET enabled = 0, status = 'offline',
-             status_note = '捐献已撤销', status_updated_at = ?
-       WHERE source_donation_id = ? AND enabled = 1`
-    )
-      .bind(now, app.id)
-      .run()
-    releasedFrpNode = (upd.meta?.changes ?? 0) > 0
-  }
-
   await env.DB.prepare(
     "INSERT INTO audit_logs (id, user_id, action, detail, created_at) VALUES (?, ?, 'donation.revoke', ?, ?)"
   )
     .bind(
       uuid(),
       admin.id,
-      `撤销 ${app.type} 捐献审核（用户 ${app.user_id}）${app.granted_feature === 1 ? "，已收回权限" : ""}${released ? "，已收回中转站资源" : ""}${releaseMessage ? `，${releaseMessage.replace(/[（）]/g, "")}` : ""}${releasedSubs > 0 ? `，已移出 ${releasedSubs} 个订阅源` : ""}${releasedFrpNode ? "，已停用 frp 节点" : ""}`,
+      `撤销 ${app.type} 捐献审核（用户 ${app.user_id}）${app.granted_feature === 1 ? "，已收回权限" : ""}${released ? "，已收回中转站资源" : ""}${releaseMessage ? `，${releaseMessage.replace(/[（）]/g, "")}` : ""}${releasedSubs > 0 ? `，已移出 ${releasedSubs} 个订阅源` : ""}`,
       now
     )
     .run()
@@ -2759,7 +2524,6 @@ export async function revokeDonation(env: Env, request: Request, id: string): Pr
     /** 商汤通道：说明是否真的从渠道里摘掉了那把 Key（含「没找到，请手工处理」的原因） */
     releaseMessage: releaseMessage || null,
     releasedSubscriptions: releasedSubs,
-    releasedFrpNode,
   })
 }
 

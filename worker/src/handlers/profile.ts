@@ -5,8 +5,6 @@ import { guardRateLimit } from "../ratelimit"
 
 import { isStorageConfigured, putObject, deleteObject, getObject, getPlatformBucketId } from "../r2"
 import { hardenUserContentResponse } from "../content-type"
-import { attachCustomDomain, detachCustomDomain } from "../custom-domain"
-import { isRootDomainItself } from "../root-domains"
 import { renderProfileHtml } from "../profile-page"
 import { parseDesign, sanitizeDesign, type ProfileDesign } from "../profile-design"
 import { isValidSource, resolveAudioUrl, searchMusic, fetchLyrics } from "../music-api"
@@ -688,23 +686,12 @@ export async function getProfile(env: Env, request: Request): Promise<Response> 
   }
 
   if (!row) {
-    return json({ enabled: false, profile: null, availableSubdomains: [], ...meta })
+    return json({ enabled: false, profile: null, ...meta })
   }
-
-  // 可绑定的子域名（排除已被网盘直链占用的）
-  const subs = await env.DB.prepare(
-    `SELECT s.id, s.name, s.fqdn FROM subdomains s
-      WHERE s.user_id = ?
-        AND NOT EXISTS (SELECT 1 FROM storage_prefixes sp WHERE sp.subdomain_id = s.id)
-      ORDER BY s.created_at ASC`
-  )
-    .bind(user.id)
-    .all<{ id: string; name: string; fqdn: string }>()
 
   return json({
     enabled: true,
     profile: toPublicProfile(row, { profilePath: `/profile/${row.slug}` }),
-    availableSubdomains: subs.results ?? [],
     ...meta,
   })
 }
@@ -1386,105 +1373,6 @@ export async function serveGalleryImage(
     return new Response("Not Found", { status: 404 })
   }
   return serveGalleryObject(env, username, id)
-}
-
-// ---- 自定义域名绑定 ----
-
-// POST /api/profile/domain —— { subdomainId } 绑定；{ action: "unbind" } 解绑
-export async function bindProfileDomain(
-  env: Env,
-  request: Request,
-  subdomainIdFromPath?: string
-): Promise<Response> {
-  const user = await requireUser(env, request)
-  const row = await loadProfile(env, user.id)
-  const body = (await request.json().catch(() => ({}))) as {
-    subdomainId?: string
-    action?: string
-  }
-  const action = body.action ?? (subdomainIdFromPath ? "bind" : "")
-
-  if (action === "unbind") {
-    if (row.fqdn) {
-      await detachCustomDomain(env, row.fqdn)
-    }
-    await env.DB.prepare(
-      "UPDATE profiles SET subdomain_id = NULL, fqdn = NULL, updated_at = ? WHERE user_id = ?"
-    )
-      .bind(new Date().toISOString(), user.id)
-      .run()
-    return json({ ok: true })
-  }
-
-  const subdomainId = body.subdomainId ?? subdomainIdFromPath
-  if (!subdomainId) {
-    throw new ApiError(400, "缺少子域名", "INVALID_INPUT")
-  }
-
-  const sub = await env.DB.prepare(
-    "SELECT id, fqdn, name FROM subdomains WHERE id = ? AND user_id = ?"
-  )
-    .bind(subdomainId, user.id)
-    .first<{ id: string; fqdn: string; name: string }>()
-  if (!sub) throw new ApiError(404, "子域名不存在", "NOT_FOUND")
-
-  // 禁止绑定根域：doulor.cn / tyu.me 都是平台入口（静态站点自定义域 +
-  // 多条邮件/API 路由），绑给名片会让整个站点无法访问。CF 路由层拦不住，
-  // 必须在这里拒绝。判据是「任一已登记的根域」，不只是 env.ROOT_DOMAIN。
-  if (await isRootDomainItself(env, sub.fqdn)) {
-    throw new ApiError(
-      400,
-      `根域名是平台入口，不能绑定给名片。请使用子域名（如 card.${sub.fqdn}）`,
-      "ROOT_DOMAIN_FORBIDDEN"
-    )
-  }
-
-  // 与网盘直链互斥：同一子域名只能指向一种服务
-  const usedByStorage = await env.DB.prepare(
-    "SELECT id FROM storage_prefixes WHERE subdomain_id = ? OR fqdn = ? COLLATE NOCASE LIMIT 1"
-  )
-    .bind(sub.id, sub.fqdn)
-    .first()
-  if (usedByStorage) {
-    throw new ApiError(
-      409,
-      "该子域名已绑定网盘直链，请先在「网盘」中解绑",
-      "CONFLICT"
-    )
-  }
-
-  const usedByOtherProfile = await env.DB.prepare(
-    "SELECT user_id FROM profiles WHERE fqdn = ? COLLATE NOCASE AND user_id != ? LIMIT 1"
-  )
-    .bind(sub.fqdn, user.id)
-    .first()
-  if (usedByOtherProfile) {
-    throw new ApiError(409, "该域名已被其他名片使用", "CONFLICT")
-  }
-
-  // 该域名上不能已有用户自建的 DNS 记录（避免抢走他的站点）
-  const dns = await env.DB.prepare(
-    "SELECT id FROM dns_records WHERE fqdn = ? COLLATE NOCASE LIMIT 1"
-  )
-    .bind(sub.fqdn)
-    .first()
-  if (dns) {
-    throw new ApiError(
-      409,
-      "该子域名已存在 DNS 记录，请先删除后再绑定",
-      "CONFLICT"
-    )
-  }
-
-  const { dnsCreated } = await attachCustomDomain(env, sub.fqdn)
-
-  await env.DB.prepare(
-    "UPDATE profiles SET subdomain_id = ?, fqdn = ?, updated_at = ? WHERE user_id = ?"
-  )
-    .bind(sub.id, sub.fqdn, new Date().toISOString(), user.id)
-    .run()
-
-  return json({ fqdn: sub.fqdn, dnsCreated }, 201)
 }
 
 // ---- 公开数据（无需登录，供公开页/预览使用） ----

@@ -26,7 +26,6 @@
  *    这样新部署 / 迁移漏跑都不会把注册打挂。只有表里真有行时才以表为准。
  */
 import { ApiError } from "./http"
-import { callCloudflare } from "./cloudflare"
 import { hasFeature, type Permissions } from "./permissions"
 import type { Env } from "./env"
 
@@ -178,19 +177,6 @@ export async function rootDomainFor(
   return matchRootDomain(await listRootDomains(env), hostOrAddress)
 }
 
-/**
- * 这个 host 是不是**根域本身**（而不是它的子域）。
- *
- * 用途：`doulor.cn` / `tyu.me` 这样的根域是平台入口（静态站点自定义域 + 一堆
- * 邮件/API 路由），不能绑给个人名片或网盘直链 —— 绑了整站就访问不了。
- * 注意不能拿 `isOwnDomain` 代替：那个对**所有**子域都返回 true，会把
- * `card.tyu.me` 这种正常绑定也一起拦掉。
- */
-export async function isRootDomainItself(env: Env, host: string): Promise<boolean> {
-  const s = host.trim().toLowerCase()
-  return (await listRootDomains(env)).some((r) => r.name === s)
-}
-
 /** 当前用户能否使用该根域（无 `requires_feature` 即人人可用） */
 export function canUseRootDomain(
   permissions: Permissions,
@@ -233,82 +219,6 @@ export async function pickRootDomain(
 }
 
 /**
- * 解析某个根域的 Cloudflare zone id。
- *
- * 顺序：表里的值 → `env.ROOT_DOMAIN` 用 `env.ZONE_ID`（老路径，不浪费一次 API）
- * → 调 `GET /zones?name=` 解析并**回填到表**（下次就不用了）。
- *
- * 回填是刻意的：解析结果是稳定事实，缺了它每次 DNS 写入都要多打一次 CF API。
- */
-export async function resolveZoneId(env: Env, name: string): Promise<string | null> {
-  const target = name.trim().toLowerCase()
-  if (!target) return null
-
-  const row = await getRootDomainByName(env, target)
-  if (row?.zone_id) return row.zone_id
-  if (target === env.ROOT_DOMAIN.toLowerCase() && env.ZONE_ID) return env.ZONE_ID
-
-  if (env.CLOUDFLARE_API_TOKEN_SECRET || env.CLOUDFLARE_API_TOKEN) {
-    try {
-      const res = await callCloudflare(
-        env,
-        `/zones?name=${encodeURIComponent(target)}&per_page=5`
-      )
-      const data = (await res.json()) as {
-        result?: { id?: string; name?: string }[]
-      }
-      const hit =
-        (data.result ?? []).find((z) => (z.name ?? "").toLowerCase() === target) ??
-        (data.result ?? [])[0]
-      if (hit?.id) {
-        await env.DB.prepare(
-          "UPDATE root_domains SET zone_id = ? WHERE name = ? AND (zone_id IS NULL OR zone_id = '')"
-        )
-          .bind(hit.id, target)
-          .run()
-        resetRootDomainCache()
-        return hit.id
-      }
-    } catch (err) {
-      console.error("解析 zone id 失败:", target, err)
-    }
-  }
-
-  // 最后兜底：主域永远有 ZONE_ID
-  if (target === env.ROOT_DOMAIN.toLowerCase()) return env.ZONE_ID ?? null
-  return null
-}
-
-/**
- * 按 fqdn 找它所属 zone。
- *
- * 给「写入类」路径用（建 DNS 记录 / 建 Worker Route）—— 这类操作**必须有 zone**，
- * 解析不出来就得报错而不是悄悄写到主 zone 上（那会把记录建错到别的域名下）。
- */
-export async function zoneIdForFqdn(env: Env, fqdn: string): Promise<string> {
-  const row = await rootDomainFor(env, fqdn)
-  const name = row?.name ?? env.ROOT_DOMAIN.toLowerCase()
-
-  // `domains.zone_id` 优先：绑定自定义域时它可能被显式指定过
-  const fromDomains = await env.DB.prepare(
-    "SELECT zone_id FROM domains WHERE name = ? COLLATE NOCASE LIMIT 1"
-  )
-    .bind(fqdn)
-    .first<{ zone_id: string | null }>()
-  if (fromDomains?.zone_id) return fromDomains.zone_id
-
-  const zoneId = await resolveZoneId(env, name)
-  if (!zoneId) {
-    throw new ApiError(
-      502,
-      `无法确定 ${name} 的 Cloudflare zone，请先在管理面板配置`,
-      "CF_ZONE_UNRESOLVED"
-    )
-  }
-  return zoneId
-}
-
-/**
  * 该 fqdn / 邮箱地址是否属于**本站任一已登记的根域**。
  *
  * 入站邮件与「真实邮箱不能是本站邮箱」这类校验都要用它 ——
@@ -318,96 +228,25 @@ export async function isOwnDomain(env: Env, hostOrAddress: string): Promise<bool
   return (await rootDomainFor(env, hostOrAddress)) !== null
 }
 
-/** 所有根域名字（含禁用），给「保留名 / 冲突检测」用 */
-export async function allRootDomainNames(env: Env): Promise<string[]> {
-  return (await listRootDomains(env)).map((r) => r.name)
-}
-
-/**
- * 解析 `dns_wildcard_roots` 设置项（逗号分隔）成规范化的根域数组。
- *
- * 规范化 = 去空白 + 转小写 + 去掉可能被手写进来的前导点（`.tyu.me`），
- * 与 `cloudflare.ts` 的 `isCoveredByWildcard` **同一口径** —— 那个函数决定
- * 「这个 fqdn 要不要单独建记录」，口径不一致会出现「设置里看着有、实际没覆盖」。
- *
- * 为什么在写路径上也要走一遍（而不是直接拼字符串）：这个设置项是**手写文本框**，
- * 站长很可能写成 `tyu.me, 7u.nz ,.doulor.cn`；不去重不排序地追加会让它越长越乱，
- * 最后没人敢改它。
- */
-export function parseWildcardRoots(raw: string | null | undefined): string[] {
-  const out: string[] = []
-  for (const part of (raw ?? "").split(",")) {
-    const name = part.trim().toLowerCase().replace(/^\.+/, "")
-    if (!name) continue
-    if (!out.includes(name)) out.push(name)
-  }
-  return out
-}
-
-/**
- * 把某个根域加进 `dns_wildcard_roots`：已存在则原样返回（幂等），
- * 否则**追加到末尾**（保持既有顺序稳定，站长在设置页看到的前后关系不会跳）。
- */
-export function addWildcardRoot(raw: string | null | undefined, name: string): string {
-  const target = name.trim().toLowerCase()
-  const list = parseWildcardRoots(raw)
-  if (!list.includes(target)) list.push(target)
-  return list.join(",")
-}
-
-/** 从 `dns_wildcard_roots` 里摘掉某个根域（不存在则原样返回，幂等） */
-export function removeWildcardRoot(raw: string | null | undefined, name: string): string {
-  const target = name.trim().toLowerCase()
-  return parseWildcardRoots(raw)
-    .filter((r) => r !== target)
-    .join(",")
-}
-
 /**
  * 某个用户的**主邮箱地址** = 注册时分配的那一个。
  *
- * 判据取 `subdomains(name = '@')` 那行（fqdn 形如 `用户名.<根域>`），
- * 去掉根域后缀剩下的就是 local part。
+ * 判据：该用户**最早创建**的非临时邮箱（注册流程只会创建一个，天然就是它）。
+ * 找不到时（历史数据缺行）回落为 `<用户名>@<默认根域>`。
  *
- * ⚠️ 两处容易写错：
- *   1. 不能写死 `env.ROOT_DOMAIN` —— 新用户都在 tyu.me 上；
- *   2. 不能直接用 `user.username` 拼 —— **改名不迁移主邮箱**（见 settings.ts
- *      的警告文案），改名后主邮箱仍是旧用户名，用它去拼会得到一个不存在的地址。
+ * ⚠️ 不能直接用 `user.username` 拼 —— **改名不迁移主邮箱**（见 settings.ts
+ * 的警告文案），改名后主邮箱仍是旧前缀，用它去拼会得到一个不存在的地址。
  */
 export async function primaryAddressFor(
   env: Env,
   userId: string,
   username: string
 ): Promise<string> {
-  const reg = await env.DB.prepare(
-    "SELECT fqdn FROM subdomains WHERE user_id = ? AND name = '@' LIMIT 1"
+  const row = await env.DB.prepare(
+    "SELECT address FROM mailboxes WHERE user_id = ? AND is_temp = 0 ORDER BY created_at ASC, rowid ASC LIMIT 1"
   )
     .bind(userId)
-    .first<{ fqdn: string }>()
-
-  const fqdn = (
-    reg?.fqdn ?? `${username}.${(await getDefaultRootDomain(env)).name}`
-  ).toLowerCase()
-  const row = await rootDomainFor(env, fqdn)
-  const suffix = (row?.name ?? env.ROOT_DOMAIN).toLowerCase()
-  const local = fqdn.endsWith(`.${suffix}`)
-    ? fqdn.slice(0, -(suffix.length + 1))
-    : username.toLowerCase()
-  return `${local}@${suffix}`
-}
-
-/**
- * 某个用户**当前所在**的根域名。
- *
- * 用途：改名 / 冲突检测这类「不迁移、只判重」的场景必须用用户自己的域，
- * 不能写死 `env.ROOT_DOMAIN` —— 新用户都在 tyu.me 上，用主域判重会判错对象
- * （既漏掉真正的冲突，又会去拦一个跟这个用户无关的名字）。
- */
-export async function userRootDomainName(
-  env: Env,
-  userId: string,
-  username: string
-): Promise<string> {
-  const addr = await primaryAddressFor(env, userId, username)
-  return addr.slice(addr.indexOf("@") + 1)
+    .first<{ address: string }>()
+  if (row?.address) return row.address.toLowerCase()
+  return `${username.toLowerCase()}@${(await getDefaultRootDomain(env)).name.toLowerCase()}`
 }

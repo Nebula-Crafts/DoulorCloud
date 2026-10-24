@@ -59,7 +59,6 @@ describe("GET /api/admin/users —— 列表只回模块开通状态", () => {
     const row = (await listUsers(admin)).find((x) => x.username === u.username)!
     expect(row.storageEnabled).toBe(false)
     expect(row.aiEnabled).toBe(false)
-    expect(row.frpEnabled).toBe(false)
     expect(row.proxyEnabled).toBe(false)
     expect(row.profileEnabled).toBe(false)
     expect(row.profileSlug).toBeNull()
@@ -105,7 +104,6 @@ describe("GET /api/admin/users —— 列表只回模块开通状态", () => {
     ).bind(u.id, now, now).run()
 
     const row = (await listUsers(admin)).find((x) => x.username === u.username)!
-    expect(row.frpEnabled).toBe(false)
     expect(row.proxyEnabled).toBe(true)
   })
 
@@ -150,7 +148,6 @@ describe("GET /api/admin/users/:username —— 详情带模块用量与额度",
     const body = await detail(admin, u.username)
     expect(body.storage).toBeNull()
     expect(body.newapi).toBeNull()
-    expect(body.frp).toBeNull()
     expect(body.proxy).toBeNull()
     expect(body.profile).toBeNull()
     expect(body.activity).toEqual([])

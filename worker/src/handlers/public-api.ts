@@ -23,9 +23,7 @@ import { hashToken, generateToken, uuid } from "../crypto"
 import { clientIp } from "../ratelimit"
 import { API_SOURCE_HEADER, API_ADMIN_HEADER } from "../api-source"
 import { getApiFeatureConfig, enforceApiLimit, getUserAchievementPoints, tierFor, accountLimitFor, listApiFeatures } from "../api-engine"
-import * as dnsHandlers from "./dns"
 import * as emailHandlers from "./email"
-import * as subdomainHandlers from "./subdomains"
 import type { Env } from "../env"
 
 const API_KEY_PREFIX = "doulor_"
@@ -179,55 +177,6 @@ async function apiGate(env: Env, request: Request, feature: string) {
 //
 // 每个公开接口 = apiGate（认证 + 限额）→ runAs（临时 session 复用原 handler）。
 // 带 id 的用闭包把 id 传给原 handler，业务逻辑零复制。
-
-// ---- DNS（feature: dns）----
-
-/** GET /v1/dns —— 列 DNS 记录 */
-export async function apiListDns(env: Env, request: Request): Promise<Response> {
-  const { user } = await apiGate(env, request, "dns")
-  return runAs(env, request, user, dnsHandlers.listDns)
-}
-
-/** POST /v1/dns —— 创建 DNS 记录 */
-export async function apiCreateDns(env: Env, request: Request): Promise<Response> {
-  const { user } = await apiGate(env, request, "dns")
-  return runAs(env, request, user, dnsHandlers.createDns)
-}
-
-/** PUT /v1/dns/:id —— 编辑 DNS 记录 */
-export async function apiUpdateDns(env: Env, request: Request, id: string): Promise<Response> {
-  const { user } = await apiGate(env, request, "dns")
-  return runAs(env, request, user, (e, r) => dnsHandlers.updateDns(e, r, id))
-}
-
-/** DELETE /v1/dns/:id —— 删除 DNS 记录 */
-export async function apiDeleteDns(env: Env, request: Request, id: string): Promise<Response> {
-  const { user } = await apiGate(env, request, "dns")
-  return runAs(env, request, user, (e, r) => dnsHandlers.deleteDns(e, r, id))
-}
-
-// ---- 子域名（feature: subdomain）----
-//
-// 注意与 DNS 的区别：DNS 管的是「用户自己域名的解析记录」；
-// 子域名管的是「在站点根域名下开一个 xxx.doulor.cn」。两者是独立资源。
-
-/** GET /v1/subdomain —— 列自己的子域名 */
-export async function apiListSubdomain(env: Env, request: Request): Promise<Response> {
-  const { user } = await apiGate(env, request, "subdomain")
-  return runAs(env, request, user, subdomainHandlers.listSubdomains)
-}
-
-/** POST /v1/subdomain —— 创建子域名 */
-export async function apiCreateSubdomain(env: Env, request: Request): Promise<Response> {
-  const { user } = await apiGate(env, request, "subdomain")
-  return runAs(env, request, user, subdomainHandlers.createSubdomain)
-}
-
-/** DELETE /v1/subdomain/:id —— 删除子域名 */
-export async function apiDeleteSubdomain(env: Env, request: Request, id: string): Promise<Response> {
-  const { user } = await apiGate(env, request, "subdomain")
-  return runAs(env, request, user, (e, r) => subdomainHandlers.deleteSubdomain(e, r, id))
-}
 
 // ---- 邮箱（feature: mailbox）----
 

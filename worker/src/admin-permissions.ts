@@ -57,7 +57,6 @@ export const ADMIN_PERMISSIONS: AdminPermCategory[] = [
   },
   { key: "invites", label: "邀请码", group: "account" },
   { key: "inviteQuotas", label: "邀请额度", group: "account" },
-  { key: "reserved", label: "保留词 / 域名", group: "account" },
   { key: "titles", label: "称号", group: "account" },
   {
     key: "moderation",
@@ -103,20 +102,6 @@ export const ADMIN_PERMISSIONS: AdminPermCategory[] = [
     ],
   },
   {
-    key: "frp",
-    label: "内网穿透",
-    group: "resource",
-    children: [
-      // 「申请审核」(frp.approve) 已随人工申请流程一起退役（2026-10-13）：
-      // 用户端改成积分租用、自助开通，不再有人工审核这一环。
-      { key: "frp.nodes", label: "节点管理" },
-      { key: "frp.ports", label: "端口管理" },
-      // 租用化（2026-10-13）：套餐定价与订阅（谁在用、到期时间、同步状态）
-      { key: "frp.plans", label: "套餐定价" },
-      { key: "frp.rentals", label: "订阅管理" },
-    ],
-  },
-  {
     key: "proxy",
     label: "代理节点",
     group: "resource",
@@ -125,7 +110,7 @@ export const ADMIN_PERMISSIONS: AdminPermCategory[] = [
       { key: "proxy.latency", label: "节点测速" },
     ],
   },
-  { key: "dns", label: "DNS 管理", group: "resource" },
+  { key: "dns", label: "邮箱管理", group: "resource" },
   // 单级大类：整个 AI 实验室配置面板共用这一个节点。
   // 刻意不拆成 lab.config / lab.prompt —— 拆开会让「能看面板但不能改提示词」
   // 这种半残状态出现，而这两块本来就该一起交给同一个人管。
@@ -171,7 +156,6 @@ export const ADMIN_PERMISSIONS: AdminPermCategory[] = [
     children: [
       { key: "donations.ai", label: "审核 AI" },
       { key: "donations.proxy", label: "审核代理" },
-      { key: "donations.frp", label: "审核内网穿透" },
     ],
   },
   { key: "feedback", label: "反馈", group: "operation" },

@@ -230,12 +230,12 @@ export const en: Record<MessageKey, string> = {
 
   // —— Landing · hero ——
   "landing.heroLine1": "Everything in one cloud platform",
-  "landing.heroLine2": "Domains and services, ready out of the box",
+  "landing.heroLine2": "Mailbox, storage and AI, ready out of the box",
   "landing.heroSub":
     "Subdomains, domain email, web inbox, DNS, profile card — usable right after sign-up. AI Gateway, direct-link storage, tunnels, proxy nodes — unlock them by contributing a resource.",
 
   // —— Landing · feature grid ——
-  "landing.featuresTitle": "nine capabilities, one account",
+  "landing.featuresTitle": "six capabilities, one account",
   "landing.featuresSub":
     "The basics work as soon as you sign up. Modules that consume real resources run on “contribute to unlock” — one contribution permanently unlocks that module.",
   "landing.tierFree": "Free on sign-up",
@@ -246,7 +246,7 @@ export const en: Record<MessageKey, string> = {
   "landing.f1.p2": "Add blog, api and other subdomains",
   "landing.f1.p3": "Multi-level nesting supported",
   "landing.f2.title": "Domain email",
-  "landing.f2.p1": "yourname@tyu.me created automatically",
+  "landing.f2.p1": "created automatically at signup (random address)",
   "landing.f2.p2": "Add multiple addresses",
   "landing.f2.p3": "Forward to your usual inbox",
   "landing.f3.title": "Web inbox",
@@ -264,10 +264,10 @@ export const en: Record<MessageKey, string> = {
   "landing.f6.title": "Profile card",
   "landing.f6.p1": "A public page about you",
   "landing.f6.p2": "Mix themes, motion and layouts",
-  "landing.f6.p3": "Bind your own domain",
+  "landing.f6.p3": "Music, gallery and link cards",
   "landing.f7.title": "Direct-link storage",
   "landing.f7.p1": "Upload and get a public direct link",
-  "landing.f7.p2": "Bind your own subdomain",
+  "landing.f7.p2": "Folder shares with expiry",
   "landing.f7.p3": "Visible quota and progress",
   "landing.f8.title": "AI Gateway",
   "landing.f8.p1": "An API key that just works",

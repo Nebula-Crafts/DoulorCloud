@@ -2,9 +2,7 @@ import * as React from "react"
 import { Link } from "react-router-dom"
 import {
   ArrowRight,
-  Globe,
   Mail,
-  Network,
   Inbox,
   HardDrive,
   Sparkles,
@@ -60,21 +58,18 @@ const TIER_META: Record<FeatureTier, { labelKey: string; variant: "success" | "s
   contribute: { labelKey: "landing.tierContribute", variant: "secondary" },
 }
 
-/** 9 个功能模块（3×3 正好铺满），每个含能力点 bullet，强调「能做什么」。文案在词典里（landing.f1.* ~ landing.f10.*，f5 临时分享箱已下架）。 */
+/** 功能模块卡（文案在词典里；子域名 / DNS / 内网穿透三块已随功能裁撤下架）。 */
 const features: {
-  icon: typeof Globe
+  icon: typeof Mail
   keyBase: string
   tier: FeatureTier
   points: number
 }[] = [
-  { icon: Globe, keyBase: "landing.f1", tier: "free", points: 3 },
   { icon: Mail, keyBase: "landing.f2", tier: "free", points: 3 },
   { icon: Inbox, keyBase: "landing.f3", tier: "free", points: 3 },
-  { icon: Network, keyBase: "landing.f4", tier: "free", points: 3 },
   { icon: Contact, keyBase: "landing.f6", tier: "free", points: 3 },
   { icon: HardDrive, keyBase: "landing.f7", tier: "contribute", points: 3 },
   { icon: Sparkles, keyBase: "landing.f8", tier: "contribute", points: 3 },
-  { icon: Zap, keyBase: "landing.f9", tier: "contribute", points: 3 },
   { icon: Wifi, keyBase: "landing.f10", tier: "contribute", points: 3 },
 ]
 

@@ -14,7 +14,7 @@ import { sendMail, renderMail } from "../mailer"
 import { isReservedName } from "../reserved-names"
 import { audit, getSetting } from "../settings"
 import { guardRateLimit } from "../ratelimit"
-import { userRootDomainName, isOwnDomain } from "../root-domains"
+import { isOwnDomain } from "../root-domains"
 import type { Env } from "../env"
 
 /**
@@ -286,8 +286,7 @@ export async function updateNotifySetting(env: Env, request: Request): Promise<R
  * 修改用户名的连带影响（必须让用户知情，见前端确认弹窗）：
  *   - R2 网盘目录固定为 `<原用户名>/`，改名后**不会自动迁移**，
  *     旧目录里的文件将无法通过新名字的直链访问（文件仍在 R2 中，需管理员协助迁移）
- *   - 主域名 `<原用户名>.doulor.cn` 与已分配的子域名不会改名
- *   - 主邮箱 `<原用户名>@doulor.cn` 不会改名
+ *   - 站内邮箱是随机前缀，与用户名无关，改名不受影响
  *   - NewAPI 中转站账号名不变（NewAPI 侧不允许改用户名）
  */
 export async function changeUsername(env: Env, request: Request): Promise<Response> {
@@ -313,24 +312,12 @@ export async function changeUsername(env: Env, request: Request): Promise<Respon
   // （含限流，见 verifyCurrentPassword —— 2026-09-25 审计 H9）
   await verifyCurrentPassword(env, user.id, body.password, user.password_hash)
 
-  // 目标名字必须未被任何命名空间占用（与注册同口径）。
-  // ⚠️ 判的是**用户自己所在的根域**，不是 env.ROOT_DOMAIN：新用户在 tyu.me 上，
-  //    拿主域去判重会判错对象（漏真冲突、拦无关名字）。
-  const myRoot = await userRootDomainName(env, user.id, user.username)
-  const requestedFqdn = `${next}.${myRoot}`
+  // 目标名字必须未被占用（与注册同口径）。站内邮箱为随机前缀，与用户名无关，
+  // 不参与改名判重。
   const conflicts = await env.DB.batch([
     env.DB.prepare(
       "SELECT id FROM users WHERE username = ? COLLATE NOCASE LIMIT 1"
     ).bind(next),
-    env.DB.prepare(
-      "SELECT id FROM subdomains WHERE fqdn = ? COLLATE NOCASE LIMIT 1"
-    ).bind(requestedFqdn),
-    env.DB.prepare(
-      "SELECT id FROM domains WHERE name = ? COLLATE NOCASE LIMIT 1"
-    ).bind(requestedFqdn),
-    env.DB.prepare(
-      "SELECT id FROM mailboxes WHERE address = ? COLLATE NOCASE LIMIT 1"
-    ).bind(`${next}@${myRoot}`),
   ])
   if (conflicts.some((r) => (r.results ?? []).length > 0)) {
     throw new ApiError(409, "该用户名已被占用", "CONFLICT")
@@ -372,7 +359,7 @@ export async function changeUsername(env: Env, request: Request): Promise<Respon
     user: toPublicUser(updated!),
     warnings: {
       storagePrefixUnchanged: true,
-      note: "网盘目录、子域名、主邮箱均仍使用原用户名，未自动迁移",
+      note: "网盘目录仍使用原用户名，未自动迁移",
     },
   })
 }

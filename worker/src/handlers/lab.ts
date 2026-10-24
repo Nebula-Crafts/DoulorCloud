@@ -54,7 +54,6 @@ import { loadSearchCost, isUserSearchEnabled, loadSiteKeysForInfo } from "./lab-
  *    之所以不把它挪走，是因为「按 Host 出内容」与「作品绑定」本来就同属一个模块，
  *    拆开反而会出现两份 CF 路由知识。
  */
-import { releaseProjectDomain } from "./lab-domains"
 import {
   consumeLabQuota,
   isFreeModel,
@@ -1537,8 +1536,6 @@ export async function deleteProject(
  *    「行在、文件没了」的坏作品。
  */
 export async function deleteProjectCascade(env: Env, existing: LabProjectRow): Promise<void> {
-  // 1) 绑定域名：DB 行 + Worker Route + DNS 记录（`releaseProjectDomain` 里成对做）
-  await releaseProjectDomain(env, existing.id)
   // 2) 作品行 + 点赞明细（点赞表没有外键，不显式删就会永远留在库里）
   await env.DB.prepare("DELETE FROM lab_projects WHERE id = ?").bind(existing.id).run()
   await env.DB.prepare("DELETE FROM lab_project_likes WHERE project_id = ?")

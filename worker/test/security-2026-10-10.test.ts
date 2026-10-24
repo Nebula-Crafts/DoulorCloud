@@ -150,7 +150,7 @@ describe("凭证变更吊销（finding#11）", () => {
 
     // 改密前：Key 可用（这里只断言「不是 401 API Key 无效」）
     const before = await fetchSelf(
-      new Request("https://cloud.doulor.cn/api/v1/subdomain", {
+      new Request("https://cloud.doulor.cn/api/v1/mailbox", {
         headers: { Authorization: `Bearer ${key}` },
       })
     )
@@ -167,7 +167,7 @@ describe("凭证变更吊销（finding#11）", () => {
 
     // 改密后：旧 Key 必须已经没了
     const after = await fetchSelf(
-      new Request("https://cloud.doulor.cn/api/v1/subdomain", {
+      new Request("https://cloud.doulor.cn/api/v1/mailbox", {
         headers: { Authorization: `Bearer ${key}` },
       })
     )

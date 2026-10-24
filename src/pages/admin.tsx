@@ -42,7 +42,6 @@ import {
   AlertCircle,
   BarChart3,
   Gauge,
-  Globe,
   ArrowLeft,
   ExternalLink,
   Images,
@@ -76,7 +75,6 @@ import { ModerationAdminPanel } from "./admin-moderation"
 import { AdminNoticesPanel } from "./admin-notices"
 import { RelayAdminPanel } from "./admin-relay"
 // DNS 解析管理（全站记录 / 合规扫描 / 与 Cloudflare 对账）同理外置
-import { DnsAdminPanel } from "./admin-dns"
 
 import { PageHeader } from "@/components/page-header"
 import { EmptyState } from "@/components/empty-state"
@@ -86,7 +84,6 @@ import { AdminApiTab } from "@/components/admin-api-tab"
 import { AdminLabTab } from "@/components/admin-lab-tab"
 // 造物集：从「AI 实验室」里独立出来的选项卡（作品列表 / 编辑 / 状态 / 置顶 / 删除）
 import { AdminGalleryTab } from "@/components/admin-gallery-tab"
-import { AdminFrpRental } from "@/components/admin-frp-rental"
 import { AdminPermissionsPanel } from "@/components/admin-permissions"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -168,9 +165,6 @@ const FEATURES: { key: FeatureKey; label: string; desc: string }[] = [
   // doulor.cn 专属域：**默认关闭**，只能在这里显式打开（后端 allPermissions()
   // 不含它，见 worker/src/permissions.ts 的 DEFAULT_ALLOWED）。
   { key: "doulor", label: "feat.doulor", desc: "adm.feat.doulorDesc" },
-  // DNS 解析记录：同样**默认关闭**，但理由是配额（CF 每 zone 记录数有硬上限）
-  // 而不是风险。与上面的 doulor 是两件事，别互相推断（见 permissions.ts 的 FEATURES）。
-  { key: "dns", label: "feat.dns", desc: "adm.feat.dnsDesc" },
   // 中转站免审入驻：**默认关闭**（后端 DEFAULT_ALLOWED 不含它）。它不是功能模块而是
   // 「信任」—— 勾上的人在登记中转站时直接 approved，绕过的正是审核制那道闸，
   // 所以只能在这里逐个用户显式授权（见 worker/src/handlers/relay-providers.ts）。
@@ -210,12 +204,10 @@ const DONATION_QUOTA_ITEMS: { key: string; label: string; desc: string }[] = [
 ]
 
 import type {
-  AdminFrpNode,
   AdminInviteQuotasResponse,
   AdminUserInviteQuotaResponse,
   FeatureCounts,
   Donation,
-  ReservedSubdomain,
   Announcement,
   AnnouncementStatus,
   EventItem,
@@ -774,7 +766,7 @@ const QUIZ_TEMPLATE = JSON.stringify(
 const ADMIN_TAB_KEYS = new Set([
   "users", "invites", "inviteQuotas", "reserved", "titles", "points",
   "donations", "feedback", "announcements", "events", "community", "moderation", "notices",
-  "dns", "newapi", "relay", "r2", "frp", "proxy", "mail", "analytics", "cfQuota", "audit",
+  "newapi", "relay", "r2", "proxy", "mail", "analytics", "cfQuota", "audit",
   "oauth", "settings", "funLinks", "wb2api", "api", "permissions", "lab", "perf",
   // 造物集（2026-10-17 站长要求：从「AI 实验室」里独立出来）
   "gallery",
@@ -865,8 +857,6 @@ export default function AdminPage() {
     // doulor.cn 专属域默认**不开**：建码时要显式勾选才会授予
     // （与后端 allPermissions() 的口径一致，见 worker/src/permissions.ts）
     doulor: false,
-    // DNS 解析记录同样默认**不开**（配额闸，见 worker/src/permissions.ts）
-    dns: false,
     // 中转站免审入驻同样默认**不开**：它是「信任」不是「功能」，
     // 建码时默认带上它等于把中转站审核制从邀请码这条路绕过去。
     relay_auto: false,
@@ -883,23 +873,6 @@ export default function AdminPage() {
   const [activityExtra, setActivityExtra] = React.useState<AuditLog[]>([])
   const [activityHasMore, setActivityHasMore] = React.useState(false)
   const [activityBusy, setActivityBusy] = React.useState(false)
-
-  // 子域名配额编辑
-  const [quotaDraft, setQuotaDraft] = React.useState<string | null>(null)
-  const [globalQuota, setGlobalQuota] = React.useState(5)
-  const [subQuota, setSubQuota] = React.useState("5")
-  // 每用户 DNS 记录数上限（dns_records_per_user，默认 10）。
-  // 它与「子域名配额」是两个独立旋钮：一个是能开几个域名，一个是能建几条解析。
-  const [dnsRecordsPerUser, setDnsRecordsPerUser] = React.useState("10")
-  /**
-   * DNS 解析租用的租期（dns_rental_days，单位**天**，默认 365 = 一年）。
-   *
-   * ⚠️ 它不是「纯展示」的到期日参数：根域价是**年价**（root_domains.dns_price_per_year），
-   * 租期不是 365 天时按 `年价 × 租期 ÷ 365` 折算实收集分（向上取整，最小 1 分）。
-   * 换算口径与例子见 worker/src/handlers/dns-rental.ts 的 priceForDays ——
-   * 所以下面那张卡上要同时把这条口径写给站长看。
-   */
-  const [dnsRentalDays, setDnsRentalDays] = React.useState("365")
 
   // 用户详情里的昵称编辑（与配额一样先存草稿，点保存才提交）
   const [nickDraft, setNickDraft] = React.useState("")
@@ -932,11 +905,6 @@ export default function AdminPage() {
   const [quotaDetailBusy, setQuotaDetailBusy] = React.useState(false)
 
   // 保留子域名
-  const [reserved, setReserved] = React.useState<ReservedSubdomain[]>([])
-  const [reservedLoading, setReservedLoading] = React.useState(false)
-  const [reservedName, setReservedName] = React.useState("")
-  const [reservedNote, setReservedNote] = React.useState("")
-  const [reservedBusy, setReservedBusy] = React.useState(false)
   // 昵称保留词（与保留域名同页管理）
   const [nickReserved, setNickReserved] = React.useState<string[]>([])
   const [nickReservedInput, setNickReservedInput] = React.useState("")
@@ -1281,9 +1249,6 @@ export default function AdminPage() {
   const [sensenovaBaseUrl, setSensenovaBaseUrl] = React.useState("")
   /** 捐献来的 Key 要并入的渠道 ID（NewAPI 渠道 ID，必须是多密钥渠道） */
   const [sensenovaChannelId, setSensenovaChannelId] = React.useState("")
-  const [frpEnabled, setFrpEnabled] = React.useState(true)
-  const [frpCoreUrl, setFrpCoreUrl] = React.useState("")
-  const [frpNotifyEmail, setFrpNotifyEmail] = React.useState("")
   // 落地页「下载」区的安卓 / Windows 链接
   const [downloadAndroidUrl, setDownloadAndroidUrl] = React.useState("")
   const [downloadWindowsUrl, setDownloadWindowsUrl] = React.useState("")
@@ -1344,25 +1309,6 @@ export default function AdminPage() {
     proxy: true,
   })
   // 捐献是否授予对应权限（5 条通道各自独立，默认全开；见 settings.ts 注释）
-  /**
-   * 一键捐献节点的「默认上架配置」（2026-10-14）。
-   *
-   * 捐献脚本自检通过后，系统按这几个值自动给新节点上架一个套餐。
-   * 站长要求这些在管理面板可改，所以这里做成可编辑，而不是写死在代码里。
-   */
-  const [donateDefaults, setDonateDefaults] = React.useState({
-    days: "30",
-    points: "100",
-    portMin: "10000",
-    portMax: "10010",
-    maxPorts: "11",
-    // 防火墙/安全组要放行的段。和套餐段分开：套餐段决定"发给用户哪些口"，
-    // 这个决定"服务器放行哪些口"，通常是前者的超集。
-    openPortMin: "10000",
-    openPortMax: "11000",
-    ownerShare: "10",
-    autoList: true,
-  })
   const [donationGrants, setDonationGrants] = React.useState<Record<string, boolean>>({
     ai: true,
     sensenova: true,
@@ -1574,33 +1520,6 @@ export default function AdminPage() {
     }
   }
 
-  // ---- frp 内网穿透（节点 / 端口管理；申请→人工审核那套已随租用化退役） ----
-
-  const [frpNodes, setFrpNodes] = React.useState<AdminFrpNode[]>([])
-  const [frpBusy, setFrpBusy] = React.useState(false)
-  const [nodeOpen, setNodeOpen] = React.useState(false)
-  /** 节点编辑弹窗里的「占用端口」列表 + 新增草稿 */
-  const [nodePorts, setNodePorts] = React.useState<
-    { port: number; owner: string | null; manual: boolean }[]
-  >([])
-  const [nodePortsLoading, setNodePortsLoading] = React.useState(false)
-  const [nodePortAdd, setNodePortAdd] = React.useState("")
-  const [nodeForm, setNodeForm] = React.useState({
-    id: "",
-    name: "",
-    region: "",
-    serverAddr: "",
-    serverPort: "7000",
-    authToken: "",
-    portMin: "20000",
-    portMax: "50000",
-    maxPorts: "5",
-    note: "",
-    status: "unknown",
-    statusNote: "",
-    authMode: "token",
-  })
-
   // ---- 捐献审核 ----
   const [donations, setDonations] = React.useState<Donation[]>([])
   /** 捐献列表分类筛选："" 全部 / "pending" 未处理 / "approved" 已通过 /
@@ -1786,149 +1705,6 @@ export default function AdminPage() {
     }
   }
 
-  /** 只拉节点列表：申请审核那套已退役，节点 / 端口管理仍在用 */
-  const loadFrpNodes = React.useCallback(async () => {
-    try {
-      const nodes = await adminApi.listFrpNodes()
-      setFrpNodes(nodes.nodes)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.21"))
-    }
-  }, [])
-
-  /** 把「23457-23460, 39000」这类文本解析成端口数组 */
-  const parsePortsText = (raw: string): number[] => {
-    const out: number[] = []
-    for (const part of raw.split(/[\s,，]+/).map((x) => x.trim()).filter(Boolean)) {
-      const m = /^(\d+)\s*-\s*(\d+)$/.exec(part)
-      if (m) {
-        const a = Number(m[1])
-        const b = Number(m[2])
-        for (let p = Math.min(a, b); p <= Math.max(a, b); p++) out.push(p)
-      } else {
-        const n = Number(part)
-        if (Number.isFinite(n)) out.push(Math.trunc(n))
-      }
-    }
-    return [...new Set(out)].sort((a, b) => a - b)
-  }
-
-  // 打开节点编辑弹窗时，拉一次该节点已占用的端口
-  React.useEffect(() => {
-    if (!nodeOpen || !nodeForm.id) {
-      setNodePorts([])
-      return
-    }
-    let cancelled = false
-    setNodePortsLoading(true)
-    adminApi
-      .listFrpPorts(nodeForm.id)
-      .then((r) => !cancelled && setNodePorts(r.ports))
-      .catch(() => !cancelled && setNodePorts([]))
-      .finally(() => !cancelled && setNodePortsLoading(false))
-    return () => {
-      cancelled = true
-    }
-  }, [nodeOpen, nodeForm.id])
-
-  const reloadNodePorts = async () => {
-    if (!nodeForm.id) return
-    const r = await adminApi.listFrpPorts(nodeForm.id)
-    setNodePorts(r.ports)
-  }
-
-  const handleAddNodePorts = async () => {
-    if (!nodeForm.id) return
-    const ports = parsePortsText(nodePortAdd)
-    if (ports.length === 0) {
-      toast.error(t("adm.1239"))
-      return
-    }
-    setFrpBusy(true)
-    try {
-      await adminApi.occupyFrpPorts({ nodeId: nodeForm.id, ports })
-      toast.success(t("adm.1249"))
-      setNodePortAdd("")
-      await reloadNodePorts()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.1251"))
-    } finally {
-      setFrpBusy(false)
-    }
-  }
-
-  /** 把端口列表折叠成连续区间：[20008,20009,21000] → [{from:20008,to:20009},{from:21000,to:21000}] */
-  const groupPortRuns = (ports: number[]): { from: number; to: number }[] => {
-    const sorted = [...ports].sort((a, b) => a - b)
-    const out: { from: number; to: number }[] = []
-    for (const p of sorted) {
-      const last = out[out.length - 1]
-      if (last && p === last.to + 1) last.to = p
-      else out.push({ from: p, to: p })
-    }
-    return out
-  }
-
-  /** 解除一段连续端口（展开成列表后交给 handleFreeNodePorts，分段避免一次太多） */
-  const handleFreeNodePortRun = async (from: number, to: number) => {
-    if (!nodeForm.id) return
-    const ports: number[] = []
-    for (let p = from; p <= to; p++) ports.push(p)
-    await handleFreeNodePorts(ports)
-  }
-
-  const handleFreeNodePorts = async (ports: number[]) => {
-    if (!nodeForm.id || ports.length === 0) return
-    setFrpBusy(true)
-    try {
-      await adminApi.freeFrpPorts({ nodeId: nodeForm.id, ports })
-      toast.success(t("adm.1250"))
-      await reloadNodePorts()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.1251"))
-    } finally {
-      setFrpBusy(false)
-    }
-  }
-
-  const handleSaveNode = async () => {
-    setFrpBusy(true)
-    try {
-      await adminApi.upsertFrpNode({
-        id: nodeForm.id || undefined,
-        name: nodeForm.name,
-        region: nodeForm.region,
-        serverAddr: nodeForm.serverAddr,
-        serverPort: Number(nodeForm.serverPort),
-        authToken: nodeForm.authToken,
-        portMin: Number(nodeForm.portMin),
-        portMax: Number(nodeForm.portMax),
-        maxPorts: Number(nodeForm.maxPorts),
-        note: nodeForm.note,
-        status: nodeForm.status,
-        statusNote: nodeForm.statusNote,
-        authMode: nodeForm.authMode as "none" | "token" | "token_user" | "custom",
-      })
-      toast.success(t("adm.25"))
-      setNodeOpen(false)
-      await loadFrpNodes()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.26"))
-    } finally {
-      setFrpBusy(false)
-    }
-  }
-
-  const handleDeleteNode = async (id: string) => {
-    try {
-      await adminApi.deleteFrpNode(id)
-      toast.success(t("adm.27"))
-      await loadFrpNodes()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.28"))
-    }
-  }
-
   // ---- 代理节点订阅源 ----
 
   const [proxySubs, setProxySubs] = React.useState<AdminProxySubscription[]>([])
@@ -2093,13 +1869,6 @@ export default function AdminPage() {
       } catch {
         setRecommendedTiers([])
       }
-      setGlobalQuota(Number(s.subdomain_quota_default ?? 5))
-      setSubQuota(s.subdomain_quota_default ?? "5")
-      setDnsRecordsPerUser(s.dns_records_per_user ?? "10")
-      setDnsRentalDays(s.dns_rental_days ?? "365")
-      setFrpEnabled(isSettingOn(s.frp_enabled, true))
-      setFrpCoreUrl(s.frp_core_url ?? "")
-      setFrpNotifyEmail(s.frp_admin_notify_email ?? "")
       setDownloadAndroidUrl(s.download_android_url ?? "")
       setDownloadWindowsUrl(s.download_windows_url ?? "")
       setNotifyEmailOptions(res.notifyEmailOptions ?? [])
@@ -2158,17 +1927,6 @@ export default function AdminPage() {
         proxy: autoRaw.includes("proxy"),
       })
       // 捐献是否授予对应权限（5 条通道各自独立，默认全开）
-      setDonateDefaults({
-        days: s.frp_donate_default_days ?? "30",
-        points: s.frp_donate_default_points ?? "100",
-        portMin: s.frp_donate_default_port_min ?? "10000",
-        portMax: s.frp_donate_default_port_max ?? "10010",
-        maxPorts: s.frp_donate_default_max_ports ?? "11",
-        openPortMin: s.frp_donate_open_port_min ?? "10000",
-        openPortMax: s.frp_donate_open_port_max ?? "11000",
-        ownerShare: s.frp_rental_owner_share_percent ?? "10",
-        autoList: isSettingOn(s.frp_donate_auto_list, true),
-      })
       setDonationGrants({
         ai: isSettingOn(s.donation_grant_ai, true),
         sensenova: isSettingOn(s.donation_grant_sensenova, true),
@@ -2257,9 +2015,6 @@ export default function AdminPage() {
             }))
             .filter((t) => t.tier && t.models.length > 0)
         ),
-        frp_enabled: frpEnabled,
-        frp_core_url: frpCoreUrl,
-        frp_admin_notify_email: frpNotifyEmail,
         download_android_url: downloadAndroidUrl.trim(),
         download_windows_url: downloadWindowsUrl.trim(),
         tempbox_enabled: tempboxEnabled,
@@ -2317,15 +2072,6 @@ export default function AdminPage() {
         donation_grant_wb2api: donationGrants.wb2api,
         donation_grant_qoder2api: donationGrants.qoder2api,
         // 一键捐献节点的默认上架配置
-        frp_donate_default_days: donateDefaults.days,
-        frp_donate_default_points: donateDefaults.points,
-        frp_donate_default_port_min: donateDefaults.portMin,
-        frp_donate_default_port_max: donateDefaults.portMax,
-        frp_donate_default_max_ports: donateDefaults.maxPorts,
-        frp_donate_open_port_min: donateDefaults.openPortMin,
-        frp_donate_open_port_max: donateDefaults.openPortMax,
-        frp_rental_owner_share_percent: donateDefaults.ownerShare,
-        frp_donate_auto_list: donateDefaults.autoList ? "1" : "0",
         // 可转授额度的模块，逗号分隔；全关时发空串（后端 = 一个都不发）
         donation_transfer_features: Object.entries(donationQuotaFeatures)
           .filter(([, on]) => on)
@@ -2356,20 +2102,6 @@ export default function AdminPage() {
         sensenova_base_url: sensenovaBaseUrl.trim(),
         // 空串是合法值（= 通道未配置、捐献转人工），要原样提交才能「清空」
         sensenova_channel_id: sensenovaChannelId.trim(),
-        // ---- 2026-09-26 补齐：原先有输入框但漏在 payload 里 / 完全没有入口的设置项 ----
-        // ⚠️ subdomain_quota_default 原先就是「有框但不保存」，改完会被 loadSettings 刷回去
-        subdomain_quota_default: Math.max(0, Math.round(Number(subQuota) || 0)),
-        // 每用户 DNS 记录数上限；0 是合法值（= 一条都不允许建），所以只兜 NaN
-        dns_records_per_user: Math.max(0, Math.round(Number(dnsRecordsPerUser) || 0)),
-        // DNS 租用租期（天）。与上面的记录数**不同**：空 / 非数字 / 0 / 负数都不是
-        // 合法值 —— 0 天租约等于「用户付了积分当场到期」，而 1 天同样是「当场到期」，
-        // 所以**不夹到 1**，一律回落 365 天（与后端 dns-rental.ts 的 rentalDays 同一条口径，
-        // 否则会出现「后台存了 1 天、用户以为是一年」这种对不上账的情况）；
-        // 只有上限夹到 3650 天（≈10 年）防手滑。
-        dns_rental_days: (() => {
-          const n = Math.trunc(Number(dnsRentalDays))
-          return Number.isFinite(n) && n >= 1 ? Math.min(3650, n) : 365
-        })(),
         newapi_free_plan_id: Math.max(0, Math.round(Number(newapiFreePlanId) || 0)),
         newapi_quota_per_unit: Math.max(1, Math.round(Number(quotaPerUnitInput) || 500000)),
         invite_reward_enabled: inviteRewardEnabled,
@@ -2445,25 +2177,6 @@ export default function AdminPage() {
   const handleRemoveBrevoKey = async (index1Based: number) => {
     const keep = brevoKeys.map((_, i) => i + 1).filter((n) => n !== index1Based)
     if (await saveBrevoKeys(keep, [])) toast.success(t("adm.44"))
-  }
-
-  const handleSaveQuota = async () => {
-    if (!detail) return
-    setBusy(true)
-    try {
-      const raw = (quotaDraft ?? "").trim()
-      const res = await adminApi.updateUser(detail.user.username, {
-        // 留空表示恢复全局默认（传 null）
-        maxSubdomains: raw === "" ? null : Number(raw),
-      })
-      setDetail(res)
-      toast.success(t("adm.45"))
-      void load()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.46"))
-    } finally {
-      setBusy(false)
-    }
   }
 
   /** 保存中转站重试次数（2026-10-17，用户 yuan 的反馈） */
@@ -2862,14 +2575,9 @@ export default function AdminPage() {
     }
   }
 
-  const loadReserved = React.useCallback(async () => {
-    setReservedLoading(true)
+  const loadNickReserved = React.useCallback(async () => {
     try {
-      const [res, s] = await Promise.all([
-        adminApi.listReserved(),
-        adminApi.getSettings(),
-      ])
-      setReserved(res.reserved)
+      const s = await adminApi.getSettings()
       setNickReserved(
         (s.settings.reserved_nicknames ?? "")
           .split(",")
@@ -2878,39 +2586,8 @@ export default function AdminPage() {
       )
     } catch (err) {
       toast.error(err instanceof HttpError ? err.message : t("adm.75"))
-    } finally {
-      setReservedLoading(false)
     }
   }, [])
-
-  const handleAddReserved = async () => {
-    if (!reservedName.trim()) return
-    setReservedBusy(true)
-    try {
-      const res = await adminApi.addReserved({
-        name: reservedName,
-        note: reservedNote || undefined,
-      })
-      setReserved(res.reserved)
-      setReservedName("")
-      setReservedNote("")
-      toast.success(t("adm.76"))
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.77"))
-    } finally {
-      setReservedBusy(false)
-    }
-  }
-
-  const handleRemoveReserved = async (name: string) => {
-    try {
-      const res = await adminApi.removeReserved(name)
-      setReserved(res.reserved)
-      toast.success(t("adm.935", { v0: name }))
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.78"))
-    }
-  }
 
   // 昵称保留词：增/删都直接写 settings.reserved_nicknames
   const saveNickReserved = async (next: string[]) => {
@@ -3593,12 +3270,6 @@ export default function AdminPage() {
     try {
       const res = await adminApi.getUser(username)
       setDetail(res)
-      // 配额草稿：有覆盖则显示该值，否则留空表示「用全局默认」
-      setQuotaDraft(
-        res.user.maxSubdomains === null || res.user.maxSubdomains === undefined
-          ? ""
-          : String(res.user.maxSubdomains)
-      )
       setNickDraft(res.user.nickname ?? "")
       // 网盘配额草稿（MB，保留两位小数，够 512 MB / 1.5 GB 这种）
       setStorageQuotaMbDraft(
@@ -4052,9 +3723,8 @@ export default function AdminPage() {
       void loadR2()
     }
     if (v === "mail") void loadSettings()
-    if (v === "frp") void loadFrpNodes()
     if (v === "proxy") void loadProxy()
-    if (v === "reserved") void loadReserved()
+    if (v === "reserved") void loadNickReserved()
     if (v === "donations") { void loadDonations(); void loadWb2api() }
     if (v === "announcements") void loadAnnouncements()
     if (v === "events") void loadEvents()
@@ -4176,29 +3846,8 @@ export default function AdminPage() {
                 {/* 三条免审核捐献通道（wb2api / qoder2api / 商汤）合并在一个选项卡里 */}
                 {canSeeTab("wb2api") && <NavItem active={activeTab === "wb2api"} icon={Unplug} label={t("adm.222")} onClick={() => handleTabChange("wb2api")} />}
                 {canSeeTab("r2") && <NavItem active={activeTab === "r2"} icon={Database} label={t("adm.223")} onClick={() => handleTabChange("r2")} />}
-                {/* 角标 = 待审核的内网穿透申请数（用户提交后等管理员批） */}
-                {canSeeTab("frp") && (
-                  <NavItem
-                    active={activeTab === "frp"}
-                    icon={Network}
-                    label={t("adm.224")}
-                    count={attention?.frpApplications}
-                    onClick={() => handleTabChange("frp")}
-                  />
-                )}
                 {canSeeTab("proxy") && <NavItem active={activeTab === "proxy"} icon={Zap} label={t("adm.225")} onClick={() => handleTabChange("proxy")} />}
 
-                {/* 此处刻意**不挂角标**：DNS 合规扫描的发现是「看一眼」的体检报告，
-                    不是等你逐条处理的队列（站长要求 2026-10-02 移除）。
-                    标签用 dns.* 前缀，避开并发进行的 adm.* 编号 */}
-                {canSeeTab("dns") && (
-                  <NavItem
-                    active={activeTab === "dns"}
-                    icon={Globe}
-                    label={t("dns.nav")}
-                    onClick={() => handleTabChange("dns")}
-                  />
-                )}
               </NavGroup>
               <NavGroup label={t("adm.226")}>
                 {canSeeTab("announcements") && <NavItem active={activeTab === "announcements"} icon={Megaphone} label={t("adm.227")} onClick={() => handleTabChange("announcements")} />}
@@ -4361,7 +4010,6 @@ export default function AdminPage() {
                 )}
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.330")}</TableHead>
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.331")}</TableHead>
-                <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.332")}</TableHead>
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.333")}</TableHead>
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.334")}</TableHead>
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card">{t("adm.335")}</TableHead>
@@ -4481,9 +4129,6 @@ export default function AdminPage() {
                   </TableCell>
                   <TableCell className="text-center">
                     <BoolMark on={u.aiEnabled} />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <BoolMark on={u.frpEnabled} />
                   </TableCell>
                   <TableCell className="text-center">
                     <BoolMark on={u.proxyEnabled} />
@@ -4803,120 +4448,6 @@ export default function AdminPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="frp">
-          {/* 租用化（2026-10-13）：套餐与订阅放在最前面，因为这才是现在的日常操作面。
-              原先「用户申请 → 人工审核 → 管理员登 frps-panel 建号」那套申请审核界面
-              （筛选条 / 申请卡片 / 审核与编辑弹窗）已随流程退役一并删除，
-              下面只剩节点与端口管理。 */}
-          <AdminFrpRental />
-          <Separator className="my-8" />
-
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => void loadFrpNodes()}>
-                <RefreshCw className="h-3.5 w-3.5" />
-                {t("adm.351")}
-              </Button>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setNodeForm({
-                  id: "",
-                  name: "",
-                  region: "",
-                  serverAddr: "",
-                  serverPort: "7000",
-                  authToken: "",
-                  portMin: "20000",
-                  portMax: "50000",
-                  maxPorts: "5",
-                  note: "",
-                  status: "unknown",
-                  statusNote: "",
-                  authMode: "token",
-                })
-                setNodeOpen(true)
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              {t("adm.352")}
-            </Button>
-          </div>
-
-          <div>
-            <h3 className="mb-2 text-sm font-medium">{t("adm.992", { v0: frpNodes.length })}</h3>
-            <div className="rounded-lg border bg-card">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("adm.356")}</TableHead>
-                    <TableHead>serverAddr</TableHead>
-                    <TableHead>{t("adm.357")}</TableHead>
-                    <TableHead>{t("adm.358")}</TableHead>
-                    <TableHead className="w-28" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {frpNodes.map((n) => (
-                    <TableRow key={n.id}>
-                      <TableCell className="text-sm">
-                        {n.name}
-                        {n.region && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            {n.region}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {n.serverAddr}:{n.serverPort}
-                      </TableCell>
-                      <TableCell className="text-xs">{t("adm.993", { v0: n.portMin, v1: n.portMax, v2: n.maxPorts })}</TableCell>
-                      <TableCell className="text-xs">{n.usedPorts}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setNodeForm({
-                                id: n.id,
-                                name: n.name,
-                                region: n.region ?? "",
-                                serverAddr: n.serverAddr,
-                                serverPort: String(n.serverPort),
-                                authToken: n.authToken,
-                                portMin: String(n.portMin),
-                                portMax: String(n.portMax),
-                                maxPorts: String(n.maxPorts),
-                                note: n.note ?? "",
-                                status: n.status ?? "unknown",
-                                statusNote: n.statusNote ?? "",
-                                authMode: n.authMode ?? "token",
-                              })
-                              setNodeOpen(true)
-                            }}
-                          >
-                            {t("adm.359")}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={() => void handleDeleteNode(n.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        </TabsContent>
-
         <TabsContent value="proxy">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
@@ -5141,91 +4672,6 @@ export default function AdminPage() {
         </TabsContent>
 
         <TabsContent value="reserved">
-          {/* 保留域名 */}
-          <div className="mb-2 flex items-center gap-2">
-            <h3 className="text-sm font-medium">{t("adm.385")}</h3>
-            <span className="text-xs text-muted-foreground">
-              {t("adm.386")}
-            </span>
-          </div>
-          <div className="mb-4 space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {t("adm.387")}
-              {t("adm.388")}
-            </p>
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1">
-                <Label htmlFor="rname" className="text-xs">{t("adm.389")}</Label>
-                <Input
-                  id="rname"
-                  placeholder="brand"
-                  className="w-40"
-                  value={reservedName}
-                  onChange={(e) => setReservedName(e.target.value.toLowerCase())}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="rnote" className="text-xs">{t("adm.390")}</Label>
-                <Input
-                  id="rnote"
-                  placeholder={t("adm.264")}
-                  className="w-48"
-                  value={reservedNote}
-                  onChange={(e) => setReservedNote(e.target.value)}
-                />
-              </div>
-              <Button onClick={() => void handleAddReserved()} disabled={reservedBusy || !reservedName.trim()}>
-                {reservedBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                <Plus className="h-4 w-4" />
-                {t("adm.391")}
-              </Button>
-            </div>
-          </div>
-
-          {reservedLoading ? (
-            <LoadingBlock variant="table" />
-          ) : reserved.length === 0 ? (
-            <EmptyState title={t("adm.265")} description={t("adm.266")} />
-          ) : (
-            <div className="rounded-lg border bg-card">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("adm.392")}</TableHead>
-                    <TableHead>{t("adm.393")}</TableHead>
-                    <TableHead>{t("adm.394")}</TableHead>
-                    <TableHead className="w-12" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {reserved.map((r) => (
-                    <TableRow key={r.name}>
-                      <TableCell className="font-mono text-sm">{r.name}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        
-                        {r.name}.*
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {r.note ?? "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={() => void handleRemoveReserved(r.name)}
-                          title={t("adm.267")}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
           {/* 昵称保留词 */}
           <div className="mt-8 mb-2 flex items-center gap-2">
             <h3 className="text-sm font-medium">{t("adm.395")}</h3>
@@ -5757,10 +5203,6 @@ export default function AdminPage() {
         {/* 中转站入驻审核（审核制）：数据由面板自己加载，这里不需要懒加载钩子 */}
         <TabsContent value="relay">
           <RelayAdminPanel />
-        </TabsContent>
-
-        <TabsContent value="dns">
-          <DnsAdminPanel />
         </TabsContent>
 
         <TabsContent value="events">
@@ -7613,81 +7055,6 @@ export default function AdminPage() {
             <LoadingBlock variant="form" />
           ) : (
             <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.583")}</CardTitle>
-                  <CardDescription>
-                    {t("adm.584")}
-                    {t("adm.585")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="subQuota">{t("adm.586")}</Label>
-                    <Input
-                      id="subQuota"
-                      type="number"
-                      min={0}
-                      max={100}
-                      className="w-32"
-                      value={subQuota}
-                      onChange={(e) => setSubQuota(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.587")}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* DNS 记录配额：与上面的「子域名配额」是两个独立旋钮 ——
-                  一个管「能开几个域名」，一个管「能建几条解析记录」。
-                  后者受 Cloudflare 每 zone 的记录数硬上限约束，见 dns.ts 的说明。 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.dnsQuota.title")}</CardTitle>
-                  <CardDescription>{t("adm.dnsQuota.desc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Label htmlFor="dnsRecordsPerUser">{t("adm.dnsQuota.label")}</Label>
-                  <Input
-                    id="dnsRecordsPerUser"
-                    type="number"
-                    min={0}
-                    max={1000}
-                    className="w-32"
-                    value={dnsRecordsPerUser}
-                    onChange={(e) => setDnsRecordsPerUser(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">{t("adm.dnsQuota.hint")}</p>
-                </CardContent>
-              </Card>
-
-              {/* DNS 租用租期：与上面那张「记录配额」卡是两个维度 ——
-                  配额管「能建几条解析」，租期管「买一次能用多久、扣多少分」。
-                  单独一张卡而不是塞进上面那张，是因为它的副作用更大（会改实收积分）。 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.dnsRental.title")}</CardTitle>
-                  <CardDescription>{t("adm.dnsRental.desc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Label htmlFor="dnsRentalDays">{t("adm.dnsRental.label")}</Label>
-                  <Input
-                    id="dnsRentalDays"
-                    type="number"
-                    min={1}
-                    max={3650}
-                    className="w-32"
-                    value={dnsRentalDays}
-                    onChange={(e) => setDnsRentalDays(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">{t("adm.dnsRental.hint")}</p>
-                  {/* 价格口径必须写在界面上：站长改天数时最直接的问题是
-                      「那用户到底会被扣多少分」，只写「单位是天」等于没说。 */}
-                  <p className="text-xs text-muted-foreground">{t("adm.dnsRental.priceHint")}</p>
-                </CardContent>
-              </Card>
 
               {/* 每日签到配置 */}
               <Card>
@@ -7812,38 +7179,6 @@ export default function AdminPage() {
                       {t("adm.603")}
                       {t("adm.604")}
                     </span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.605")}</CardTitle>
-                  <CardDescription>
-                    {t("adm.606")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="frpCoreUrl">{t("adm.607")}</Label>
-                    <Input
-                      id="frpCoreUrl"
-                      value={frpCoreUrl}
-                      onChange={(e) => setFrpCoreUrl(e.target.value)}
-                      className="font-mono text-xs"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{t("adm.608")}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("adm.609")}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={frpEnabled}
-                      onCheckedChange={setFrpEnabled}
-                    />
                   </div>
                 </CardContent>
               </Card>
@@ -8353,51 +7688,6 @@ export default function AdminPage() {
                   </p>
                 </CardContent>
               </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.frpDonateTitle")}</CardTitle>
-                  <CardDescription>{t("adm.frpDonateDesc")}</CardDescription>
-                  <CardDescription>{t("adm.frpDonateDesc2")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {([
-                      ["days", "adm.frpDonateDays"],
-                      ["points", "adm.frpDonatePoints"],
-                      ["portMin", "adm.frpDonatePortMin"],
-                      ["portMax", "adm.frpDonatePortMax"],
-                      ["maxPorts", "adm.frpDonateMaxPorts"],
-                      ["openPortMin", "adm.frpDonateOpenMin"],
-                      ["openPortMax", "adm.frpDonateOpenMax"],
-                      ["ownerShare", "adm.frpOwnerShare"],
-                    ] as const).map(([k, labelKey]) => (
-                      <div key={k} className="space-y-1">
-                        <label className="text-xs text-muted-foreground" htmlFor={`frp-donate-${k}`}>
-                          {t(labelKey)}
-                        </label>
-                        <Input
-                          id={`frp-donate-${k}`}
-                          value={donateDefaults[k]}
-                          inputMode="numeric"
-                          onChange={(e) =>
-                            setDonateDefaults((prev) => ({ ...prev, [k]: e.target.value }))
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{t("adm.frpDonateAutoList")}</p>
-                      <p className="text-xs text-muted-foreground">{t("adm.frpDonateAutoListHint")}</p>
-                    </div>
-                    <Switch
-                      checked={donateDefaults.autoList}
-                      onCheckedChange={(v) => setDonateDefaults((prev) => ({ ...prev, autoList: v }))}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
 
               <Card>
                 <CardHeader>
@@ -8695,7 +7985,7 @@ export default function AdminPage() {
 
         <TabsContent value="mail">
           <div className="space-y-6">
-            {/* 管理员通知邮箱 */}
+            {/* 管理员通知邮箱（frp 申请通知邮箱已随内网穿透功能移除，只剩反馈通知） */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">{t("adm.682")}</CardTitle>
@@ -8704,31 +7994,6 @@ export default function AdminPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="frpNotify">{t("adm.684")}</Label>
-                  <Select
-                    value={frpNotifyEmail || "__none__"}
-                    onValueChange={(v) =>
-                      setFrpNotifyEmail(v === "__none__" ? "" : v)
-                    }
-                  >
-                    <SelectTrigger id="frpNotify">
-                      <SelectValue placeholder={t("adm.303")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">{t("adm.685")}</SelectItem>
-                      {notifyEmailOptions.map((e) => (
-                        <SelectItem key={e} value={e}>
-                          {e}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.686")}
-                    {t("adm.687")}
-                  </p>
-                </div>
                 <div className="space-y-2">
                   <Label htmlFor="feedbackNotify">{t("adm.688")}</Label>
                   <Textarea
@@ -10939,35 +10204,6 @@ export default function AdminPage() {
                       )}
                     </div>
 
-                    {/* 内网穿透 */}
-                    <div className="border-b px-3 py-2 text-xs last:border-b-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{t("adm.859")}</span>
-                        {detail.frp ? (
-                          <Badge variant={detail.frp.enabled ? "success" : "secondary"}>
-                            {detail.frp.enabled ? t("adm.1162") : t("adm.1163")}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline">{t("adm.860")}</Badge>
-                        )}
-                      </div>
-                      {(detail.frpPorts.length > 0 || detail.frpApplications.length > 0) && (
-                        <div className="mt-1 space-y-1 text-muted-foreground">
-                          {detail.frpPorts.length > 0 && (
-                            <p>
-                              {t("adm.861")}
-                              {detail.frpPorts
-                                .map((p) => `${p.nodeName ?? t("adm.1164")} ${p.remotePort}`)
-                                .join("、")}
-                            </p>
-                          )}
-                          {detail.frpApplications.slice(0, 5).map((a) => (
-                            <p key={a.id}>{t("adm.1165", { v0: a.ports.join("/"), v1: a.status, v2: a.reviewNote && ` · ${a.reviewNote}`, v3: " · ", v4: fmtTime(a.createdAt) })}</p>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
                     {/* 代理节点 */}
                     <div className="px-3 py-2 text-xs">
                       <div className="flex items-center justify-between">
@@ -11081,40 +10317,7 @@ export default function AdminPage() {
                   )}
                 </section>
 
-                <section>
-                  <h3 className="mb-2 text-sm font-medium">{t("adm.1175", { v0: detail.subdomains.length })}</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {detail.subdomains.map((s) => (
-                      <span
-                        key={s.id}
-                        className="rounded-md border px-2.5 py-1 font-mono text-xs break-all"
-                      >
-                        {s.fqdn}
-                      </span>
-                    ))}
-                  </div>
-                </section>
 
-                <section>
-                  <h3 className="mb-2 text-sm font-medium">{t("adm.1176", { v0: detail.dns.length })}</h3>
-                  <div className="rounded-md border">
-                    {detail.dns.length === 0 ? (
-                      <p className="px-3 py-4 text-sm text-muted-foreground">{t("adm.869")}</p>
-                    ) : (
-                      detail.dns.slice(0, 30).map((r) => (
-                        <div
-                          key={r.id}
-                          className="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs last:border-b-0"
-                        >
-                          <span className="font-mono break-all">{r.fqdn}</span>
-                          <span className="shrink-0 text-muted-foreground">
-                            {r.type} · {r.content}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </section>
 
                 <section>
                   <h3 className="mb-2 text-sm font-medium">{t("adm.1177", { v0: detail.mailboxes.length })}</h3>
@@ -11180,35 +10383,6 @@ export default function AdminPage() {
                         />
                       </div>
                     ))}
-                  </div>
-                </section>
-
-                <section>
-                  <h3 className="mb-2 text-sm font-medium">{t("adm.873")}</h3>
-                  <div className="rounded-md border p-3">
-                    <div className="flex items-center gap-3">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        className="w-24"
-                        value={quotaDraft ?? ""}
-                        placeholder={t("adm.318")}
-                        disabled={busy || detail.user.username === user?.username}
-                        onChange={(e) => setQuotaDraft(e.target.value)}
-                      />
-                      <span className="text-xs text-muted-foreground">{t("adm.1180")}</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="ml-auto"
-                        disabled={busy || detail.user.username === user?.username}
-                        onClick={() => void handleSaveQuota()}
-                      >
-                        {t("adm.874")}
-                      </Button>
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground">{t("adm.1181", { v0: t("adm.875"), v1: detail.user.maxSubdomains ?? globalQuota, v2: detail.user.maxSubdomains === null && t("adm.1182") })}</p>
                   </div>
                 </section>
 
@@ -11433,236 +10607,6 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* frp 节点编辑 */}
-      <Dialog open={nodeOpen} onOpenChange={setNodeOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{nodeForm.id ? t("adm.1185") : t("adm.1186")}</DialogTitle>
-            <DialogDescription>
-              {t("adm.878")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{t("adm.879")}</Label>
-                <Input
-                  value={nodeForm.name}
-                  onChange={(e) => setNodeForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder={t("adm.319")}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("adm.880")}</Label>
-                <Input
-                  value={nodeForm.region}
-                  onChange={(e) => setNodeForm((f) => ({ ...f, region: e.target.value }))}
-                  placeholder={t("adm.320")}
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>serverAddr</Label>
-                <Input
-                  value={nodeForm.serverAddr}
-                  onChange={(e) =>
-                    setNodeForm((f) => ({ ...f, serverAddr: e.target.value }))
-                  }
-                  placeholder="firef.qzz.io"
-                  className="font-mono text-xs"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>serverPort</Label>
-                <Input
-                  type="number"
-                  value={nodeForm.serverPort}
-                  onChange={(e) =>
-                    setNodeForm((f) => ({ ...f, serverPort: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{t("adm.881")}</Label>
-                <Select
-                  value={nodeForm.authMode}
-                  onValueChange={(v) => setNodeForm((f) => ({ ...f, authMode: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">{t("adm.882")}</SelectItem>
-                    <SelectItem value="token">{t("adm.883")}</SelectItem>
-                    <SelectItem value="token_user">{t("adm.884")}</SelectItem>
-                    <SelectItem value="custom">{t("adm.885")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>auth.token</Label>
-                <Input
-                  value={nodeForm.authToken}
-                  onChange={(e) =>
-                    setNodeForm((f) => ({ ...f, authToken: e.target.value }))
-                  }
-                  className="font-mono text-xs"
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{t("adm.886")}</Label>
-                <p className="text-xs text-muted-foreground">{t("adm.1187", { v0: t("adm.887") })}<code>metadatas.token</code>{t("adm.1188", { v0: t("adm.888") })}</p>
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>{t("adm.889")}</Label>
-                <Input
-                  type="number"
-                  value={nodeForm.portMin}
-                  onChange={(e) =>
-                    setNodeForm((f) => ({ ...f, portMin: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("adm.890")}</Label>
-                <Input
-                  type="number"
-                  value={nodeForm.portMax}
-                  onChange={(e) =>
-                    setNodeForm((f) => ({ ...f, portMax: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("adm.891")}</Label>
-                <Input
-                  type="number"
-                  value={nodeForm.maxPorts}
-                  onChange={(e) =>
-                    setNodeForm((f) => ({ ...f, maxPorts: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>{t("adm.892")}</Label>
-              <Input
-                value={nodeForm.note}
-                onChange={(e) => setNodeForm((f) => ({ ...f, note: e.target.value }))}
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{t("adm.893")}</Label>
-                <Select
-                  value={nodeForm.status}
-                  onValueChange={(v) => setNodeForm((f) => ({ ...f, status: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="online">{t("adm.894")}</SelectItem>
-                    <SelectItem value="offline">{t("adm.895")}</SelectItem>
-                    <SelectItem value="maintenance">{t("adm.896")}</SelectItem>
-                    <SelectItem value="unknown">{t("adm.897")}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t("adm.898")}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>{t("adm.899")}</Label>
-                <Input
-                  value={nodeForm.statusNote}
-                  onChange={(e) =>
-                    setNodeForm((f) => ({ ...f, statusNote: e.target.value }))
-                  }
-                  placeholder={t("adm.321")}
-                />
-              </div>
-            </div>
-          </div>
-            {nodeForm.id && (
-              <div className="mt-4 space-y-2 rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <Label>{t("adm.1243")}</Label>
-                  <span className="text-xs text-muted-foreground">
-                    {nodePortsLoading ? t("adm.1245") : t("adm.1244", { v0: nodePorts.length })}
-                  </span>
-                </div>
-                {nodePorts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{t("adm.1246")}</p>
-                ) : (
-                  <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-                    {groupPortRuns(nodePorts.map((p) => p.port)).map((r) => {
-                      // 相邻端口折叠成「30000-30060」显示；来源看这一段里是否含手工标记
-                      const inRun = nodePorts.filter((p) => p.port >= r.from && p.port <= r.to)
-                      const owners = [
-                        ...new Set(inRun.map((p) => (p.manual ? t("adm.1252") : (p.owner ?? "?")))),
-                      ]
-                      return (
-                        <span
-                          key={r.from}
-                          className="inline-flex items-center gap-1 rounded border bg-muted/40 px-2 py-0.5 font-mono text-xs"
-                          title={owners.join("、")}
-                        >
-                          {r.from === r.to ? r.from : `${r.from}-${r.to}`}
-                          <span className="text-[10px] text-muted-foreground">
-                            {r.from === r.to ? "" : t("adm.1253", { v0: r.to - r.from + 1 })}
-                          </span>
-                          <button
-                            type="button"
-                            className="text-muted-foreground hover:text-destructive"
-                            disabled={frpBusy}
-                            onClick={() => void handleFreeNodePortRun(r.from, r.to)}
-                            aria-label={t("adm.1250")}
-                          >
-                            ×
-                          </button>
-                        </span>
-                      )
-                    })}
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <Input
-                    className="font-mono"
-                    placeholder="28888-28890, 22222"
-                    value={nodePortAdd}
-                    onChange={(e) => setNodePortAdd(e.target.value)}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handleAddNodePorts()}
-                    disabled={frpBusy}
-                  >
-                    {t("adm.1247")}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">{t("adm.1248")}</p>
-              </div>
-            )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNodeOpen(false)}>
-              {t("adm.900")}
-            </Button>
-            <Button onClick={() => void handleSaveNode()} disabled={frpBusy}>
-              {frpBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t("adm.901")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* 代理订阅源编辑 */}
       <Dialog open={proxyOpen} onOpenChange={setProxyOpen}>

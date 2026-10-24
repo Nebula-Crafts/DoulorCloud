@@ -229,7 +229,6 @@ export async function overview(env: Env, request: Request): Promise<Response> {
 const FEATURE_LABELS: Record<string, string> = {
   ai: "AI 中转站",
   r2: "直链网盘",
-  frp: "内网穿透",
   proxy: "代理节点",
   profile: "个人名片",
 }
@@ -237,7 +236,6 @@ const FEATURE_LABELS: Record<string, string> = {
 /** 捐献类型标签 */
 const DONATION_TYPE_LABELS: Record<string, string> = {
   ai: "AI 渠道",
-  frp: "frp 服务端",
   proxy: "代理订阅",
   sensenova: "商汤 Key",
 }
@@ -313,7 +311,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
       `SELECT
          (SELECT COUNT(*) FROM newapi_accounts) AS ai,
          (SELECT COUNT(*) FROM storage_accounts WHERE enabled = 1) AS r2,
-         (SELECT COUNT(*) FROM frp_accounts WHERE enabled = 1) AS frp,
          (SELECT COUNT(*) FROM proxy_activation WHERE enabled = 1) AS proxy,
          (SELECT COUNT(*) FROM profiles WHERE published = 1) AS profile`
     ),
@@ -322,8 +319,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
       `SELECT
          (SELECT COUNT(*) FROM mailboxes WHERE is_temp = 0) AS mailboxes,
          (SELECT COUNT(*) FROM mailboxes WHERE is_temp = 1) AS tempMailboxes,
-         (SELECT COUNT(*) FROM subdomains) AS subdomains,
-         (SELECT COUNT(*) FROM dns_records) AS dnsRecords,
          (SELECT COUNT(*) FROM posts WHERE deleted_at IS NULL) AS posts,
          (SELECT COUNT(*) FROM post_comments WHERE deleted_at IS NULL) AS comments,
          (SELECT COUNT(*) FROM post_likes) AS likes,
@@ -492,14 +487,12 @@ export async function userOverview(env: Env, request: Request): Promise<Response
     results?: { verified: number; nickname: number; avatar: number; invited: number }[]
   }).results?.[0]
   const f = (featureRes as {
-    results?: { ai: number; r2: number; frp: number; proxy: number; profile: number }[]
+    results?: { ai: number; r2: number; proxy: number; profile: number }[]
   }).results?.[0]
   const r = (resourceRes as {
     results?: {
       mailboxes: number
       tempMailboxes: number
-      subdomains: number
-      dnsRecords: number
       posts: number
       comments: number
       likes: number
@@ -673,7 +666,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
   const featureRows = [
     { key: "ai", count: f?.ai ?? 0 },
     { key: "r2", count: f?.r2 ?? 0 },
-    { key: "frp", count: f?.frp ?? 0 },
     { key: "proxy", count: f?.proxy ?? 0 },
     { key: "profile", count: f?.profile ?? 0 },
   ]
@@ -700,8 +692,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
     resources: {
       mailboxes: r?.mailboxes ?? 0,
       tempMailboxes: r?.tempMailboxes ?? 0,
-      subdomains: r?.subdomains ?? 0,
-      dnsRecords: r?.dnsRecords ?? 0,
       posts: r?.posts ?? 0,
       comments: r?.comments ?? 0,
       likes: r?.likes ?? 0,

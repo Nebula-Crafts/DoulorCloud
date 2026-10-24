@@ -555,16 +555,12 @@ export async function verifyForwardTarget(env: Env, request: Request): Promise<R
   return json({ email, verified: false, message: "验证码已发送到该邮箱，请查收" })
 }
 
-// DELETE /api/mailbox/:id —— 删除邮箱（主邮箱不可删）
+// DELETE /api/mailbox/:id —— 删除邮箱
+// （邮箱已改为随机前缀、不再承载「用户名身份」语义，所有邮箱一视同仁可删；
+//  删光后用户可再新建，地址是新的随机前缀。）
 export async function deleteMailbox(env: Env, request: Request, id: string): Promise<Response> {
   const user = await requireUser(env, request)
   const mailbox = await requireMailbox(env, user, id)
-
-  // 主邮箱不可删：判据是「注册时分配的那个域」，不是写死的 env.ROOT_DOMAIN
-  const primary = await primaryMailboxAddress(env, user)
-  if (mailbox.address.toLowerCase() === primary) {
-    throw new ApiError(400, "主邮箱不可删除", "PRIMARY_MAILBOX")
-  }
 
   await purgeMailbox(env, mailbox)
   return new Response(null, { status: 204 })

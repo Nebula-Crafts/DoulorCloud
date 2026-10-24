@@ -62,7 +62,7 @@ interface AchievementDef {
  */
 export const ACHIEVEMENT_GROUPS: { id: string; label: string; desc: string }[] = [
   { id: "start", label: "起步", desc: "开通与身份" },
-  { id: "resource", label: "资源", desc: "域名 / 邮箱 / 网盘 / AI" },
+  { id: "resource", label: "资源", desc: "邮箱 / 网盘 / AI" },
   { id: "usage", label: "使用", desc: "访问与分享" },
   { id: "social", label: "社交", desc: "社区 / 聊天" },
   { id: "contribute", label: "贡献", desc: "邀请与捐献" },
@@ -102,14 +102,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
     how: "在「个人名片」页面点击开通。",
   },
   {
-    id: "domain_bind",
-    name: "域名主权",
-    desc: "为网盘直链或名片绑定自定义域名",
-    icon: "globe",
-    group: "start",
-    how: "在「网盘」或「个人名片」页面绑定一个自己的子域名作为访问入口。",
-  },
-  {
     id: "identity",
     name: "名分已定",
     desc: "设置昵称与头像",
@@ -120,17 +112,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
 
   // ---- 资源积累 ----
   {
-    id: "subdomain",
-    name: "开疆拓土",
-    desc: "创建子域名",
-    icon: "globe",
-    group: "resource",
-    how: "注册时分配的主域名就算一个；在「域名」页面添加更多子域名可以继续升级。",
-    tiers: [1, 3, 5],
-    tierNames: ["初出茅庐", "渐入佳境", "疆域辽阔"],
-    tierReqs: ["创建 1 个子域名", "创建 3 个子域名", "创建 5 个子域名"],
-  },
-  {
     id: "mailbox",
     name: "信箱林立",
     desc: "添加邮箱地址",
@@ -140,17 +121,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
     tiers: [1, 3],
     tierNames: ["首个信箱", "多线并行"],
     tierReqs: ["拥有 1 个邮箱地址", "拥有 3 个邮箱地址"],
-  },
-  {
-    id: "dns",
-    name: "解析大师",
-    desc: "创建 DNS 记录",
-    icon: "network",
-    group: "resource",
-    how: "在「域名」页面为子域名添加 DNS 记录。",
-    tiers: [1, 5, 20],
-    tierNames: ["初次解析", "熟练运维", "解析宗师"],
-    tierReqs: ["创建 1 条 DNS 记录", "创建 5 条 DNS 记录", "创建 20 条 DNS 记录"],
   },
   {
     id: "storage_files",
@@ -332,21 +302,13 @@ const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: "donor_all",
     name: "全能贡献",
-    desc: "三类以上的资源都捐过",
+    desc: "两类以上的资源都捐过",
     icon: "layers",
     group: "contribute",
-    how: "AI 渠道、代理订阅、内网穿透、商汤 Key 中，任意三种都成功捐献过一次。",
+    how: "AI 渠道、代理订阅、商汤 Key 中，任意两种都成功捐献过一次。",
   },
 
   // ---- 功能权限 ----
-  {
-    id: "frp_enable",
-    name: "内外通达",
-    desc: "开通内网穿透",
-    icon: "plug",
-    group: "start",
-    how: "在「内网穿透」页面开通，把家里的服务映射到公网。",
-  },
   {
     id: "proxy_enable",
     name: "一路畅通",
@@ -481,17 +443,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
     tiers: [1, 10, 50],
     tierNames: ["拆开第一封", "往来渐多", "阅信达人"],
     tierReqs: ["累计读过 1 封邮件", "累计读过 10 封邮件", "累计读过 50 封邮件"],
-  },
-  {
-    id: "dns_types",
-    name: "解析百宝箱",
-    desc: "使用不同类型的 DNS 记录",
-    icon: "network",
-    group: "resource",
-    how: "创建 A、CNAME、TXT、MX 等不同类型的 DNS 记录，按类型去重。",
-    tiers: [2, 4, 6],
-    tierNames: ["两种类型", "多种解析", "全能解析"],
-    tierReqs: ["使用 2 种 DNS 类型", "使用 4 种 DNS 类型", "使用 6 种 DNS 类型"],
   },
   {
     id: "post_edits",
@@ -873,9 +824,7 @@ export interface AchievementProgress {  id: string
 
 /** 合并计数查询返回的一行（列名与 SQL 里的别名一一对应） */
 export interface UserCounts {
-  subdomain: number
   mailbox: number
-  dns: number
   storage_files: number
   storage_bytes: number
   ai_keys: number
@@ -883,7 +832,6 @@ export interface UserCounts {
   identity: number
   published: number
   decorated: number
-  domain_bind: number
   profile_view: number
   visit: number
   posts: number
@@ -895,7 +843,6 @@ export interface UserCounts {
   invited: number
   donations: number
   donation_kinds: number
-  frp: number
   proxy: number
   storage_acc: number
   ai_acc: number
@@ -918,7 +865,6 @@ export interface UserCounts {
   /** 累计已读邮件封数（读过的信删掉也不清减） */
   mail_read: number
   /** 使用过的 DNS 记录类型数 */
-  dns_types: number
   /** 编辑帖子次数 */
   post_edits: number
   /** 发布过的带图片帖子数 */
@@ -952,9 +898,7 @@ export interface UserCounts {
 /** 用户不存在 / 查不到时的全零计数（调用方不必到处写 `?.`） */
 function emptyCounts(): UserCounts {
   return {
-    subdomain: 0,
     mailbox: 0,
-    dns: 0,
     storage_files: 0,
     storage_bytes: 0,
     ai_keys: 0,
@@ -962,7 +906,6 @@ function emptyCounts(): UserCounts {
     identity: 0,
     published: 0,
     decorated: 0,
-    domain_bind: 0,
     profile_view: 0,
     visit: 0,
     posts: 0,
@@ -974,7 +917,6 @@ function emptyCounts(): UserCounts {
     invited: 0,
     donations: 0,
     donation_kinds: 0,
-    frp: 0,
     proxy: 0,
     storage_acc: 0,
     ai_acc: 0,
@@ -988,7 +930,6 @@ function emptyCounts(): UserCounts {
     shares_given: 0,
     stickers: 0,
     mail_read: 0,
-    dns_types: 0,
     post_edits: 0,
     post_images: 0,
     comment_replies: 0,
@@ -1031,16 +972,10 @@ function emptyCounts(): UserCounts {
  */
 function countColumns(owner: string, excludeApi: boolean): string {
   // 「API 计入成就」开关关闭时，排除通过公开 API 创建的记录（source='api'），
-  // 防止脚本刷成就点。只影响 DNS 与邮箱这两个能被 API 创建的资源。
+  // 防止脚本刷成就点。只影响邮箱这个能被 API 创建的资源。
   const mailboxSrc = excludeApi ? " AND source != 'api'" : ""
-  const dnsSrc = excludeApi ? " AND dr.source != 'api'" : ""
   return `
-       -- 主域名（name='@'，注册时分配）也计入（2026-10-01 用户反馈：
-      -- 原先排除它导致「创建 1 个子域名」这一档永远差一个，除非用户自己再建子域名）
-      (SELECT COUNT(*) FROM subdomains WHERE user_id = {OWNER}) AS subdomain,
-       (SELECT COUNT(*) FROM mailboxes WHERE user_id = {OWNER}${mailboxSrc}) AS mailbox,
-       (SELECT COUNT(*) FROM dns_records dr JOIN subdomains s ON dr.subdomain_id = s.id
-         WHERE s.user_id = {OWNER}${dnsSrc}) AS dns,
+        (SELECT COUNT(*) FROM mailboxes WHERE user_id = {OWNER}${mailboxSrc}) AS mailbox,
        (SELECT COUNT(*) FROM storage_objects WHERE user_id = {OWNER}) AS storage_files,
        (SELECT COALESCE(SUM(size), 0) FROM storage_objects WHERE user_id = {OWNER}) AS storage_bytes,
        (SELECT COUNT(*) FROM newapi_keys WHERE user_id = {OWNER}) AS ai_keys,
@@ -1059,11 +994,6 @@ function countColumns(owner: string, excludeApi: boolean): string {
           OR (music_key IS NOT NULL AND music_key != '')
           OR (music_url IS NOT NULL AND music_url != '')
        )) AS decorated,
-       (SELECT COUNT(*) FROM (
-          SELECT 1 FROM profiles WHERE user_id = {OWNER} AND fqdn IS NOT NULL
-          UNION ALL
-          SELECT 1 FROM storage_prefixes WHERE user_id = {OWNER}
-       )) AS domain_bind,
        (SELECT COALESCE(view_count, 0) FROM profiles WHERE user_id = {OWNER}) AS profile_view,
        (SELECT COALESCE(visit_count, 0) FROM user_stats WHERE user_id = {OWNER}) AS visit,
        (SELECT COUNT(*) FROM posts WHERE user_id = {OWNER} AND deleted_at IS NULL) AS posts,
@@ -1080,7 +1010,6 @@ function countColumns(owner: string, excludeApi: boolean): string {
        (SELECT COUNT(*) FROM donations WHERE user_id = {OWNER} AND status = 'approved') AS donations,
        (SELECT COUNT(DISTINCT type) FROM donations
          WHERE user_id = {OWNER} AND status = 'approved') AS donation_kinds,
-       (SELECT COUNT(*) FROM frp_accounts WHERE user_id = {OWNER}) AS frp,
        (SELECT COUNT(*) FROM proxy_activation WHERE user_id = {OWNER}) AS proxy,
        (SELECT COUNT(*) FROM storage_accounts WHERE user_id = {OWNER}) AS storage_acc,
        (SELECT COUNT(*) FROM newapi_accounts WHERE user_id = {OWNER}) AS ai_acc,
@@ -1105,9 +1034,6 @@ function countColumns(owner: string, excludeApi: boolean): string {
        (SELECT COUNT(*) FROM user_stickers WHERE user_id = {OWNER}) AS stickers,
        -- ---- 2026-10-04 新增：深度使用与平台探索 ----
        (SELECT COALESCE(mail_read_count, 0) FROM user_stats WHERE user_id = {OWNER}) AS mail_read,
-       (SELECT COUNT(DISTINCT dr.type) FROM dns_records dr
-          JOIN subdomains s ON dr.subdomain_id = s.id
-         WHERE s.user_id = {OWNER}${dnsSrc}) AS dns_types,
        (SELECT COUNT(*) FROM post_edits e JOIN posts p ON e.post_id = p.id
          WHERE e.editor_id = {OWNER} AND p.deleted_at IS NULL) AS post_edits,
        (SELECT COUNT(*) FROM posts
@@ -1211,11 +1137,8 @@ export function computeAchievements(counts: UserCounts): {
     storage_enable: (c?.storage_acc ?? 0) > 0 ? 1 : 0,
     ai_enable: (c?.ai_acc ?? 0) > 0 ? 1 : 0,
     profile_enable: (c?.profile_row ?? 0) > 0 ? 1 : 0,
-    domain_bind: (c?.domain_bind ?? 0) > 0 ? 1 : 0,
     identity: (c?.identity ?? 0) > 0 ? 1 : 0,
-    subdomain: c?.subdomain ?? 0,
     mailbox: c?.mailbox ?? 0,
-    dns: c?.dns ?? 0,
     storage_files: c?.storage_files ?? 0,
     storage_bytes: c?.storage_bytes ?? 0,
     first_mail: (c?.mails ?? 0) > 0 ? 1 : 0,
@@ -1233,8 +1156,7 @@ export function computeAchievements(counts: UserCounts): {
     inviter: c?.invited ?? 0,
     donor: c?.donations ?? 0,
     // 「全能贡献」= AI / 代理 / 内网穿透 / 商汤 里任意三种都捐过
-    donor_all: (c?.donation_kinds ?? 0) >= 3 ? 1 : 0,
-    frp_enable: (c?.frp ?? 0) > 0 ? 1 : 0,
+    donor_all: (c?.donation_kinds ?? 0) >= 2 ? 1 : 0,
     proxy_enable: (c?.proxy ?? 0) > 0 ? 1 : 0,
     veteran: (c?.veteran_rank ?? 999) < VETERAN_TOP_N ? 1 : 0,
     loyal: daysSinceRegister,
@@ -1248,7 +1170,6 @@ export function computeAchievements(counts: UserCounts): {
     post_shares: c?.shares_given ?? 0,
     stickers: c?.stickers ?? 0,
     mail_read: c?.mail_read ?? 0,
-    dns_types: c?.dns_types ?? 0,
     post_edits: c?.post_edits ?? 0,
     post_images: c?.post_images ?? 0,
     comment_replies: c?.comment_replies ?? 0,

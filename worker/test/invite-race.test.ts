@@ -167,14 +167,8 @@ describe("邀请码并发消费", () => {
       )
     )
 
-    // 建号数与子域名数必须一一对应：插入是事务性的，不该出现「有用户行没子域名」
+    // 并发失败者不能留下半成品账号：最终只有 1 个用户行落库
     const users = await countUsersLike(prefix)
-    const subs = await env.DB.prepare(
-      "SELECT COUNT(*) AS c FROM subdomains WHERE user_id IN (SELECT id FROM users WHERE username LIKE ?)"
-    )
-      .bind(`${prefix}%`)
-      .first<{ c: number }>()
     expect(users).toBe(1)
-    expect(subs?.c ?? 0).toBe(1)
   })
 })

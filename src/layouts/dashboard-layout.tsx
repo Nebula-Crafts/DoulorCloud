@@ -1,7 +1,6 @@
 import * as React from "react"
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
-  Globe,
   Mail,
   Settings,
   LayoutDashboard,
@@ -12,7 +11,6 @@ import {
   HardDrive,
   Heart,  Sparkles,
   Contact,
-  Network,
   Zap,
   Trophy,
   Medal,
@@ -64,7 +62,6 @@ import {
   chatApi,
   communityApi,
   settingsApi,
-  getDefaultRootDomain,
   HttpError,
 } from "@/services/api"
 import type { AttentionCounts } from "@/types"
@@ -80,11 +77,9 @@ const ATTENTION_POLL_MS = 60_000
 /** 主体功能，排在侧边栏上部 */
 const baseNav = [
   { to: "/dashboard", labelKey: "nav.overview", icon: LayoutDashboard, end: true },
-  { to: "/dashboard/domains", labelKey: "nav.domains", icon: Globe, end: false },
   { to: "/dashboard/email", labelKey: "nav.email", icon: Mail, end: false },
   { to: "/dashboard/storage", labelKey: "nav.storage", icon: HardDrive, end: false },
   { to: "/dashboard/ai", labelKey: "nav.ai", icon: Sparkles, end: false },
-  { to: "/dashboard/frp", labelKey: "nav.frp", icon: Network, end: false },
   { to: "/dashboard/proxy", labelKey: "nav.proxy", icon: Zap, end: false },
   { to: "/dashboard/profile", labelKey: "nav.profile", icon: Contact, end: false },
   { to: "/dashboard/community", labelKey: "nav.community", icon: MessagesSquare, end: false },
@@ -139,20 +134,6 @@ export function DashboardLayout({
 }) {
   const { user, setUser } = useAuth()
   /** 「发给用户的根域」（如 tyu.me），由后端下发，不写死 —— 管理员可改 */
-  const [rootDomain, setRootDomain] = React.useState("")
-  React.useEffect(() => {
-    let alive = true
-    getDefaultRootDomain()
-      .then((d) => {
-        if (alive) setRootDomain(d)
-      })
-      .catch(() => {
-        /* 拉不到就不显示域名 */
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
   const location = useLocation()
   const navigate = useNavigate()
   const { t } = useT()
@@ -549,7 +530,6 @@ export function DashboardLayout({
                 {/* 根域由后端下发（root_domains 的默认行，管理员可改），
                     2026-10-02 起是 tyu.me —— 写死 doulor.cn 会在换域后显示错地址 */}
                 {user.namespace}
-                {rootDomain ? `.${rootDomain}` : ""}
               </p>
             </div>
             <DropdownMenu>

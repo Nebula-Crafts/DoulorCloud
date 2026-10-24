@@ -43,7 +43,6 @@ import {
   authApi,
   identityApi,
   settingsApi,
-  getDefaultRootDomain,
   HttpError,
 } from "@/services/api"
 import { useAuth } from "@/hooks/use-auth"
@@ -71,20 +70,6 @@ export default function SettingsPage() {
    * 它是管理员可改的（root_domains 的默认行），换域后写死的地方会显示错地址
    * （2026-10-02 从 doulor.cn 整体迁到 tyu.me 时就踩到了）。拉不到就留空。
    */
-  const [rootDomain, setRootDomain] = React.useState("")
-  React.useEffect(() => {
-    let alive = true
-    getDefaultRootDomain()
-      .then((d) => {
-        if (alive) setRootDomain(d)
-      })
-      .catch(() => {
-        /* 拉不到就不显示域名，别闪一个错的 */
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
 
   // 修改密码
   const [pwOpen, setPwOpen] = React.useState(false)
@@ -514,13 +499,6 @@ export default function SettingsPage() {
                     {t("common.edit")}
                   </Button>
                 </div>
-              </div>
-              <div className="flex items-center justify-between py-3 text-sm">
-                <span className="text-muted-foreground">{t("settings.label.myDomain")}</span>
-                <span className="font-mono">
-                  {user?.namespace}
-                  {rootDomain ? `.${rootDomain}` : ""}
-                </span>
               </div>
               <div className="flex items-center justify-between py-3 text-sm">
                 <span className="text-muted-foreground">{t("settings.label.joinedAt")}</span>
@@ -953,22 +931,6 @@ export default function SettingsPage() {
               <div className="space-y-1">
                 <p className="font-medium">{t("settings.rename.warn")}</p>
                 <p>{t("settings.rename.w1")} <code>{user?.username}/</code>{t("settings.rename.w1b")}</p>
-                {/* 主域名/主邮箱按「namespace」展示（不是 username）：2026-10-02 起
-                    少数短用户名账号的主域被补 0 改名（如 i → i00），两者不再一致 */}
-                <p>
-                  {t("settings.rename.w2")}{" "}
-                  <code>
-                    {user?.namespace}
-                    {rootDomain ? `.${rootDomain}` : ""}
-                  </code>
-                </p>
-                <p>
-                  {t("settings.rename.w3")}{" "}
-                  <code>
-                    {user?.namespace}
-                    {rootDomain ? `@${rootDomain}` : ""}
-                  </code>
-                </p>
                 <p>{t("settings.rename.w4")}</p>
               </div>
             </div>

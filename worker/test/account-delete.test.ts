@@ -233,7 +233,7 @@ describe("管理端：已注销用户展示", () => {
     expect(tomb?.status).toBe("deleted")
     expect(tomb?.deletedReason).toBe("self")
     // 留痕行不参与鉴权：权限一律视为无
-    expect(tomb?.permissions).toEqual({ r2: false, ai: false, frp: false, proxy: false })
+    expect(tomb?.permissions).toEqual({ r2: false, ai: false, proxy: false })
   })
 
   it("管理员删号同样写留痕（reason='admin'）", async () => {

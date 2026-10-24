@@ -58,7 +58,7 @@ async function makeDonor(): Promise<TestUser> {
   await env.DB.prepare("UPDATE users SET email = ? WHERE id = ?")
     .bind(`${user.username}@example.net`, user.id)
     .run()
-  await setPermissions(user.id, JSON.stringify({ r2: true, ai: false, frp: false, proxy: false }))
+  await setPermissions(user.id, JSON.stringify({ r2: true, ai: false, proxy: false }))
   return user
 }
 
@@ -83,7 +83,7 @@ async function permsOf(userId: string) {
 describe("parseAutoReviewFeatures", () => {
   it("解析逗号分隔，忽略未知与重复", () => {
     expect(parseAutoReviewFeatures("ai,proxy")).toEqual(["ai", "proxy"])
-    expect(parseAutoReviewFeatures("ai,bogus,frp,ai")).toEqual(["ai", "frp"])
+    expect(parseAutoReviewFeatures("ai,bogus,proxy,ai")).toEqual(["ai", "proxy"])
     expect(parseAutoReviewFeatures("")).toEqual([])
     expect(parseAutoReviewFeatures(null)).toEqual([])
     expect(parseAutoReviewFeatures(" AI , PROXY ")).toEqual(["ai", "proxy"])
@@ -193,108 +193,4 @@ describe("代理捐献自动审核：判据必须区分「没能验证」与「�
   })
 })
 
-describe("frp 捐献（服务端信息）", () => {
-  const VALID_FRP = {
-    nodeName: "测试节点",
-    region: "香港",
-    serverAddr: "frp.example.com",
-    serverPort: 7000,
-    portMin: 20000,
-    portMax: 50000,
-    maxPorts: 5,
-    authMode: "token_user",
-    authToken: "shared-secret",
-    configSample:
-      'serverAddr = "frp.example.com"\nserverPort = 7000\n\nauth.token = "shared-secret"\n\nuser = "demo"\n[metadatas]\ntoken = "demo-pass"\n',
-    note: "测试",
-  }
-
-  it("合法服务端信息 → 提交成功（201），转人工（本站测不了连通性）", async () => {
-    await setAutoReview(["frp"])
-    const user = await makeDonor()
-    const { res, body } = await submit(user, "frp", VALID_FRP)
-    expect(res.status).toBe(201)
-    expect(body.status).toBe("pending")
-    expect(body.autoReviewed).toBe(true) // 自动校验跑过，但结论是「转人工」
-    // 不自动解锁：frp 已移出权限体系（内网穿透改成积分租用），
-    // 所以「解锁」这件事本身不存在了 —— 这里钉的是**捐献没有顺带把别的权限打开**。
-    const perms = await permsOf(user.id)
-    expect(Object.keys(perms)).not.toContain("frp")
-    expect(perms.r2).toBe(true) // 默认权限未被动过
-    // 不自动建节点（建节点在管理员批准时才做）
-    const nodes = await env.DB.prepare("SELECT COUNT(*) c FROM frp_nodes").first<{ c: number }>()
-    expect(nodes?.c).toBe(0)
-  })
-
-  it("缺服务端地址 → 提交时拒绝（400，当场让用户改）", async () => {
-    await setAutoReview(["frp"])
-    const user = await makeDonor()
-    const { res } = await submit(user, "frp", { ...VALID_FRP, serverAddr: "" })
-    expect(res.status).toBe(400)
-  })
-
-  it("示例里的 serverAddr 与表单不一致 → 拒绝（400）", async () => {
-    await setAutoReview(["frp"])
-    const user = await makeDonor()
-    const { res } = await submit(user, "frp", {
-      ...VALID_FRP,
-      configSample: VALID_FRP.configSample.replace("frp.example.com", "other.example.com"),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it("内网地址 → 拒绝（400，别人连不上）", async () => {
-    await setAutoReview(["frp"])
-    const user = await makeDonor()
-    const { res } = await submit(user, "frp", {
-      ...VALID_FRP,
-      serverAddr: "192.168.1.5",
-      configSample: VALID_FRP.configSample.replace("frp.example.com", "192.168.1.5"),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it("token_user 鉴权但没填全局 token → 拒绝（400）", async () => {
-    await setAutoReview(["frp"])
-    const user = await makeDonor()
-    const { res } = await submit(user, "frp", { ...VALID_FRP, authToken: "" })
-    expect(res.status).toBe(400)
-  })
-
-  it("批准后自动建出 frp_nodes，且样例里的个人凭据不进模板", async () => {
-    await setAutoReview([]) // 关自动，直接人工审批
-    const user = await makeDonor()
-    const { body } = await submit(user, "frp", VALID_FRP)
-    const donationId = body.id as string
-
-    // 管理员批准（走 reviewDonation）
-    // ⚠️ 必须用 makeUser 直接建 admin —— 它默认带上全量叶子权限域。
-    //    不能「先 makeUser() 建普通用户再 UPDATE users SET role='admin'」：
-    //    0119 起 admin 必须显式持有 admin_scope，那条路 scope 仍是 NULL，
-    //    管理端接口一律 403 ADMIN_SCOPE_DENIED。
-    const admin = await makeUser({ role: "admin" })
-    const approveRes = await fetchSelf(
-      authRequest(admin, "/admin/donations/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: donationId, action: "approve" }),
-      })
-    )
-    expect(approveRes.status).toBe(200)
-
-    const node = await env.DB.prepare(
-      "SELECT * FROM frp_nodes WHERE source_donation_id = ?"
-    )
-      .bind(donationId)
-      .first<{ config_template: string; name: string; auth_mode: string }>()
-    expect(node).toBeTruthy()
-    expect(node!.name).toBe(`捐献-${user.username}`)
-    expect(node!.auth_mode).toBe("token_user")
-    // 模板参数化了：没有捐献者自己的 user/token 明文
-    expect(node!.config_template).toContain("{user}")
-    expect(node!.config_template).toContain("{password}")
-    expect(node!.config_template).not.toContain("demo-pass")
-    expect(node!.config_template).not.toContain('user = "demo"')
-  })
-})
 

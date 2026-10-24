@@ -100,8 +100,7 @@ describe("限时开放注册", () => {
       ai: false,
       proxy: false,
       doulor: false,
-      dns: false,
-      // ⚠️ relay_auto（中转站免审入驻）**必须显式 false**：新注册的账号不能免审，
+        // ⚠️ relay_auto（中转站免审入驻）**必须显式 false**：新注册的账号不能免审，
       //    它是「信任」不是「功能」，只能由管理员在管理端逐个勾选（见 permissions.ts）。
       relay_auto: false,
     })
@@ -152,8 +151,7 @@ describe("限时开放注册", () => {
       ai: true,
       proxy: false,
       doulor: false,
-      dns: false,
-      relay_auto: false,
+        relay_auto: false,
     })
     expect(row?.invite_code_id).not.toBeNull()
 
@@ -181,8 +179,7 @@ describe("限时开放注册", () => {
       ai: false,
       proxy: false,
       doulor: false,
-      dns: false,
-      relay_auto: false,
+        relay_auto: false,
     })
   })
 
@@ -277,8 +274,7 @@ describe("开放注册期间：不含权限的邀请码不消耗次数", () => {
       ai: false,
       proxy: false,
       doulor: false,
-      dns: false,
-      relay_auto: false,
+        relay_auto: false,
     })
     expect(await usedCount(code)).toBe(0)
   })

@@ -42,7 +42,6 @@ import {
   updateProjectMeta,
   type LabProjectRow,
 } from "./lab"
-import { bindProjectDomain, getBoundDomain, releaseProjectDomain } from "./lab-domains"
 import { likeContains } from "../sql-like"
 import type { Env } from "../env"
 
@@ -611,72 +610,6 @@ export async function listGalleryProjects(env: Env, request: Request): Promise<R
     },
     items: (rows.results ?? []).map(toAdminGalleryJson),
   })
-}
-
-/**
- * 取授权后的作品行（管理端所有单件操作的**唯一**入口）。
- *
- * 顺序不能反：先过 `requireAdminScope`，再按 id 取行 ——
- * 反过来的话，一个普通用户请求任何 id 都会先看到「作品不存在」，
- * 而管理员才拿到权限错误，等于把「id 是否存在」变成一个可探测的信号。
- */
-async function loadProjectForAdmin(
-  env: Env,
-  request: Request,
-  projectId: string
-): Promise<LabProjectRow> {
-  await requireAdminScope(env, request, "lab")
-  return loadProjectById(env, projectId)
-}
-
-/** GET /api/admin/lab/gallery/:id/domain —— 当前绑定的域名（编辑弹窗打开时拉） */
-export async function getGalleryProjectDomain(
-  env: Env,
-  request: Request,
-  projectId: string
-): Promise<Response> {
-  await loadProjectForAdmin(env, request, projectId)
-  return json({ fqdn: await getBoundDomain(env, projectId) })
-}
-
-/**
- * PUT /api/admin/lab/gallery/:id/domain —— 绑定 / 改绑。
- *
- * 归属与权益仍按**作者**算（`bindProjectDomain` 内部就是这样）：
- * 管理员能替作者操作，但不会因此把作品绑到别人名下的子域上。
- */
-export async function setGalleryProjectDomain(
-  env: Env,
-  request: Request,
-  projectId: string
-): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "lab")
-  const project = await loadProjectById(env, projectId)
-  const body = (await request.json().catch(() => null)) as { fqdn?: unknown } | null
-  // 作者行要拿 permissions：根域权益门禁按作者的权益判定，不按管理员的
-  const owner = await env.DB.prepare("SELECT id, permissions FROM users WHERE id = ?")
-    .bind(project.user_id)
-    .first<{ id: string; permissions: string | null }>()
-  if (!owner) throw new ApiError(404, "作品作者不存在", "NOT_FOUND")
-
-  const fqdn = await bindProjectDomain(env, project, body?.fqdn, owner)
-  await recordAudit(env, admin.id, "admin.lab_gallery", `绑定作品域名「${project.name}」→ ${fqdn}`)
-  return json({ fqdn })
-}
-
-/** DELETE /api/admin/lab/gallery/:id/domain —— 解绑（Route 与 DNS 一并释放） */
-export async function clearGalleryProjectDomain(
-  env: Env,
-  request: Request,
-  projectId: string
-): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "lab")
-  const project = await loadProjectById(env, projectId)
-  const released = await releaseProjectDomain(env, projectId)
-  if (released) {
-    await recordAudit(env, admin.id, "admin.lab_gallery", `解绑作品域名「${project.name}」← ${released}`)
-  }
-  return json({ fqdn: null })
 }
 
 /** POST /api/admin/lab/gallery/:id/cover —— 上传封面（与原图直传同一套闸） */

@@ -48,12 +48,11 @@ describe("admin-permissions 权限树", () => {
     expect(isKnownPermissionKey("points.review")).toBe(true)
   })
 
-  it("权限树含捐献的 ai/proxy/frp 三类子节点", () => {
+  it("权限树含捐献的 ai/proxy 子节点", () => {
     const donations = ADMIN_PERMISSIONS.find((c) => c.key === "donations")
     const keys = donations?.children?.map((l) => l.key) ?? []
     expect(keys).toContain("donations.ai")
     expect(keys).toContain("donations.proxy")
-    expect(keys).toContain("donations.frp")
   })
 })
 
@@ -208,7 +207,7 @@ describe("权限组 / 成员权限 API", () => {
       req(root, `/api/admin/users/${target.username}/admin-permissions`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "admin", adminRoleId: id, adminScope: ["donations.frp"] }),
+        body: JSON.stringify({ role: "admin", adminRoleId: id, adminScope: ["donations.ai"] }),
       })
     )
     expect(set2.status).toBe(200)

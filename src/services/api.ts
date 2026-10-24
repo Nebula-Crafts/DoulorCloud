@@ -20,8 +20,6 @@ import {
   type LeaderboardResponse,
   type CommunityMetric,
   type LeaderboardRange,
-  type DnsRecord,
-  type DnsRecordType,
   type Donation,
   type DonationChannel,
   type DonationOverview,
@@ -31,12 +29,6 @@ import {
   type VoucherOverview,
   type RedeemResult,
   type Mailbox,
-  type AdminFrpNode,
-  type AdminFrpPlan,
-  type AdminFrpSubscription,
-  type AdminFrpAgent,
-  type UserFrpPlan,
-  type UserFrpRental,
   type EmailSettings,
   type MailMessage,
   type Permissions,
@@ -65,7 +57,6 @@ import {
   type ProfileOverview,
   type R2BucketsResponse,
   type R2Operations,
-  type ReservedSubdomain,
   type ProxyOverview,
   type ProxyLatencyBatch,
   type CfQuotaOverview,
@@ -75,7 +66,6 @@ import {
   type TempboxBatch,
   type TempboxConfig,
   type TempboxCreated,
-  type Subdomain,
   type User,
   type Post,
   type CommentNode,
@@ -141,19 +131,6 @@ import {
   type DmPeer,
   type DmMessage,
   type DmConversation,
-  type AdminDnsListResponse,
-  type AdminDnsRecord,
-  type AdminDnsFindingsResponse,
-  type AdminDnsAuditSummary,
-  type AdminDnsCfDiff,
-  type AdminDnsRentalsResponse,
-  type AdminCfZonesResponse,
-  type AdminRootDomainDeleteResult,
-  type AdminRootDomainImportResult,
-  type AdminRootDomainsResponse,
-  type DnsRentalState,
-  type AdminSubdomain,
-  type AdminSubdomainListResponse,
   type AdminMailbox,
   type AdminMailboxListResponse,
   type AdminMailboxMessage,
@@ -436,153 +413,6 @@ export async function getDefaultRootDomain(): Promise<string> {
       })
   }
   return defaultRootDomainInflight
-}
-
-// ---- DNS ----
-
-export interface CreateDnsPayload {
-  subdomainId?: string
-  /**
-   * 顶级记录（挂在 '@' 主域名下）建在**哪个根域**下；省略 = 沿用现状。
-   *
-   * 服务端会用 `pickRootDomain` 再校验一次（启用状态 + `requires_feature`），
-   * 所以这里传什么都没关系 —— 前端的下拉框只是把可选范围摆明。
-   */
-  rootDomain?: string
-  /**
-   * 相对前缀。
-   *
-   * SRV 记录下这个字段的语义不同：它是「服务标签之后、基准域名之前」的那一段
-   * （可空），service / proto 由下面两个字段单独给 —— 记录名由服务端拼装，
-   * 免得每个入口都要重复「必须带前导下划线、顺序固定」这套规则。
-   */
-  name: string
-  type: DnsRecordType
-  /** 非 SRV 记录的内容；SRV 不用（由 srv* 字段推导） */
-  content: string
-  ttl?: number
-  proxied?: boolean
-  /** MX 与 SRV 共用：值小者优先 */
-  priority?: number
-  /** SRV：服务名（`sip` 或 `_sip` 都行，服务端会补下划线） */
-  srvService?: string
-  /** SRV：协议（`tcp` / `udp`） */
-  srvProto?: string
-  /** SRV：同优先级内的权重，0–65535 */
-  srvWeight?: number
-  /** SRV：端口，1–65535 */
-  srvPort?: number
-  /** SRV：提供服务的主机名 */
-  srvTarget?: string
-  /** SRV：优先级，0–65535（缺省 10） */
-  srvPriority?: number
-}
-
-export const dnsApi = {
-  /**
-   * 列出 DNS 记录。
-   *
-   * `subdomainId` 是**可选筛选**：
-   *   · 传 ⇒ 只看那个子域名下的记录；
-   *   · 不传 ⇒ 该账号**名下全部域名**的记录（跨子域名，2026-10-16 起）。
-   * 默认走「全部」是因为站长反馈过：记录明明建在 `xxxxx.tyu.me` 下，界面却一直
-   * 停在另一个子域名上显示 0 条，看着像记录丢了。列表里每条记录都带
-   * `subdomainFqdn`，前端据此显示归属列。
-   *
-   * `dnsUsage` 是**服务端**算好的「该用户全部域名的记录数 / 上限」，与筛选无关：
-   * 上限本来就是跨域名的，前端自己数 `records.length`（筛选后还会带上平台托管的
-   * 派生项）会得出一个跟服务端卡的那条线对不上的数字。
-   * `limit === null` 表示不限（管理员 / 管理员 Key）。
-   */
-  list: (subdomainId?: string) =>
-    request<{
-      records: DnsRecord[]
-      dnsUsage: { used: number; limit: number | null }
-    }>(
-      subdomainId ? `/dns?subdomainId=${encodeURIComponent(subdomainId)}` : "/dns"
-    ),
-
-  create: (payload: CreateDnsPayload) =>
-    request<{ record: DnsRecord }>("/dns", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  update: (id: string, payload: Partial<CreateDnsPayload>) =>
-    request<{ record: DnsRecord }>(`/dns/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-      }
-    ),
-
-  remove: (id: string) =>
-    request<void>(`/dns/${id}`, { method: "DELETE" }),
-
-  /**
-   * DNS 解析租用：可租根域价目 + 我的积分 + 我的租约。
-   *
-   * 用户端面板与「新建记录」的根域下拉框共用这一份数据 ——
-   * 两处需要的是同一个事实（哪些根域我买得起 / 已经能用），
-   * 拆成两个接口迟早会漂移。
-   */
-  rental: () =>
-    request<DnsRentalState>("/dns/rental"),
-
-  /**
-   * 买下某个根域的解析能力（一年）。
-   * `requestId` 用于服务端幂等 —— 双击 / 网络重试不会重复扣分。
-   */
-  purchaseRental: (payload: { rootDomain: string; requestId?: string }) =>
-    request<{
-      ok: boolean
-      id: string
-      rootDomain: string
-      expiresAt: string
-      balance: number
-      pricePoints: number
-    }>("/dns/rental/purchase", { method: "POST", body: JSON.stringify(payload) }),
-
-  renewRental: (payload: { id: string; requestId?: string }) =>
-    request<{ ok: boolean; expiresAt: string; balance: number; pricePoints: number }>(
-      "/dns/rental/renew",
-      { method: "POST", body: JSON.stringify(payload) }
-    ),
-
-  /**
-   * 开关自动续费。
-   *
-   * 开着的话服务端每小时检查一次：到期前 24 小时内按**当前年价**自动续一期。
-   * 积分不够时服务端会**自动关掉它**并把原因写进 last_error（面板上会显示）。
-   */
-  setRentalAutoRenew: (payload: { id: string; autoRenew: boolean }) =>
-    request<{ ok: boolean; id: string; autoRenew: boolean }>("/dns/rental/auto-renew", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-}
-
-// ---- 子域名 ----
-
-export const domainApi = {
-  list: () =>
-    request<{
-      subdomains: Subdomain[]
-      limit: number
-      childLimit: number
-      minRootNameLength: number
-      /** 可选的根域（后端按权限筛过；没权限的不会出现在这里） */
-      rootDomains: RootDomainOption[]
-    }>("/subdomains"),
-
-  /** parentId 省略 → 建一级子域名；指定 → 在该子域名下建子子域名 */
-  create: (payload: { name: string; parentId?: string; rootDomain?: string }) =>
-    request<{ subdomain: Subdomain }>("/subdomains", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  remove: (id: string) =>
-    request<void>(`/subdomains/${id}`, { method: "DELETE" }),
 }
 
 // ---- 管理员 ----
@@ -965,21 +795,6 @@ export const adminApi = {
       { method: "PUT", body: JSON.stringify(payload) }
     ),
 
-  listReserved: () =>
-    request<{ reserved: ReservedSubdomain[] }>("/admin/reserved-subdomains"),
-
-  addReserved: (payload: { name: string; note?: string }) =>
-    request<{ reserved: ReservedSubdomain[] }>("/admin/reserved-subdomains", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  removeReserved: (name: string) =>
-    request<{ reserved: ReservedSubdomain[] }>(
-      `/admin/reserved-subdomains/${encodeURIComponent(name)}`,
-      { method: "DELETE" }
-    ),
-
   getSettings: () => request<AdminSettings>("/admin/settings"),
 
   updateSettings: (payload: Record<string, string | number | boolean>) =>
@@ -1261,105 +1076,6 @@ export const adminApi = {
       { method: "PUT", body: JSON.stringify({ quotaBytes }) }
     ),
 
-  /** 把存量用户的配额刷成「所属桶的每人配额」（没有桶归属则回落全局默认）；admin/root 会被跳过 */
-  syncStorageQuota: () =>
-    request<{
-      updated: number
-      skippedAdmins: number
-      failed: number
-      overQuota: number
-      changed: { username: string; from: number; to: number; overQuota: boolean }[]
-    }>("/admin/storage/sync-quota", { method: "POST" }),
-
-  // frp 内网穿透
-  //
-  // ⚠️ 人工审核那一组方法（listFrpApplications / reviewFrp / revokeFrp /
-  // updateFrpApplication）已于 2026-10-13 随流程退役删除。
-  // 现在管理端管的是「套餐 + 订阅」，见下方的 listFrpRentalPlans 等。
-
-  listFrpNodes: () => request<{ nodes: AdminFrpNode[] }>("/admin/frp/nodes"),
-
-  upsertFrpNode: (payload: Record<string, unknown>) =>
-    request<{ id: string }>("/admin/frp/nodes", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  deleteFrpNode: (id: string) =>
-    request<void>(`/admin/frp/nodes/${encodeURIComponent(id)}`, { method: "DELETE" }),
-
-  releaseFrpPorts: (payload: { username: string; nodeId: string }) =>
-    request<{ released: number }>("/admin/frp/ports/release", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 某节点已占用的端口（带来源：manual = 站长手工标记） */
-  listFrpPorts: (nodeId: string) =>
-    request<{ ports: { port: number; owner: string | null; manual: boolean }[] }>(
-      `/admin/frp/ports?nodeId=${encodeURIComponent(nodeId)}`
-    ),
-
-  /** 手动把一批端口标记为已占用 */
-  occupyFrpPorts: (payload: { nodeId: string; ports: number[] }) =>
-    request<{ ok: boolean; count: number }>("/admin/frp/ports/occupy", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 解除一批端口的占用 */
-  freeFrpPorts: (payload: { nodeId: string; ports: number[] }) =>
-    request<{ ok: boolean; freed: number }>("/admin/frp/ports/free", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  // ---- 内网穿透「租用化」----
-  // 只读写 D1：真正的落地由服务器上的 frp-agent 轮询完成（最多 20 秒延迟）。
-  // 因此管理端操作永远不会因为那台服务器抖动而失败，而「同步状态」是判断
-  // 「期望 vs 实际」是否一致的唯一观测点。
-  listFrpRentalPlans: () =>
-    request<{ plans: AdminFrpPlan[]; defaultPortRange: [number, number] }>(
-      "/admin/frp/plans"
-    ),
-
-  upsertFrpRentalPlan: (payload: Record<string, unknown>) =>
-    request<{ ok: boolean; id: string }>("/admin/frp/plans", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  deleteFrpRentalPlan: (id: string) =>
-    request<void>(`/admin/frp/plans/${encodeURIComponent(id)}`, { method: "DELETE" }),
-
-  listFrpRentals: () =>
-    request<{
-      subscriptions: AdminFrpSubscription[]
-      agents: AdminFrpAgent[]
-      userPrefix: string
-      defaultPortRange: [number, number]
-    }>("/admin/frp/subscriptions"),
-
-  createFrpRental: (payload: Record<string, unknown>) =>
-    request<{
-      ok: boolean
-      id: string
-      frpUser: string
-      frpToken: string
-      ports: number[]
-      expiresAt: string
-    }>("/admin/frp/subscriptions", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  updateFrpRental: (id: string, payload: Record<string, unknown>) =>
-    request<{ ok: boolean }>(`/admin/frp/subscriptions/${encodeURIComponent(id)}`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  // 代理节点订阅源
   listProxySubscriptions: () =>
     request<{ subscriptions: AdminProxySubscription[] }>("/admin/proxy/subscriptions"),
 
@@ -1500,6 +1216,16 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  /** 把存量用户的配额刷成「所属桶的每人配额」（没有桶归属则回落全局默认）；admin/root 会被跳过 */
+  syncStorageQuota: () =>
+    request<{
+      updated: number
+      skippedAdmins: number
+      failed: number
+      overQuota: number
+      changed: { username: string; from: number; to: number; overQuota: boolean }[]
+    }>("/admin/storage/sync-quota", { method: "POST" }),
 }
 
 // ---- 账户设置（真实邮箱验证 / 改名 / 改邮箱 / 通知开关）----
@@ -1795,84 +1521,6 @@ export const tempboxApi = {
       `/tempbox/${encodeURIComponent(code)}/${encodeURIComponent(filename)}`,
       { method: "DELETE" }
     ),
-}
-
-// ---- frp 内网穿透 ----
-//
-// ⚠️ 用户端的「启用 / 停用 / 提交申请 / 撤回申请」已于 2026-10-13 随人工审核流程
-// 一起退役，对应的 overview/enable/disable/apply/cancel 五个方法也一并删除 ——
-// 留着它们只会变成「调一个不存在的路由、被 SPA 兜底成 HTML」的静默失效。
-// 现在只剩「积分租用」这一组，见下方。
-export const frpApi = {
-  // ---- 内网穿透「租用化」----
-  // 用户用积分为自己买 / 续使用时长。积分扣减全部在服务端走原子记账，
-  // 前端只负责展示与发起；`requestId` 用于防重复提交（双击、网络重试）。
-  listRentalPlans: () =>
-    request<{
-      balance: number
-      plans: UserFrpPlan[]
-      /** 站长把总开关关了 → 暂停销售（不影响已购租约） */
-      suspended: boolean
-      /** frpc 客户端下载地址；可能未配置 */
-      coreUrl: string | null
-      userPrefix: string
-    }>("/frp/rental/plans"),
-
-  listMyRentals: () =>
-    request<{ balance: number; subscriptions: UserFrpRental[] }>("/frp/rental/mine"),
-
-  /**
-   * 开关「自动续费」。
-   *
-   * 开着的话，服务端每小时检查一次：到期前 24 小时内会自动按当前套餐续一期。
-   * 积分不够时服务端会**自动关掉它**并把原因写进 last_error（页面上会显示）。
-   */
-  setAutoRenew: (payload: { id: string; autoRenew: boolean }) =>
-    request<{ ok: boolean; id: string; autoRenew: boolean }>("/frp/rental/auto-renew", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  purchaseRental: (payload: { planId: string; requestId?: string }) =>
-    request<{
-      ok: boolean
-      id: string
-      frpUser: string
-      ports: number[]
-      expiresAt: string
-      balance: number
-      pricePoints: number
-    }>("/frp/rental/purchase", { method: "POST", body: JSON.stringify(payload) }),
-
-  renewRental: (payload: { id: string; requestId?: string }) =>
-    request<{ ok: boolean; expiresAt: string; balance: number; pricePoints: number }>(
-      "/frp/rental/renew",
-      { method: "POST", body: JSON.stringify(payload) }
-    ),
-
-  /**
-   * 改自己租约的 frp 密码。
-   *
-   * 账号名（frpUser）生成后不可改 —— 它同时是面板里的凭据标识和 frps 的 user 字段，
-   * 改了等于换一个账号，历史隧道配置全部失效。只有密码归用户自己。
-   */
-  setMyRentalToken: (payload: { id: string; token: string }) =>
-    request<{ ok: boolean; frpToken: string }>("/frp/rental/token", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /**
-   * 领一枚「一键捐献服务器」令牌。
-   *
-   * 令牌是 HMAC 签名的（含过期时间，1 小时），前端拿它拼进给用户的命令里。
-   * ⚠️ 它是**一次性**的 —— 每次生成命令都重新领，不要缓存复用。
-   */
-  issueDonateToken: () =>
-    request<{ ok: boolean; token: string; expiresInSec: number }>("/frp/donate/token", {
-      method: "POST",
-      body: JSON.stringify({}),
-    }),
 }
 
 // ---- 代理节点 ----
@@ -4479,241 +4127,6 @@ export interface RelayKeyRow {
   group: string | null
   createdAt: string | null
 }
-
-// ---- 管理面板 · DNS 解析管理（2026-10-01）----
-//
-// 独立成对象而不是塞进 adminApi：adminApi 已经很长，且这个模块有自己的
-// 「列表 / 扫描 / 处置 / 对账」四段语义。
-
-export const adminDnsApi = {
-  /**
-   * 全站 DNS 记录列表。
-   *
-   * `severity` 支持 high / medium / low / any（只看有问题的）/ none（只看干净的）。
-   * 注意严重度是服务端**算**出来的（规则引擎），不是在 SQL 里筛的，所以要传给它。
-   */
-  list: (params: {
-    q?: string
-    type?: string
-    severity?: string
-    proxied?: string
-    status?: string
-    username?: string
-    includeIgnored?: boolean
-    page?: number
-    pageSize?: number
-  } = {}) => {
-    const sp = new URLSearchParams()
-    if (params.q) sp.set("q", params.q)
-    if (params.type) sp.set("type", params.type)
-    if (params.severity) sp.set("severity", params.severity)
-    if (params.proxied) sp.set("proxied", params.proxied)
-    if (params.status) sp.set("status", params.status)
-    if (params.username) sp.set("username", params.username)
-    if (params.includeIgnored) sp.set("includeIgnored", "1")
-    if (params.page) sp.set("page", String(params.page))
-    if (params.pageSize) sp.set("pageSize", String(params.pageSize))
-    const qs = sp.toString()
-    return request<AdminDnsListResponse>(`/admin/dns${qs ? "?" + qs : ""}`)
-  },
-
-  /** 编辑一条记录（站长视角：可改类型、内容、TTL、代理开关） */
-  update: (
-    id: string,
-    payload: {
-      name?: string
-      type?: string
-      content?: string
-      ttl?: number
-      proxied?: boolean
-      priority?: number
-    }
-  ) =>
-    request<{ record: AdminDnsRecord; cfError: string | null }>(
-      `/admin/dns/${encodeURIComponent(id)}`,
-      { method: "PUT", body: JSON.stringify(payload) }
-    ),
-
-  /** 删除一条记录（Cloudflare 侧一并删） */
-  remove: (id: string) =>
-    request<{ ok: boolean; cfError: string | null }>(`/admin/dns/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-
-  /** 立刻扫描；deep=true 时额外做真实解析探测（会打 DNS-over-HTTPS） */
-  audit: (deep = false) =>
-    request<{ summary: AdminDnsAuditSummary }>(`/admin/dns/audit${deep ? "?deep=1" : ""}`, {
-      method: "POST",
-    }),
-
-  findings: (params: { status?: string; severity?: string; q?: string; page?: number } = {}) => {
-    const sp = new URLSearchParams()
-    if (params.status) sp.set("status", params.status)
-    if (params.severity) sp.set("severity", params.severity)
-    if (params.q) sp.set("q", params.q)
-    if (params.page) sp.set("page", String(params.page))
-    const qs = sp.toString()
-    return request<AdminDnsFindingsResponse>(`/admin/dns/findings${qs ? "?" + qs : ""}`)
-  },
-
-  /** 处置一条发现项（忽略必须写备注；恢复则清空） */
-  reviewFinding: (id: string, status: "ignored" | "open", note?: string) =>
-    request<{ ok: boolean }>(`/admin/dns/findings/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify({ status, note }),
-    }),
-
-  /** 本地台账 vs Cloudflare 实际记录对账 */
-  cfDiff: () => request<AdminDnsCfDiff>("/admin/dns/cf-diff"),
-
-  /** 删除 Cloudflare 上一条无主记录（该 cfId 不在本地表里） */
-  removeOrphan: (cfId: string) =>
-    request<{ ok: boolean }>(`/admin/dns/cf-orphan/${encodeURIComponent(cfId)}`, {
-      method: "DELETE",
-    }),
-
-  /**
-   * 根域与租用（2026-10-14）：根域定价/容量 + 用户维度 + 全局汇总。
-   *
-   * `q` 只过滤用户维度（按用户名/邮箱），根域与汇总始终返回全量 ——
-   * 站长搜某个人时不该把上面的容量概览一起搜没。
-   */
-  rentals: (q?: string) =>
-    request<AdminDnsRentalsResponse>(
-      `/admin/dns/rentals${q ? `?q=${encodeURIComponent(q)}` : ""}`
-    ),
-
-  /**
-   * 根域 / 用户 / 租约的处置动作（一个接口多个动作，与后端 switch 一一对应）。
-   *
-   * 每个动作都会写审计；`limit` 传 null 表示取消用户级覆盖（回落全局设置）。
-   */
-  rentalAction: (
-    payload:
-      | { action: "set-price"; name: string; dnsPricePerYear: number }
-      | { action: "set-enabled"; name: string; enabled: boolean }
-      | { action: "grant-permission" | "revoke-permission"; username: string }
-      | { action: "set-limit"; username: string; limit: number | null }
-      | { action: "create-rental"; username: string; rootDomain: string; days: number }
-      | { action: "extend-rental"; id: string; days: number }
-      | { action: "revoke-rental"; id: string }
-  ) =>
-    request<{ ok: boolean }>("/admin/dns/rental-action", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-}
-
-/**
- * 根域的「导入 / 初始化 / 删除」（管理面板 → DNS 解析 → 根域与租用）。
- *
- * 与 `adminDnsApi.rentalAction` 的分工：那套管**已登记**根域的定价与配额；
- * 这套管「把一个 Cloudflare zone 变成可用根域」这件事本身 ——
- * 它要调 CF 建泛解析、改 `dns_wildcard_roots` 设置项，都比改一行价格重得多，
- * 所以单独一个接口前缀，也单独一套审计文案。
- */
-export const adminRootDomainsApi = {
-  /** 根域列表 + Email Routing 现状 + 可选权限清单（导入对话框要用后者） */
-  list: () => request<AdminRootDomainsResponse>("/admin/root-domains"),
-
-  /** 可导入的 zone 候选（后端已排除已经登记过的） */
-  cfZones: () => request<AdminCfZonesResponse>("/admin/root-domains/cf-zones"),
-
-  /**
-   * 导入并初始化。
-   *
-   * 幂等：重复提交同一个 zone 不会重复建泛解析/重复追加设置项，
-   * 所以第一次失败（例如 CF 配额满）之后可以原样重试。
-   */
-  import: (payload: {
-    name: string
-    zoneId: string
-    dnsPricePerYear: number
-    requiresFeature?: string
-    isDefault?: boolean
-    label?: string
-  }) =>
-    request<AdminRootDomainImportResult>("/admin/root-domains/import", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /**
-   * 根域动作。
-   *
-   * `delete` 必须带 `confirm`（= 完整域名）：后端会独立校验一遍，
-   * 这是「手滑点删除」与「真的知道自己在删什么」之间唯一的区别。
-   * `deleteCfRecords` 默认 false —— 删 CF 记录会静默掐断用户正在跑的服务。
-   */
-  action: (
-    payload:
-      | { action: "delete"; name: string; confirm: string; deleteCfRecords?: boolean }
-      | { action: "enable-email" | "set-catchall" | "resolve-zone" | "set-default"; name: string }
-  ) =>
-    request<AdminRootDomainDeleteResult | { ok: boolean }>("/admin/root-domains/action", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-}
-
-/**
- * 子域名管理（管理面板）。
- *
- * 与用户侧 `domainApi` 的分工：那套只能管自己的域名；这套按 dns 管理权限
- * 鉴权，可代替任意用户增删改（改名会同步 DNS/名片/网盘/Cloudflare）。
- */
-export const adminSubdomainsApi = {
-  /** 全站列表（可按域名/用户名/邮箱搜索） */
-  list: (params: { q?: string; page?: number; pageSize?: number } = {}) => {
-    const sp = new URLSearchParams()
-    if (params.q) sp.set("q", params.q)
-    if (params.page) sp.set("page", String(params.page))
-    if (params.pageSize) sp.set("pageSize", String(params.pageSize))
-    const qs = sp.toString()
-    return request<AdminSubdomainListResponse>(`/admin/subdomains${qs ? "?" + qs : ""}`)
-  },
-
-  /** 归属用户联想搜索（按用户名/邮箱，最多 20 条） */
-  searchOwners: (q: string) =>
-    request<{ owners: { id: string; username: string; email: string; status: string }[] }>(
-      `/admin/subdomains/owners?q=${encodeURIComponent(q)}`
-    ),
-
-  /**
-   * 代替指定用户创建。
-   * `parentId` 指定时归属由父级决定（传 owner 会被拒）；
-   * 一级必须给 `userId` 或 `username`，`rootDomain` 省略则用默认域。
-   */
-  create: (payload: {
-    userId?: string
-    username?: string
-    name: string
-    parentId?: string
-    rootDomain?: string
-  }) =>
-    request<{ subdomain: AdminSubdomain }>("/admin/subdomains", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 改名 / 转移所有者（可同时传） */
-  update: (id: string, payload: { name?: string; userId?: string; username?: string }) =>
-    request<{ subdomain: AdminSubdomain }>(`/admin/subdomains/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 删除（含全部下级；主域名不可删） */
-  remove: (id: string) =>
-    request<void>(`/admin/subdomains/${encodeURIComponent(id)}`, { method: "DELETE" }),
-}
-
-/**
- * 管理端 · 邮箱管理（与子域名管理同一形态，按 dns 管理scope鉴权）。
- *
- * 与用户侧 `/mailbox` 的差异：可跨用户增删改（含改地址）、转发目标免验证、
- * 不占用户 3 个名额、可删主邮箱、可查看邮件内容（只读，不改用户已读状态）。
- */
 export const adminMailboxesApi = {
   /** 全站列表（可按地址/用户名/邮箱搜索） */
   list: (params: { q?: string; page?: number; pageSize?: number } = {}) => {

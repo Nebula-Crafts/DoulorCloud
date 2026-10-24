@@ -267,11 +267,10 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("权限边界：普通用户不能借管理端接口动别人的作品", () => {
-  it("八个动作全部 403，且作品一个字都没变、一个 CF 写请求都没发", async () => {
+  it("六个动作全部 403，且作品一个字都没变、一个 CF 写请求都没发", async () => {
     const victim = await makeUser()
     const attacker = await makeUser()
-    await seedSubdomain(victim, `victim.${ROOT}`)
-    // 受害者：公开作品 + 已绑域名 + 有封面
+    // 受害者：公开作品 + 有封面
     const project = await makeProject(victim, {
       visibility: "public",
       coverKey: `lab-cover/${victim.id}/${crypto.randomUUID()}.png`,
@@ -282,8 +281,6 @@ describe("权限边界：普通用户不能借管理端接口动别人的作品"
       jsonReq(attacker, `/${project}/meta`, "POST", { name: "被改了" }),
       jsonReq(attacker, `/${project}/slug`, "POST", { slug: "stolen" }),
       jsonReq(attacker, `/${project}/visibility`, "POST", { visibility: "private" }),
-      jsonReq(attacker, `/${project}/domain`, "PUT", { fqdn: `victim.${ROOT}` }),
-      adminReq(attacker, `/${project}/domain`, { method: "DELETE" }),
       adminReq(attacker, `/${project}/cover`, { method: "POST" }),
       adminReq(attacker, `/${project}/cover`, { method: "DELETE" }),
       adminReq(attacker, `/${project}`, { method: "DELETE" }),
@@ -461,49 +458,6 @@ describe("管理员能改别人的作品", () => {
     expect((await res.json<{ code: string }>()).code).toBe("INVALID_STATUS")
   })
 
-  it("绑域名：按**作者**名下的子域放行，CF 侧建 AAAA + Route，绑定行记在作者名下", async () => {
-    const owner = await makeUser()
-    const admin = await makeUser({ role: "admin" })
-    await seedSubdomain(owner, `mine.${ROOT}`)
-    const project = await makeProject(owner, { visibility: "public" })
-
-    const res = await fetchSelf(
-      jsonReq(admin, `/${project}/domain`, "PUT", { fqdn: `blog.mine.${ROOT}` })
-    )
-    expect(res.status).toBe(200)
-    expect((await res.json<{ fqdn: string }>()).fqdn).toBe(`blog.mine.${ROOT}`)
-
-    // 绑定行记的是**作者**的 id（配额与归属都算在作者头上）
-    const bound = await env.DB.prepare(
-      "SELECT user_id, fqdn FROM lab_project_domains WHERE project_id = ?"
-    )
-      .bind(project)
-      .first<{ user_id: string; fqdn: string }>()
-    expect(bound).toEqual({ user_id: owner.id, fqdn: `blog.mine.${ROOT}` })
-
-    // 真的落地了：AAAA 100:: + <fqdn>/* 路由
-    expect(dns.filter((r) => r.name === `blog.mine.${ROOT}`)).toEqual([
-      expect.objectContaining({ type: "AAAA", content: "100::" }),
-    ])
-    expect(routes.map((r) => r.pattern)).toContain(`blog.mine.${ROOT}/*`)
-  })
-
-  it("绑域名：管理员**不能**把作品挪到别人名下的子域（归属仍按作者判）", async () => {
-    const owner = await makeUser()
-    const victim = await makeUser()
-    const admin = await makeUser({ role: "admin" })
-    await seedSubdomain(owner, `mine2.${ROOT}`)
-    await seedSubdomain(victim, `victim2.${ROOT}`)
-    const project = await makeProject(owner, { visibility: "public" })
-
-    const res = await fetchSelf(
-      jsonReq(admin, `/${project}/domain`, "PUT", { fqdn: `blog.victim2.${ROOT}` })
-    )
-    expect(res.status).toBe(403)
-    expect((await res.json<{ code: string }>()).code).toBe("FORBIDDEN")
-    expect(cfWrites).toEqual([])
-  })
-
   it("封面：管理员上传能过鉴权（卡在测试环境没有 R2 → 503），移除则真的清掉 cover_key", async () => {
     const owner = await makeUser()
     const admin = await makeUser({ role: "admin" })
@@ -534,25 +488,12 @@ describe("管理员能改别人的作品", () => {
 // 3. 删除：清理要干净
 // ---------------------------------------------------------------------------
 
-describe("管理员删别人的作品：连域名资源与点赞明细一起清", () => {
-  it("删除后：作品行、域名绑定行、CF Route、AAAA 记录、点赞明细全没了", async () => {
+describe("管理员删别人的作品：连点赞明细一起清", () => {
+  it("删除后：作品行、点赞明细全没了", async () => {
     const owner = await makeUser()
     const liker = await makeUser()
     const admin = await makeUser({ role: "admin" })
-    await seedSubdomain(owner, `del.${ROOT}`)
     const project = await makeProject(owner, { visibility: "public" })
-
-    // 先由作者自己绑上一个域名（走真实接口，确保 CF 侧真有 Route/AAAA）
-    const bind = await fetchSelf(
-      authRequest(owner, `/api/lab/projects/${project}/domain`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fqdn: `del.${ROOT}` }),
-      })
-    )
-    expect(bind.status).toBe(200)
-    expect(routes.map((r) => r.pattern)).toContain(`del.${ROOT}/*`)
-    expect(dns.filter((r) => r.name === `del.${ROOT}`)).toHaveLength(1)
 
     // 一条点赞明细（删作品时要一起清，否则永远留在库里）
     await env.DB.prepare(
@@ -565,13 +506,7 @@ describe("管理员删别人的作品：连域名资源与点赞明细一起清"
     expect(res.status).toBe(204)
 
     expect(await projectRow(project)).toBeNull()
-    expect(
-      await countRows("SELECT COUNT(*) AS c FROM lab_project_domains WHERE project_id = ?", project)
-    ).toBe(0)
     expect(await countRows("SELECT COUNT(*) AS c FROM lab_project_likes WHERE project_id = ?", project)).toBe(0)
-    // CF 侧：Route 与 AAAA 都要释放（否则永久占 zone 配额）
-    expect(routes.map((r) => r.pattern)).not.toContain(`del.${ROOT}/*`)
-    expect(dns.filter((r) => r.name === `del.${ROOT}`)).toHaveLength(0)
   })
 
   it("删掉之后大厅列表里不再出现（按名字精确搜也搜不到）", async () => {
@@ -597,32 +532,6 @@ describe("管理员删别人的作品：连域名资源与点赞明细一起清"
     expect(afterBody.total).toBe(0)
   })
 
-  it("作者自己删作品时也会清掉域名绑定（这是本次补上的旧缺口）", async () => {
-    const owner = await makeUser()
-    await seedSubdomain(owner, `own.${ROOT}`)
-    const project = await makeProject(owner, { visibility: "public" })
-    expect(
-      (
-        await fetchSelf(
-          authRequest(owner, `/api/lab/projects/${project}/domain`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fqdn: `own.${ROOT}` }),
-          })
-        )
-      ).status
-    ).toBe(200)
-
-    const res = await fetchSelf(
-      authRequest(owner, `/api/lab/projects/${project}`, { method: "DELETE" })
-    )
-    expect(res.status).toBe(204)
-    expect(
-      await countRows("SELECT COUNT(*) AS c FROM lab_project_domains WHERE project_id = ?", project)
-    ).toBe(0)
-    expect(routes.map((r) => r.pattern)).not.toContain(`own.${ROOT}/*`)
-    expect(dns.filter((r) => r.name === `own.${ROOT}`)).toHaveLength(0)
-  })
 })
 
 // ---------------------------------------------------------------------------

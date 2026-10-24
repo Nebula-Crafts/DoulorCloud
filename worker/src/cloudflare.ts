@@ -31,12 +31,6 @@ async function resolveApiToken(env: Env): Promise<string> {
  * 而同期 DNS 记录、邮件路由都还正常 —— 因为它们读的是 CLOUDFLARE_API_TOKEN_SECRET。
  * 同一个 CF 账号维护两套凭证，出问题必然对不上号。
  */
-export { resolveApiToken }
-
-/** 有没有可用的 CF Token（给「功能是否可用」的布尔判断用，不抛错） */
-export function hasCfApiToken(env: Env): boolean {
-  return Boolean(env.CLOUDFLARE_API_TOKEN_SECRET || env.CLOUDFLARE_API_TOKEN)
-}
 
 export async function callCloudflare(
   env: Env,
@@ -73,29 +67,6 @@ export async function callCloudflare(
  * （CF 文档的 SRV 示例里只有 data，没有 content），其余类型用 content。
  * 传错形态 CF 会报参数错误，所以调用方要按类型二选一。
  */
-export interface CfDnsRecordPayload {
-  type: string
-  name: string
-  /** A/AAAA/CNAME/TXT/MX 用；SRV 不用（改用 data） */
-  content?: string
-  ttl: number
-  proxied: boolean
-  /** MX 与 SRV 共用：值小者优先 */
-  priority?: number
-  /**
-   * SRV 专有字段。
-   *
-   * 按 CF 官方示例，`service` / `proto` **不放在这里** —— 它们已经体现在
-   * 顶层 `name` 里（形如 `_sip._tcp.example.com`），data 只放这四个。
-   */
-  data?: {
-    priority: number
-    weight: number
-    port: number
-    target: string
-  }
-}
-
 /**
  * 这个 fqdn 是否已被「泛解析」覆盖 —— 覆盖时不必再为它单独建记录。
  *
@@ -106,67 +77,6 @@ export interface CfDnsRecordPayload {
  *   · 探测要多一次 API 调用，且会在高频绑定路径上放大成本；
  *   · 声明式更安全 —— 没配泛解析的根域一旦被误判为"已覆盖"，用户的域名就解析不了。
  */
-export async function isCoveredByWildcard(env: Env, fqdn: string): Promise<boolean> {
-  try {
-    const { getSetting } = await import("./settings")
-    const raw = (await getSetting(env, "dns_wildcard_roots")) || ""
-    const f = fqdn.trim().toLowerCase().replace(/\.$/, "")
-    for (const r of raw.split(",")) {
-      const root = r.trim().toLowerCase().replace(/^\./, "")
-      if (!root) continue
-      if (f === root || f.endsWith("." + root)) return true
-    }
-  } catch {
-    /* 设置读不到时按"未覆盖"处理 —— 保守，退化成原来的行为 */
-  }
-  return false
-}
-
-export async function cfCreateDnsRecord(
-  env: Env,
-  zoneId: string,
-  payload: CfDnsRecordPayload
-): Promise<{ id: string }> {
-  const res = await callCloudflare(env, `/zones/${zoneId}/dns_records`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
-  const data = (await res.json()) as {
-    result?: { id?: string }
-    errors?: { message: string }[]
-  }
-  if (!data.result?.id) {
-    throw new ApiError(
-      502,
-      data.errors?.[0]?.message ?? "创建 Cloudflare DNS 记录失败",
-      "CF_ERROR"
-    )
-  }
-  return { id: data.result.id }
-}
-
-export async function cfUpdateDnsRecord(
-  env: Env,
-  zoneId: string,
-  cfId: string,
-  payload: CfDnsRecordPayload
-): Promise<void> {
-  await callCloudflare(env, `/zones/${zoneId}/dns_records/${cfId}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  })
-}
-
-export async function cfDeleteDnsRecord(
-  env: Env,
-  zoneId: string,
-  cfId: string
-): Promise<void> {
-  await callCloudflare(env, `/zones/${zoneId}/dns_records/${cfId}`, {
-    method: "DELETE",
-  })
-}
-
 /**
  * 查询 zone 上某 fqdn 的现有记录（用于分配子域名前的占位冲突检测）。
  *
@@ -176,82 +86,7 @@ export async function cfDeleteDnsRecord(
  * （灰云的 AAAA 记录不会被 Worker 路由接住，等于用户子域解析不了，
  * 只按 type/content 判断会把这种半坏状态当成「已初始化」放行）。
  */
-export async function cfListDnsRecords(
-  env: Env,
-  zoneId: string,
-  fqdn: string
-): Promise<{ id: string; type: string; content: string; proxied?: boolean }[]> {
-  const res = await callCloudflare(
-    env,
-    `/zones/${zoneId}/dns_records?name=${encodeURIComponent(fqdn)}&per_page=20`,
-    { method: "GET" }
-  )
-  const data = (await res.json()) as {
-    result?: { id: string; type: string; content: string; proxied?: boolean }[]
-    errors?: { message: string }[]
-  }
-  if (!data.result) {
-    throw new ApiError(
-      502,
-      data.errors?.[0]?.message ?? "查询 DNS 记录失败",
-      "CF_ERROR"
-    )
-  }
-  return data.result
-}
-
 /** zone 上一条 DNS 记录的完整形状（分页拉全时用） */
-export interface CfDnsRecord {
-  id: string
-  name: string
-  type: string
-  content: string
-  proxied?: boolean
-  ttl?: number
-  comment?: string | null
-}
-
-/**
- * 拉取 zone 上**全部** DNS 记录（分页拉全）。
- *
- * 为什么需要「全量」：CF 的 `?name=` 过滤是精确匹配，而「删掉某根域下平台的记录」
- * 需要按**后缀**（`fqdn === root` 或 `fqdn.endsWith("." + root)`）判断归属 ——
- * 只能把该 zone 的记录全拿回来自己筛（admin-dns.ts 的 CF 对账也是这个思路，
- * 那份实现留在原处不动，避免为了共用而改一个与本次需求无关的模块）。
- *
- * ⚠️ 翻页上限 20 页（per_page=100 ⇒ 2000 条）是兜底：正常 zone 远到不了，
- * 真到了说明有人把 zone 当台账用，此时宁可少删也不能无限翻。
- */
-export async function cfListAllDnsRecords(
-  env: Env,
-  zoneId: string
-): Promise<CfDnsRecord[]> {
-  const all: CfDnsRecord[] = []
-  for (let page = 1; page <= 20; page++) {
-    const res = await callCloudflare(
-      env,
-      `/zones/${zoneId}/dns_records?per_page=100&page=${page}`,
-      { method: "GET" }
-    )
-    const data = (await res.json()) as {
-      result?: CfDnsRecord[]
-      result_info?: { total_pages?: number }
-      errors?: { message: string }[]
-    }
-    if (!data.result) {
-      throw new ApiError(
-        502,
-        data.errors?.[0]?.message ?? "查询 DNS 记录失败",
-        "CF_ERROR"
-      )
-    }
-    all.push(...data.result)
-    const totalPages = data.result_info?.total_pages ?? 1
-    if (data.result.length === 0 || page >= totalPages) break
-  }
-  return all
-}
-
 /**
  * 删除一条 Email Routing 规则。
  *

@@ -113,7 +113,7 @@ async function seedInvite(opts: {
 async function seedApprovedDonation(userId: string, status = "approved") {
   await env.DB.prepare(
     `INSERT INTO donations (id, user_id, type, payload, notify_email, status, created_at)
-     VALUES (?, ?, 'frp', '{}', 'x@example.net', ?, ?)`
+     VALUES (?, ?, 'proxy', '{}', 'x@example.net', ?, ?)`
   )
     .bind(uuid(), userId, status, new Date().toISOString())
     .run()
@@ -309,20 +309,18 @@ describe("首捐券可兑换的模块（管理面板设置）", () => {
   })
 
   it("设置项缺失 = 全部可兑换（这就是「默认全都可以兑换」）", () => {
-    // 「全部」= FEATURES 里**可兑换**的那些（r2/ai/proxy/doulor/dns）；新增功能模块会自动进这份名单。
+    // 「全部」= FEATURES 里**可兑换**的那些（r2/ai/proxy/doulor）；新增功能模块会自动进这份名单。
     // ⚠️ 唯一的例外是 `relay_auto`（中转站免审入驻）：它是「信任」不是「功能」，
     //    被 `FIRST_DONATION_EXCLUDED_FEATURES` 结构性排除 —— 首捐券是用户**自选**换哪个模块的，
     //    能换免审就等于让持券用户自己给自己发一份免审资格，绕开「管理员逐个勾选」的口径。
     expect([...parseFirstDonationFeatures(null)].sort()).toEqual([
       "ai",
-      "dns",
       "doulor",
       "proxy",
       "r2",
     ])
     expect([...parseFirstDonationFeatures(undefined)].sort()).toEqual([
       "ai",
-      "dns",
       "doulor",
       "proxy",
       "r2",

@@ -197,7 +197,6 @@ export async function getSpace(
   const stats = settings.show_stats
     ? {
         days,
-        subdomains: counts.subdomain,
         mailboxes: counts.mailbox,
         posts: counts.posts,
         comments: counts.comments,

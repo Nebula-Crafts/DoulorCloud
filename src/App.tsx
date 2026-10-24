@@ -28,11 +28,9 @@ import NotFoundPage from "@/pages/not-found"
 // 点下去直接渲染（2026-10-08 站长反馈「侧边栏点一下要等，管理面板点一下就到」）。
 // **新增页面务必带上路径**，漏了不会报错，只是那一个页面没有预载。
 const DashboardPage = page("/dashboard", () => import("@/pages/dashboard"))
-const DomainsPage = page("/dashboard/domains", () => import("@/pages/domains"))
 const EmailPage = page("/dashboard/email", () => import("@/pages/email"))
 const StoragePage = page("/dashboard/storage", () => import("@/pages/storage"))
 const AiPage = page("/dashboard/ai", () => import("@/pages/ai"))
-const FrpPage = page("/dashboard/frp", () => import("@/pages/frp"))
 const ProfilePage = page("/dashboard/profile", () => import("@/pages/profile"))
 const ProxyPage = page("/dashboard/proxy", () => import("@/pages/proxy"))
 const TempboxPage = page("/dashboard/tempbox", () => import("@/pages/tempbox"))
@@ -220,12 +218,9 @@ function AppRoutes() {
         element={<DashboardGate />}
       >
         <Route index element={<DashboardPage />} />
-        <Route path="domains" element={<DomainsPage />} />
-        <Route path="dns" element={<Navigate to="/dashboard/domains" replace />} />
         <Route path="email" element={<EmailPage />} />
         <Route path="storage" element={<StoragePage />} />
         <Route path="ai" element={<AiPage />} />
-        <Route path="frp" element={<FrpPage />} />
         <Route path="proxy" element={<ProxyPage />} />
         <Route path="tempbox" element={<TempboxPage />} />
         <Route path="profile" element={<ProfilePage />} />

@@ -103,7 +103,7 @@ function deliveryText(delivery: string, quotaYuan?: number | null): string {
 }
 
 /** 全部模块（下拉框选项顺序） */
-const FEATURE_KEYS: FeatureKey[] = ["ai", "r2", "frp", "proxy"]
+const FEATURE_KEYS: FeatureKey[] = ["ai", "r2", "proxy"]
 
 /** 流水来源 → 标签 */
 const REASON_LABEL: Record<string, string> = {

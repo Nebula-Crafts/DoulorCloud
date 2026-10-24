@@ -111,11 +111,8 @@ export interface AuditLog {
 }
 
 export interface DashboardStats {
-  domains: number
-  subdomains: number
   emails: number
   unread: number
-  dnsRecords: number
   mailboxes: number
   emailForwards: number
   // 网盘（概览用量卡用；未开通时 usedBytes=0、quotaBytes=0）
@@ -227,8 +224,6 @@ export interface UserAnalytics {
   resources: {
     mailboxes: number
     tempMailboxes: number
-    subdomains: number
-    dnsRecords: number
     posts: number
     comments: number
     likes: number
@@ -380,8 +375,6 @@ export interface AdminUser {
   storageEnabled: boolean
   /** AI 中转站：已开通 */
   aiEnabled: boolean
-  /** 内网穿透：已启用 */
-  frpEnabled: boolean
   /** 代理节点：已启用 */
   proxyEnabled: boolean
   /** 个人名片：已启用对外展示 */
@@ -472,13 +465,9 @@ export interface AdminUserDetail {
     /** 是否已上传自定义头像 */
     hasAvatar: boolean
     permissions: Permissions
-    /** 用户级子域名配额覆盖；null = 用全局默认 */
-    maxSubdomains: number | null
     createdAt: string
     updatedAt: string
   }
-  subdomains: Subdomain[]
-  dns: DnsRecord[]
   mailboxes: Mailbox[]
   messages: MailMessage[]
   sessions: { id: string; expires_at: string; created_at: string }[]
@@ -486,10 +475,6 @@ export interface AdminUserDetail {
   storage: AdminUserStorage | null
   /** AI 中转站（未开通为 null；额度为 D1 同步快照） */
   newapi: AdminUserNewApi | null
-  /** 内网穿透启用状态（未启用过为 null） */
-  frp: { enabled: boolean; createdAt: string; updatedAt: string } | null
-  frpApplications: AdminUserFrpApplication[]
-  frpPorts: { remotePort: number; nodeName: string | null; createdAt: string }[]
   /** 代理节点启用状态（未启用过为 null） */
   proxy: {
     enabled: boolean
@@ -665,11 +650,8 @@ export interface StorageOverview {
   defaultQuotaBytes: number
   maxFileBytes: number
   prefixes: StoragePrefix[]
-  /** 默认分享前缀；null 表示用 /dl/<用户名>/ */
-  defaultPrefix: StoragePrefix | null
   /** 可直接复制的分享基址（由服务端按默认前缀算好） */
   shareBase: string | null
-  availableSubdomains: { id: string; name: string; fqdn: string }[]
 }
 
 // ---- AI 中转站（NewAPI）----
@@ -1043,7 +1025,7 @@ export interface UserFrpRental {
  * ⚠️ 含 `relay_auto`：它不是功能模块，而是「中转站入驻免审」的资格位，
  *    但同样走这套按用户逐个授权的开关（后端 FEATURES 里有它，别漏）。
  */
-export type FeatureKey = "r2" | "ai" | "frp" | "proxy" | "doulor" | "dns" | "relay_auto"
+export type FeatureKey = "r2" | "ai" | "proxy" | "doulor" | "relay_auto"
 
 export interface Permissions {
   r2: boolean
@@ -1059,14 +1041,6 @@ export interface Permissions {
    */
   doulor: boolean
   /**
-   * DNS 解析记录（自己已有域名下的记录列表 / 新建 / 修改 / 删除）。
-   *
-   * ⚠️ 同样**默认 false**，但理由不是风险而是**配额**：Cloudflare 每个 zone 的
-   * 解析记录数有硬上限，全站共用少数几个 zone。它与 `doulor` 是两件事 ——
-   * `doulor` 管「能建在哪个根域」，`dns` 管「能不能建记录」，互不推导。
-   */
-  dns: boolean
-  /**
    * 中转站**免审入驻**（登记即 `approved`，不用排队等站长审）。
    *
    * ⚠️ 它与上面几项不是一回事：上面管「能用什么功能」，这一项管「**要不要被审核**」。
@@ -1080,10 +1054,8 @@ export interface Permissions {
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   r2: "feat.r2",
   ai: "feat.ai",
-  frp: "feat.frp",
   proxy: "feat.proxy",
   doulor: "feat.doulor",
-  dns: "feat.dns",
   relay_auto: "feat.relay_auto",
 }
 

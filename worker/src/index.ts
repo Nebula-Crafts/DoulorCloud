@@ -3,30 +3,22 @@ import { getSessionTokens, clearedSessionCookie } from "./auth"
 import type { Env } from "./env"
 import * as authHandlers from "./handlers/auth"
 import * as stickerHandlers from "./handlers/stickers"
-import * as dnsHandlers from "./handlers/dns"
-import * as dnsRentalHandlers from "./handlers/dns-rental"
 import * as emailHandlers from "./handlers/email"
-import * as subdomainHandlers from "./handlers/subdomains"
 import * as adminHandlers from "./handlers/admin"
 import * as adminLabHandlers from "./handlers/admin-lab"
 import * as labPromptHandlers from "./handlers/lab-prompts"
 import * as labSkillHandlers from "./handlers/lab-skills"
 import * as labSearchHandlers from "./handlers/lab-search"
-import * as labDomainHandlers from "./handlers/lab-domains"
 import * as labStoreHandlers from "./handlers/lab-store"
 import * as labHttpHandlers from "./handlers/lab-http"
 import * as labShotHandlers from "./handlers/lab-shot"
-import * as adminDnsHandlers from "./handlers/admin-dns"
-import * as adminSubdomainHandlers from "./handlers/admin-subdomains"
 import * as adminMailboxHandlers from "./handlers/admin-mailboxes"
 import * as adminUsersStatusHandlers from "./handlers/admin-users-status"
 import * as relayProviderHandlers from "./handlers/relay-providers"
-import * as adminRootDomainHandlers from "./handlers/admin-root-domains"
 import * as adminChannelHandlers from "./handlers/admin-channels"
 import * as adminPermHandlers from "./handlers/admin-perms"
 import * as noticeHandlers from "./handlers/notices"
 import * as storageHandlers from "./handlers/storage"
-import { rootDomainFor } from "./root-domains"
 import * as newapiHandlers from "./handlers/newapi"
 import * as labHandlers from "./handlers/lab"
 import * as settingsHandlers from "./handlers/settings"
@@ -36,11 +28,6 @@ import * as wb2apiHandlers from "./handlers/wb2api"
 import * as groupSyncHandlers from "./handlers/group-sync"
 import * as qoder2apiHandlers from "./handlers/qoder2api"
 import * as myInviteHandlers from "./handlers/my-invites"
-import * as frpHandlers from "./handlers/frp"
-import * as frpAgentHandlers from "./handlers/frp-agent"
-import * as frpRentalHandlers from "./handlers/frp-rental"
-import * as frpDonateHandlers from "./handlers/frp-donate"
-import { reconcileAllNodes } from "./handlers/frp-node-push"
 import * as profileHandlers from "./handlers/profile"
 import * as identityHandlers from "./handlers/identity"
 import * as proxyHandlers from "./handlers/proxy"
@@ -350,95 +337,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     method: "DELETE",
     handle: () =>
       identityHandlers.deleteAvatar(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/dns",
-    method: "GET",
-    handle: () =>
-      dnsHandlers.listDns(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/dns",
-    method: "POST",
-    handle: () =>
-      dnsHandlers.createDns(env, request),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/dns\/([^/]+)$/),
-    methods: ["PUT"],
-    handle: (dnsMatch: RegExpMatchArray) =>
-      dnsHandlers.updateDns(env, request, decodeURIComponent(dnsMatch[1])),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/dns\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (dnsMatch: RegExpMatchArray) =>
-      dnsHandlers.deleteDns(env, request, decodeURIComponent(dnsMatch[1])),
-  },
-
-  // ---- DNS 解析「积分租用」（2026-10-14）----
-  // 用户为自己买 / 续某个根域下的解析能力。与内网穿透租用同源（见
-  // handlers/dns-rental.ts 顶部注释）：扣分全部走 applyPoints，前端只负责展示。
-  // ⚠️ 这些路径是 GET/POST，与上面 `/dns/:id` 的 PUT/DELETE 正则不冲突
-  //    （dispatch 会先比方法），但依然按「固定路径在前」的习惯排在这里。
-  {
-    kind: "exact",
-    path: "/dns/rental",
-    method: "GET",
-    handle: () => dnsRentalHandlers.listDnsRentalOptions(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/dns/rental/purchase",
-    method: "POST",
-    handle: () => dnsRentalHandlers.purchaseDnsRental(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/dns/rental/renew",
-    method: "POST",
-    handle: () => dnsRentalHandlers.renewDnsRental(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/dns/rental/auto-renew",
-    method: "POST",
-    handle: () => dnsRentalHandlers.setDnsRentalAutoRenew(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/subdomains",
-    method: "GET",
-    handle: () =>
-      subdomainHandlers.listSubdomains(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/subdomains",
-    method: "POST",
-    handle: () =>
-      subdomainHandlers.createSubdomain(env, request),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/subdomains\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (subdomainMatch: RegExpMatchArray) =>
-      subdomainHandlers.deleteSubdomain(env, request, decodeURIComponent(subdomainMatch[1])),
   },
 
   {
@@ -955,14 +853,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
       ),
   },
 
-  {
-    kind: "exact",
-    path: "/admin/reserved-subdomains",
-    method: "GET",
-    handle: () =>
-      adminHandlers.listReserved(env, request),
-  },
-
   // ---- AI 中转站渠道巡检（管理面板 → 中转站）----
   {
     kind: "exact",
@@ -983,50 +873,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     handle: () => adminChannelHandlers.enableChannels(env, request),
   },
 
-  // ---- 子域名管理（管理面板 → 子域名板块，与 DNS 解析同页）----
-  // 与用户侧 /api/subdomains 是两套：那套只能管自己的域名，这套按 dns
-  // 管理scope鉴权，可代替任意用户增删改（含改名时同步 DNS/名片/网盘/CF）。
-  // ⚠️ 固定路径必须排在 `/admin/subdomains/:id` 正则之前。
-  {
-    kind: "exact",
-    path: "/admin/subdomains/owners",
-    method: "GET",
-    handle: () => adminSubdomainHandlers.searchSubdomainOwners(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/admin/subdomains",
-    method: "GET",
-    handle: () => adminSubdomainHandlers.listAdminSubdomains(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/admin/subdomains",
-    method: "POST",
-    handle: () => adminSubdomainHandlers.createAdminSubdomain(env, request),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/subdomains\/([^/]+)$/),
-    methods: ["PUT"],
-    handle: (adminSubdomainMatch: RegExpMatchArray) =>
-      adminSubdomainHandlers.updateAdminSubdomain(
-        env,
-        request,
-        decodeURIComponent(adminSubdomainMatch[1])
-      ),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/subdomains\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (adminSubdomainMatch: RegExpMatchArray) =>
-      adminSubdomainHandlers.deleteAdminSubdomain(
-        env,
-        request,
-        decodeURIComponent(adminSubdomainMatch[1])
-      ),
-  },
 
   // ---- 邮箱管理（管理面板 → DNS → 「邮箱管理」tab）----
   // 与子域名管理同一把钥匙（dns scope）：都是「用户的域名资源」，
@@ -1095,168 +941,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
         env,
         request,
         decodeURIComponent(adminMailboxDelMatch[1])
-      ),
-  },
-
-  // ---- DNS 解析管理（管理面板 → DNS）----
-  // ⚠️ 声明顺序有意义（dispatch 按数组顺序命中）：
-  //    固定路径必须排在 `/admin/dns/:id` 正则之前，否则 findings / audit / cf-diff
-  //    会被当成记录 id 吃掉。
-  {
-    kind: "exact",
-    path: "/admin/dns",
-    method: "GET",
-    handle: () => adminDnsHandlers.listAdminDns(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/dns/findings",
-    method: "GET",
-    handle: () => adminDnsHandlers.listDnsFindings(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/dns/audit",
-    method: "POST",
-    handle: () => adminDnsHandlers.runDnsAudit(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/dns/cf-diff",
-    method: "GET",
-    handle: () => adminDnsHandlers.compareCfDns(env, request),
-  },
-
-  // 根域与租用（2026-10-14）：根域定价/启停 + 用户维度 + 租约处置 + 全局汇总。
-  // ⚠️ 与上面几条一样，固定路径必须排在 `/admin/dns/:id` 正则之前，
-  //    否则 `rentals` 会被当成记录 id 吃掉。
-  {
-    kind: "exact",
-    path: "/admin/dns/rentals",
-    method: "GET",
-    handle: () => adminDnsHandlers.listAdminDnsRentals(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/dns/rental-action",
-    method: "POST",
-    handle: () => adminDnsHandlers.dnsRentalAction(env, request),
-  },
-
-  // 「台账与 Cloudflare 对不上」的修复口：fqdn 换了归属域（如整体换到 tyu.me）后，
-  // 老 cf_id 指向的是**另一个 zone** 的记录 —— 这里按当前 fqdn 重建并回填。
-  {
-    kind: "exact",
-    path: "/admin/dns/recreate",
-    method: "POST",
-    handle: () => adminDnsHandlers.recreateDnsRecord(env, request),
-  },
-
-  // 绑定在子域名上的服务（名片/网盘直链）换域后，Worker Route 是 zone 级资源、
-  // 不会自己搬家 —— 这里在新 domain 下重挂一套并拆掉旧的。
-  {
-    kind: "exact",
-    path: "/admin/domains/rebind",
-    method: "POST",
-    handle: () => adminDnsHandlers.rebindCustomDomain(env, request),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/dns\/findings\/([^/]+)$/),
-    methods: ["PUT"],
-    handle: (findingMatch: RegExpMatchArray) =>
-      adminDnsHandlers.reviewDnsFinding(env, request, decodeURIComponent(findingMatch[1])),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/dns\/cf-orphan\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (orphanMatch: RegExpMatchArray) =>
-      adminDnsHandlers.deleteOrphanCfRecord(env, request, decodeURIComponent(orphanMatch[1])),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/dns\/([^/]+)$/),
-    methods: ["PUT"],
-    handle: (adminDnsMatch: RegExpMatchArray) =>
-      adminDnsHandlers.updateAdminDns(env, request, decodeURIComponent(adminDnsMatch[1])),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/dns\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (adminDnsMatch: RegExpMatchArray) =>
-      adminDnsHandlers.deleteAdminDns(env, request, decodeURIComponent(adminDnsMatch[1])),
-  },
-
-  // ---- 用户可分配根域（管理面板 → DNS 解析 → 根域管理）----
-  // 用途：把「发给用户的域名」从 env.ROOT_DOMAIN 拆出来（默认 tyu.me），
-  // 并提供 Cloudflare 侧的开通动作（解析 zone id / 开 Email Routing / 设 catch-all）。
-  // ⚠️ 顺序：固定路径必须排在 `/admin/root-domains/:name` 之前。
-  {
-    kind: "exact",
-    path: "/admin/root-domains",
-    method: "GET",
-    handle: () => adminRootDomainHandlers.listAdminRootDomains(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/root-domains",
-    method: "POST",
-    handle: () => adminRootDomainHandlers.upsertAdminRootDomain(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/root-domains/action",
-    method: "POST",
-    handle: () => adminRootDomainHandlers.rootDomainAction(env, request),
-  },
-
-  // 「从 Cloudflare 导入」：cf-zones 列候选（排除已登记），import 一次做完
-  // 「登记 + 建泛解析 + 追加 dns_wildcard_roots + 失效缓存」。
-  // ⚠️ 两条都是 exact，与上面的 /admin/root-domains 同前缀但不冲突；
-  //    必须与 /admin/root-domains/:name 这类**正则**路由区分开（本文件里目前没有）。
-  {
-    kind: "exact",
-    path: "/admin/root-domains/cf-zones",
-    method: "GET",
-    handle: () => adminRootDomainHandlers.listImportableCfZones(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/root-domains/import",
-    method: "POST",
-    handle: () => adminRootDomainHandlers.importAdminRootDomain(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/reserved-subdomains",
-    method: "POST",
-    handle: () =>
-      adminHandlers.addReserved(env, request),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/reserved-subdomains\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (reservedMatch: RegExpMatchArray) =>
-      adminHandlers.removeReserved(
-      env,
-      request,
-      decodeURIComponent(reservedMatch[1])
       ),
   },
 
@@ -1879,20 +1563,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
         request,
         decodeURIComponent(adminGalleryMatch[1])
       ),
-  },
-
-  // 作品绑定域名：一条路径接 GET/PUT/DELETE 三种方法 ⇒ 用 branch
-  {
-    kind: "branch",
-    match: (routePath: string) =>
-      routePath.match(/^\/admin\/lab\/gallery\/([^/]+)\/domain$/),
-    handle: (adminGalleryDomainMatch: RegExpMatchArray, method: string) => {
-      const pid = decodeURIComponent(adminGalleryDomainMatch[1])
-      if (method === "GET") return adminLabHandlers.getGalleryProjectDomain(env, request, pid)
-      if (method === "PUT") return adminLabHandlers.setGalleryProjectDomain(env, request, pid)
-      if (method === "DELETE") return adminLabHandlers.clearGalleryProjectDomain(env, request, pid)
-      return null
-    },
   },
 
   // 封面：一条路径接 POST/DELETE ⇒ branch
@@ -2558,14 +2228,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
 
   {
     kind: "exact",
-    path: "/profile/domain",
-    method: "POST",
-    handle: () =>
-      profileHandlers.bindProfileDomain(env, request),
-  },
-
-  {
-    kind: "exact",
     path: "/community/config",
     method: "GET",
     handle: () =>
@@ -3164,50 +2826,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
   },
 
   // ---- 公开 API（API Key 认证 + 限额）----
-  // DNS：列表 / 创建 / 编辑 / 删除
-  {
-    kind: "exact",
-    path: "/v1/dns",
-    method: "GET",
-    handle: () => publicApiHandlers.apiListDns(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/v1/dns",
-    method: "POST",
-    handle: () => publicApiHandlers.apiCreateDns(env, request),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/dns\/([^/]+)$/),
-    methods: ["PUT"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiUpdateDns(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/dns\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiDeleteDns(env, request, decodeURIComponent(m[1])),
-  },
-  // 子域名：列表 / 创建 / 删除（在站点根域名下开 xxx.doulor.cn）
-  {
-    kind: "exact",
-    path: "/v1/subdomain",
-    method: "GET",
-    handle: () => publicApiHandlers.apiListSubdomain(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/v1/subdomain",
-    method: "POST",
-    handle: () => publicApiHandlers.apiCreateSubdomain(env, request),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/subdomain\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiDeleteSubdomain(env, request, decodeURIComponent(m[1])),
-  },
   // 邮箱：列表 / 创建 / 删除 / 邮件列表 / 邮件内容 / 回复
   {
     kind: "exact",
@@ -3671,22 +3289,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
       storageHandlers.downloadStorageObject(env, request),
   },
 
-  {
-    kind: "exact",
-    path: "/storage/domain",
-    method: "POST",
-    handle: () =>
-      storageHandlers.bindStorageDomain(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/storage/default-prefix",
-    method: "POST",
-    handle: () =>
-      storageHandlers.setDefaultPrefix(env, request),
-  },
-
   // 目录：目录本身不落表，靠 R2 的 `<key>/` 占位对象表示
   {
     kind: "exact",
@@ -3917,230 +3519,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     method: "POST",
     handle: () =>
       newapiHandlers.changePassword(env, request),
-  },
-
-  // ---- 内网穿透：用户端的「提交申请 / 启用 / 停用 / 撤回」已整体退役（2026-10-13）----
-  // 它被下面的「租用化」取代。退役理由：那套流程要求管理员手工登 frps-panel 建号，
-  // 而那个面板的网页本身已经是坏的（HTML/i18n 链路 panic，根本打不开），
-  // 且人工审核不可能规模化。详见 docs/内网穿透租用化改造方案.md。
-
-  // ---- 内网穿透「租用化」用户端（2026-10-13）----
-  // 用户用积分为自己买/续 frp 使用时长。积分变动一律走 points.ts 的 applyPoints
-  // （原子 + 余额不足拒绝 + dedup 防重复提交），代码里不直接改余额。
-  {
-    kind: "exact",
-    path: "/frp/rental/plans",
-    method: "GET",
-    handle: () =>
-      frpRentalHandlers.listRentalPlans(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/frp/rental/mine",
-    method: "GET",
-    handle: () =>
-      frpRentalHandlers.listMyRentals(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/frp/rental/purchase",
-    method: "POST",
-    handle: () =>
-      frpRentalHandlers.purchaseRental(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/frp/rental/renew",
-    method: "POST",
-    handle: () =>
-      frpRentalHandlers.renewRental(env, request),
-  },
-
-  // 用户改自己租约的 frp 密码。账号名不可改（生成后固定），只有密码归用户。
-  {
-    kind: "exact",
-    path: "/frp/rental/auto-renew",
-    method: "POST",
-    handle: () => frpRentalHandlers.setMyRentalAutoRenew(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/frp/rental/token",
-    method: "POST",
-    handle: () =>
-      frpRentalHandlers.setMyRentalToken(env, request),
-  },
-
-  // ---- 代理节点「一键捐献」----
-  // 领令牌：要登录态（网页发起）。
-  // 登记节点：**故意不要登录态** —— 脚本在捐献者的服务器上跑，没有浏览器会话，
-  // 靠一次性 HMAC 令牌鉴权；这是本 Worker 里唯一这样的写接口，所以它的
-  // 参数校验与防重放都在 handlers/frp-donate.ts 里自己扛。
-  {
-    kind: "exact",
-    path: "/frp/donate/token",
-    method: "POST",
-    handle: () =>
-      frpDonateHandlers.issueDonateToken(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/frp/donate/register",
-    method: "POST",
-    handle: () =>
-      frpDonateHandlers.registerDonatedNode(env, request),
-  },
-
-  // ---- frp-agent 通道（服务器上的守护进程调用，非浏览器）----
-  // 鉴权不是会话而是共享密钥 + HMAC 签名，见 handlers/frp-agent.ts 的 requireAgent()。
-  // 之所以要有这两个端点：Cloudflare Worker 到不了 frps 服务器上的 frps-panel
-  // （实测裸 IP 被出网策略 403、走域名撞未备案），所以只能由服务器主动来拉。
-  {
-    kind: "exact",
-    path: "/frp/agent/desired",
-    method: "GET",
-    handle: () =>
-      frpAgentHandlers.getFrpAgentDesired(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/frp/agent/report",
-    method: "POST",
-    handle: () =>
-      frpAgentHandlers.reportFrpAgentState(env, request),
-  },
-
-  // ---- 管理端：人工审核申请的路由已随该流程一并退役（2026-10-13）----
-  // 原先这里有 /admin/frp/applications（列表）、/admin/frp/review（批准/拒绝）、
-  // PUT /admin/frp/applications/:id（改申请）、/admin/frp/review-revoke（撤销批准）。
-  // 现在管理端管的是「套餐 + 订阅」，见 handlers/frp-rental.ts 的那组 admin 路由。
-
-  {
-    kind: "exact",
-    path: "/admin/frp/nodes",
-    method: "GET",
-    handle: () =>
-      frpHandlers.listFrpNodes(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/frp/nodes",
-    method: "POST",
-    handle: () =>
-      frpHandlers.upsertFrpNode(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/frp/ports/release",
-    method: "POST",
-    handle: () =>
-      frpHandlers.releaseFrpPorts(env, request),
-  },
-
-  // 某节点已占用的端口（带来源）
-  {
-    kind: "exact",
-    path: "/admin/frp/ports",
-    method: "GET",
-    handle: () =>
-      frpHandlers.listFrpPorts(env, request),
-  },
-
-  // 手动标记 / 解除 一批端口的占用
-  {
-    kind: "exact",
-    path: "/admin/frp/ports/occupy",
-    method: "POST",
-    handle: () =>
-      frpHandlers.occupyFrpPorts(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/admin/frp/ports/free",
-    method: "POST",
-    handle: () =>
-      frpHandlers.freeFrpPorts(env, request),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/frp\/nodes\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (adminFrpNodeMatch: RegExpMatchArray) =>
-      frpHandlers.deleteFrpNode(
-      env,
-      request,
-      decodeURIComponent(adminFrpNodeMatch[1])
-      ),
-  },
-
-  // ---- 内网穿透「租用化」管理端 ----
-  // 这一层只写 D1（唯一真值），不调用面板：真正的落地由服务器上的 frp-agent
-  // 轮询后完成。所以管理端操作永远不受那台服务器抖动影响。
-  // 权限：frp.plans（套餐定价）/ frp.rentals（订阅管理）。
-  {
-    kind: "exact",
-    path: "/admin/frp/plans",
-    method: "GET",
-    handle: () =>
-      frpRentalHandlers.listFrpPlans(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/frp/plans",
-    method: "POST",
-    handle: () =>
-      frpRentalHandlers.upsertFrpPlan(env, request),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) =>
-      routePath.match(/^\/admin\/frp\/plans\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (adminFrpPlanMatch: RegExpMatchArray) =>
-      frpRentalHandlers.deleteFrpPlan(
-        env,
-        request,
-        decodeURIComponent(adminFrpPlanMatch[1])
-      ),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/frp/subscriptions",
-    method: "GET",
-    handle: () =>
-      frpRentalHandlers.listFrpSubscriptions(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/frp/subscriptions",
-    method: "POST",
-    handle: () =>
-      frpRentalHandlers.createFrpSubscription(env, request),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) =>
-      routePath.match(/^\/admin\/frp\/subscriptions\/([^/]+)$/),
-    methods: ["POST"],
-    handle: (adminFrpSubMatch: RegExpMatchArray) =>
-      frpRentalHandlers.updateFrpSubscription(
-        env,
-        request,
-        decodeURIComponent(adminFrpSubMatch[1])
-      ),
   },
 
   {
@@ -4404,20 +3782,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
       if (method === "GET") return labStoreHandlers.getValue(env, request, pid, key)
       if (method === "PUT") return labStoreHandlers.setValue(env, request, pid, key)
       if (method === "DELETE") return labStoreHandlers.deleteValue(env, request, pid, key)
-      return null
-    },
-  },
-
-  // ---- 作品绑定域名（挂到用户自己的子域名上）----
-  //    一条路径接 GET/PUT/DELETE 三种方法 ⇒ 用 branch
-  {
-    kind: "branch",
-    match: (routePath: string) => routePath.match(/^\/lab\/projects\/([^/]+)\/domain$/),
-    handle: (domainMatch: RegExpMatchArray, method: string) => {
-      const pid = decodeURIComponent(domainMatch[1])
-      if (method === "GET") return labDomainHandlers.getProjectDomain(env, request, pid)
-      if (method === "PUT") return labDomainHandlers.setProjectDomain(env, request, pid)
-      if (method === "DELETE") return labDomainHandlers.clearProjectDomain(env, request, pid)
       return null
     },
   },
@@ -4978,39 +4342,6 @@ async function route(
   throw new ApiError(404, "接口不存在", "NOT_FOUND")
 }
 
-
-/**
- * 自定义直链域名的入口。
- * 这些域名通过 Worker Route（<fqdn>/*）指到本 Worker，不属于 /api 命名空间；
- * 命中 storage_prefixes 时直接反代 R2，否则交回静态资源。
- */
-async function hostedDirectLink(
-  env: Env,
-  request: Request
-): Promise<Response | null> {
-  const url = new URL(request.url)
-  const host = url.hostname.toLowerCase()
-
-  // 只接管**本站根域名**的子域名（doulor.cn + root_domains 表里的 tyu.me 等），
-  // 避免影响自定义域等其它入口。
-  //
-  // ⚠️ 不能只看 env.ROOT_DOMAIN（那是站点自己的域名 doulor.cn）：发给用户的域名由
-  // root_domains 表决定（默认 tyu.me），网盘自定义直链绑在 tyu.me 子域名上时，
-  // 若只看 doulor.cn 会直接 return null → 落回静态资源 → NOT_FOUND
-  // （2026-10-03 反馈「example.tyu.me/xxx.jpg 返回接口不存在」）。
-  if (!(await rootDomainFor(env, host))) return null
-
-  // 作品域名优先判：两者各自的表都唯一，不会撞；先判作品更直观。
-  // 命中就吐作品内容（多文件作品按路径取），不命中再交给网盘直链。
-  if (await labDomainHandlers.isHostedLabHost(env, host)) {
-    return labDomainHandlers.serveHostedLab(env, request, host)
-  }
-
-  if (!(await storageHandlers.isHostedDirectLinkHost(env, host))) return null
-
-  return storageHandlers.serveHostedDirectLink(env, request, host)
-}
-
 /**
  * 给每个请求包一层 D1 读复制会话。
  *
@@ -5146,32 +4477,6 @@ export default {
         })
       }
 
-      // 自定义名片域名：Host 命中 profiles.fqdn 时，该域名下所有路径都渲染名片。
-      // 仅对本站已知入口之外的 Host 查询，避免给 /api/* 等请求白加一次 DB 查询。
-      const host = url.hostname.toLowerCase()
-      const isAppHost =
-        host === env.ROOT_DOMAIN.toLowerCase() ||
-        host === "cloud." + env.ROOT_DOMAIN.toLowerCase() ||
-        host.endsWith(".workers.dev")
-      if (!isAppHost) {
-        const hostProfile = await profileHandlers.loadPublicProfile(env, {
-          fqdn: host,
-        })
-        if (hostProfile) {
-          ctx.waitUntil(profileHandlers.bumpProfileView(env, hostProfile.slug))
-          return new Response(renderProfileHtml(hostProfile), {
-            headers: {
-              "Content-Type": "text/html; charset=utf-8",
-              "Cache-Control": "public, max-age=60",
-            },
-          })
-        }
-      }
-
-      // 自定义直链域名（Host 命中 storage_prefixes）
-      const hosted = await hostedDirectLink(env, request)
-      if (hosted) return hosted
-
       // 跨站写请求一律拒绝（放在 route 之前，覆盖全部接口）
       assertNotCrossSite(request, url)
 
@@ -5279,26 +4584,6 @@ export default {
         )
       }
       /**
-       * 捐献节点的「定期收敛」：每 5 分钟把 D1 的期望状态重推一遍。
-       *
-       * 为什么必须有它：写订阅之后我们会立刻推一次（尽快生效），但那是一次性的
-       * **事件**，网络抖动 / 面板重启 / Worker 冷启动都可能丢。丢了之后没人补，
-       * 用户就会遇到「我付了钱，但偶尔就是没开」—— 这种偶发最难查。
-       * 每 5 分钟重推一遍就把「最终一致」补上了。
-       *
-       * 为什么搭在每分钟的 tick 上而不是新增一条 cron：多一条触发器就多一份
-       * `controller.cron` 与 wrangler.toml 一一对应的配置漂移风险。
-       * 而且它很轻 —— 只处理「有一键捐献面板信息」的节点，通常只有个位数。
-       */
-      if (new Date(controller.scheduledTime).getUTCMinutes() % 5 === 0) {
-        ctx.waitUntil(
-          reconcileAllNodes(env).then((r) => {
-            if (r.failed > 0) console.warn("frp 节点收敛有失败:", JSON.stringify(r))
-          })
-        )
-      }
-
-      /**
        * 活动领奖的「发放中」兜底收敛（2026-10-17）。
        *
        * 每 15 分钟扫一次：把 claimed_at 超过 30 分钟仍停在 pending 的领奖记录
@@ -5363,52 +4648,6 @@ export default {
         if (n > 0) console.log("自动确认收货:", n, "笔")
       })
     )
-    /**
-     * 内网穿透「自动续费」：每小时检查一次即将到期的租约。
-     *
-     * 为什么必须是定时任务、而不是等用户打开页面时顺手续：
-     *   「自动续费」这个开关的意义就是**用户不在的时候也别断**。
-     *   只在有人访问时才续的话，它和手动续费没有任何区别 —— 用户没上线，
-     *   租约就断了，回来发现服务停了还得自己排查。
-     *
-     * 为什么是每小时而不是更频繁：续费窗口是**到期前 24 小时**，
-     * 每小时检查一次意味着最迟在到期前约 23 小时就会续上，余量充足。
-     * 真正决定"提前多久"的是窗口，不是检查频率 —— 所以没必要更密。
-     *
-     * 为什么搭在已有的每小时 cron 上而不是新开一条：新开一条触发器就多一份
-     * `controller.cron` 与 wrangler.toml 一一对应的配置漂移风险，而且会实实在在地
-     * 多消耗配额；挂在已有的那条上，增量只是**一次按索引的 SELECT**
-     * （绝大多数情况下返回 0 行就直接结束）。
-     */
-    ctx.waitUntil(
-      frpRentalHandlers.autoRenewDueRentals(env).then((r) => {
-        if (r.renewed > 0 || r.insufficient > 0) {
-          console.log("frp 自动续费:", JSON.stringify(r))
-        }
-      })
-    )
-
-    /**
-     * DNS 解析租用：到期回收 + 自动续费（2026-10-14）。
-     *
-     * 为什么必须有「回收」这一步：访问判定本来就带 `expires_at > now`
-     * （见 handlers/dns-rental.ts 的 dnsAccessFor），所以到期那一刻能力就已经没了。
-     * 但**状态**还停在 active —— 站长在管理端看到的会是「有效租约 + 已过期」这种
-     * 自相矛盾的数据，用户端也会显示成还在生效。这一步把状态翻正，让两边看到的
-     * 都是事实。
-     *
-     * 为什么搭在已有的每小时 cron 上而不是新开一条：同 frp（见上面那段注释）——
-     * 多一条触发器就多一份 `controller.cron` 与 wrangler.toml 一一对应的漂移风险，
-     * 而这条增量只是一次按索引的 UPDATE + 一次 SELECT。
-     */
-    ctx.waitUntil(
-      dnsRentalHandlers.expireAndAutoRenewDnsRentals(env).then((r) => {
-        if (r.expired > 0 || r.renewed > 0 || r.insufficient > 0) {
-          console.log("DNS 租约回收/续费:", JSON.stringify(r))
-        }
-      })
-    )
-
     // 批量刷新中转站调用次数/额度：排行榜读的是 newapi_accounts.request_count
     // 的本地缓存，只在用户打开中转站页时刷新 —— 不打开就一直是旧的（排行榜
     // 于是「数据不对」）。这里每小时刷一批（从最旧开始，限量防上游限流）。

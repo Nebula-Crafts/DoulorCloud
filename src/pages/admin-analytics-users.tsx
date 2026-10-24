@@ -20,7 +20,6 @@ import {
   HeartPulse,
   Mail,
   MessageSquare,
-  Server,
   ShieldCheck,
   TrendingUp,
   UserPlus,
@@ -496,14 +495,6 @@ export function UserAnalyticsPanel({ days }: { days: string }) {
               <div className="flex items-center gap-1.5">
                 <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                 {t("em.temp.title")} <span className="ml-auto tabular-nums">{res.tempMailboxes}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Server className="h-3.5 w-3.5 text-muted-foreground" />
-                {t("dm.subdomains")} <span className="ml-auto tabular-nums">{res.subdomains}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Server className="h-3.5 w-3.5 text-muted-foreground" />
-                {t("dm.recordCount", { n: res.dnsRecords })}
               </div>
               <div className="flex items-center gap-1.5">
                 <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />

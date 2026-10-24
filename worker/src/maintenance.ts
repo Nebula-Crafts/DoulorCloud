@@ -35,8 +35,6 @@ import { purgeExpiredPreviews } from "./link-preview"
 import { autoPriceNewModels } from "./newapi-client"
 import { expireRentalOrders, remindStaleOrders } from "./points-shop"
 import { retryPendingQuotaClaims } from "./event-rewards"
-import { scanDns } from "./dns-audit"
-import { sweepSuspendedDns, retrySuspendedDnsRestore, ownerStatusSql } from "./user-suspension"
 import { syncProxySubscriptionStatuses, probeProxyNodeHealth } from "./handlers/proxy"
 
 /** 过期会话保留期（天）：留一点用于排查"刚掉线"的投诉 */
@@ -181,11 +179,9 @@ export interface MaintenanceReport {
    * 只做静态规则（私网地址、第三方托管、域名转发、无效内容…）；
    * 「真实解析探测」是站长在面板上手动触发的，不进 cron（避免外部依赖）。
    */
-  dnsAudit: { scanned: number; found: number; high: number; medium: number; low: number } | null
   tableRows: Record<string, number>
   proxySync: { checked: number; offline: number; unknown: number; recovered: number } | null
   /** 封禁用户遗留/待恢复的 CF DNS 记录兜底（removed = 删掉、restored = 重建） */
-  suspendedDns: { removed: number; restored: number; errors: string[] }
   /**
    * 代理节点逐节点探活结果（2026-10-08）。
    * 轮转增量：每轮只探「最久没探过」的几个订阅源，见 handlers/proxy.ts 的
@@ -819,31 +815,6 @@ export async function runMaintenance(
     }
   }
 
-  // 9c) DNS 解析合规扫描（2026-10-01）
-  //
-  // 站内 DNS 解析功能此前没有任何审核（见 dns-audit.ts 的模块注释）。
-  // 这里每小时跑一次**静态规则**扫描：只读 dns_records 一行 SELECT + 内存规则，
-  // 不产生外部请求，成本可忽略（这也是不在 cron 里做真实解析探测的原因）。
-  // 结果落 dns_audit_findings，站长在「管理 → DNS」里处置。
-  let dnsAudit: { scanned: number; found: number; high: number; medium: number; low: number } | null = null
-  if (!dryRun) {
-    try {
-      const summary = await scanDns(env, { mode: "hourly" })
-      dnsAudit = {
-        scanned: summary.scanned,
-        found: summary.found,
-        high: summary.high,
-        medium: summary.medium,
-        low: summary.low,
-      }
-      if (summary.high > 0) {
-        warnings.push(`DNS 合规扫描发现 ${summary.high} 项高风险解析记录，请到「管理 → DNS」处理。`)
-      }
-    } catch (err) {
-      // 表未迁移 / D1 抖动：只记日志，不影响其它运维项
-      console.error("DNS 合规扫描失败（表可能未迁移）:", err)
-    }
-  }
 
   // 9d) 订阅源过时检测（2026-10-03 站长要求）
   //
@@ -895,52 +866,6 @@ export async function runMaintenance(
       console.error("代理节点探活失败（表可能未迁移）:", err)
     }
   }
-  // 4d) 封禁用户遗留的 Cloudflare DNS 记录（2026-10-08）
-  //
-  // 两个方向都要兜底，否则「封禁/解封」各有一半不闭环：
-  //   · sweepSuspendedDns —— **停用方向**：封禁那一跳受单请求子请求上限约束
-  //     （见 user-suspension.ts 的 SUSPEND_BATCH），记录多的用户一次删不完；
-  //     CF 瞬时故障也会留下一批。只处理「已标记停用、但 cf_id 还在」的行。
-  //   · retrySuspendedDnsRestore —— **恢复方向**：解封时 CF 重建失败的记录会
-  //     保留 banned_at，而用户端列表会过滤掉它 ⇒ 人解封了、解析少一条、自己还
-  //     看不见，只能等管理员发现。这里按「归属用户已 active」重试。
-  let suspendedDns = { removed: 0, restored: 0, errors: [] as string[] }
-  try {
-    if (dryRun) {
-      // 口径必须与 sweepSuspendedDns 一致（含归属判据）：写成
-      // `banned_at IS NOT NULL AND cf_id IS NOT NULL` 会恒报 0（见该函数注释）。
-      const stuck = await env.DB.prepare(
-        `SELECT COUNT(*) AS c FROM dns_records r
-          WHERE r.cf_id IS NOT NULL AND r.cf_id != ''
-            AND ${ownerStatusSql("suspended")}`
-      ).first<{ c: number }>()
-      const pending = await env.DB.prepare(
-        `SELECT COUNT(*) AS c FROM dns_records r
-          WHERE r.banned_at IS NOT NULL
-            AND ${ownerStatusSql("active")}`
-      ).first<{ c: number }>()
-      warnings.push(
-        `有 ${stuck?.c ?? 0} 条已停用记录仍挂在 Cloudflare、${pending?.c ?? 0} 条待恢复重建（dryRun 不处理）`
-      )
-    } else {
-      // 批量刻意小于 SUSPEND_BATCH(40)：那个 40 是给「封禁请求」留的余量
-      // （见 user-suspension.ts 的常量注释），而维护请求的预算口径不同 ——
-      // 每条记录 = 1 次 CF DELETE + 1 次 D1 UPDATE，且 runMaintenance 自己
-      // 已有约 15 个子请求。取 10 留足余量；处理不完的下一小时继续（自愈）。
-      const swept = await sweepSuspendedDns(env, 10)
-      const retried = await retrySuspendedDnsRestore(env, 10)
-      suspendedDns = {
-        removed: swept.removed,
-        restored: retried.restored,
-        errors: [...swept.errors, ...retried.errors],
-      }
-      for (const e of suspendedDns.errors) errors.push(`封禁记录兜底失败: ${e}`)
-    }
-  } catch (err) {
-    // 表未迁移（0130 未应用）不该让整个运维任务失败
-    console.error("停用记录兜底失败（表可能未迁移）:", err)
-  }
-
   // 10) 清理失败也算告警（否则"静默失败"永远没人知道）
   //
   // ⚠️ 必须排在 4d 之后：sweep 修好后是真在干活，它的 CF 失败（429/403/子请求超限）
@@ -971,10 +896,8 @@ export async function runMaintenance(
     quotaClaimsRetried,
     announcementMails,
     storageMismatches,
-    dnsAudit,
     tableRows,
     proxySync,
-    suspendedDns,
     proxyProbe,
     warnings,
     errors,

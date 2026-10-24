@@ -645,10 +645,6 @@ export default function ProfilePage() {
   )
 
   const defaultUrl = `${window.location.origin}${profile?.profilePath ?? ""}`
-  const customUrl = profile?.fqdn ? `https://${profile.fqdn}` : null
-
-  const boundToRootDomain =
-    !!profile?.fqdn && profile.fqdn === window.location.hostname.replace(/^cloud\./, "")
 
   // 实时预览分两层：
   //   ① 服务端渲染「基础 HTML」（表单/联系方式/模块变化时，防抖后请求，
@@ -1972,68 +1968,6 @@ export default function ProfilePage() {
                     <AddressRow url={defaultUrl} />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>{t("pf.publish.customDomain")}</Label>
-                    {profile?.fqdn ? (
-                      <>
-                        <AddressRow url={customUrl!} />
-                        <button
-                          type="button"
-                          className="text-xs text-muted-foreground hover:text-destructive"
-                          onClick={async () => {
-                            try {
-                              await profileApi.unbindDomain()
-                              await load()
-                              toast.success(t("pf.ok.unbound"))
-                            } catch (err) {
-                              toast.error(err instanceof HttpError ? err.message : t("pf.err.unbind"))
-                            }
-                          }}
-                        >
-                          {t("pf.publish.unbind")}
-                        </button>
-                      </>
-                    ) : (data?.availableSubdomains.length ?? 0) === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        {t("pf.publish.noSubdomain")}
-                      </p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {data?.availableSubdomains.map((sub) => (
-                          <Button
-                            key={sub.id}
-                            variant="outline"
-                            size="sm"
-                            className="font-mono text-xs"
-                            onClick={async () => {
-                              try {
-                                const res = await profileApi.bindDomain(sub.id)
-                                await load()
-                                toast.success(
-                                  res.dnsCreated ? t("pf.publish.boundDns") : t("pf.publish.bound")
-                                )
-                              } catch (err) {
-                                toast.error(err instanceof HttpError ? err.message : t("pf.err.bind"))
-                              }
-                            }}
-                          >
-                            {sub.fqdn}
-                          </Button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {boundToRootDomain && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
-                      <p className="text-xs font-medium text-destructive">
-                        {t("pf.publish.rootBound", { fqdn: profile?.fqdn ?? "" })}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {t("pf.publish.rootWarn")}
-                      </p>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             </TabsContent>

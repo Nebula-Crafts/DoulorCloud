@@ -11,8 +11,6 @@ import {
   Check,
   ExternalLink,
   Inbox,
-  Network,
-  Globe,
   Plus,
   Upload,
   Zap,
@@ -70,7 +68,6 @@ import {
   newapiApi,
   profileApi,
   announcementApi,
-  getDefaultRootDomain,
   errMsg,
   HttpError,
 } from "@/services/api"
@@ -835,9 +832,7 @@ const ResourceBadges = React.memo(function ResourceBadges({
   const { t } = useT()
   const stats = data?.stats
   const items = [
-    { label: t("dash.stat.subdomains"), value: stats?.subdomains ?? 0, icon: Globe, to: "/dashboard/domains" },
     { label: t("dash.stat.unread"), value: stats?.unread ?? 0, icon: Mail, to: "/dashboard/email" },
-    { label: "DNS", value: stats?.dnsRecords ?? 0, icon: Network, to: "/dashboard/domains" },
     { label: t("dash.stat.mailboxes"), value: stats?.mailboxes ?? 0, icon: Inbox, to: "/dashboard/email" },
   ]
   return (
@@ -922,14 +917,10 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   'email.verify.confirm': "dash.act.emailVerifyConfirm",
   'email.receive': "dash.act.emailReceive",
   'email.destination.remove': "dash.act.emailDestinationRemove",
-  'subdomain.create': "dash.act.subdomainCreate",
-  'subdomain.delete': "dash.act.subdomainDelete",
   'dns.create': "dash.act.dnsCreate",
   'mailbox.forward.verify': "dash.act.mailboxForwardVerify",
   'storage.enable': "dash.act.storageEnable",
   'storage.disable': "dash.act.storageDisable",
-  'storage.domain.bind': "dash.act.storageDomainBind",
-  'storage.domain.unbind': "dash.act.storageDomainUnbind",
   'storage.default_prefix': "dash.act.storageDefaultPrefix",
   'newapi.bind': "dash.act.newapiBind",
   'newapi.bind_existing': "dash.act.newapiBindExisting",
@@ -1422,25 +1413,6 @@ export default function DashboardPage() {
   const { t } = useT()
   const { user } = useAuth()
 
-  /**
-   * 「发给用户的根域」（如 tyu.me）。由后端下发，**不写死** ——
-   * 它是管理员可改的（root_domains 的默认行），换域后写死的地方会显示错地址
-   * （2026-10-02 从 doulor.cn 整体迁到 tyu.me 时就踩到了）。拉不到就留空。
-   */
-  const [rootDomain, setRootDomain] = React.useState("")
-  React.useEffect(() => {
-    let alive = true
-    getDefaultRootDomain()
-      .then((d) => {
-        if (alive) setRootDomain(d)
-      })
-      .catch(() => {
-        /* 拉不到就不显示域名，别闪一个错的 */
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
   const [data, setData] = React.useState<MeResponse | null>(null)
   const [loading, setLoading] = React.useState(true)
   /** AI / 名片 / 公告（含弹窗）的共享数据，见 useDashboardCards */
@@ -1591,8 +1563,6 @@ export default function DashboardPage() {
       <AnnouncementPopup announcements={announcements} />
       <PageHeader
         title={t("dash.welcome", { name: user?.username ?? "" })}
-        // 根域由后端下发（不写死 doulor.cn）：换域后这里要跟着变
-        description={rootDomain ? `${user?.namespace}.${rootDomain}` : undefined}
         actions={
           <div className="flex items-center gap-2">
             <InstallAppButton />
