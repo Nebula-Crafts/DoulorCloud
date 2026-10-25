@@ -88,6 +88,7 @@ const REASON_LABEL: Record<string, string> = {
   invite_commission: "pt.reason.inviteCommission",
   transfer_out: "pt.reason.transferOut",
   transfer_in: "pt.reason.transferIn",
+  app: "pt.reason.app",
 }
 
 /** 订单状态 → 展示标签（用户商品订单的 pending/delivered 含义不同，用 orderStatusText 区分） */

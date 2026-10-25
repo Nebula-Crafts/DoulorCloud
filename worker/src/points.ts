@@ -32,6 +32,12 @@ import type { Env } from "./env"
  *    所以管理端的「累计发放」统计必须把它排除，否则会把用户间转账算成平台增发。
  */
 export type PointReason =
+  /**
+   * 外部 OAuth 应用消费（2026-10-25 积分互通）：用户在第三方应用里花本站积分。
+   * 永远是**扣减**（delta < 0）—— 加分不开放给外部应用（见 oauth-points.ts）。
+   * 属于积分销毁（花掉即退出流通），统计口径与 shop 同类：不是平台增发。
+   */
+  | "app"
   | "event"
   | "admin"
   | "redeem"
@@ -139,8 +145,10 @@ export interface ApplyPointsOptions {
   detail?: string | null
   /** 幂等键；同一用户同一键只会记一次。活动发放用 `event:<eventId>` */
   dedupKey?: string | null
-  /** 操作人（管理员发放/扣减时填） */
+  /** 操作人（管理员发放/扣减时填；外键指向 users） */
   createdBy?: string | null
+  /** 外部 OAuth 应用的 client_id（积分互通消费时填；与 createdBy 互斥使用） */
+  appClientId?: string | null
 }
 
 export interface ApplyPointsResult {
@@ -173,7 +181,7 @@ export async function applyPoints(
   env: Env,
   opts: ApplyPointsOptions
 ): Promise<ApplyPointsResult> {
-  const { userId, delta, reason, detail, dedupKey, createdBy } = opts
+  const { userId, delta, reason, detail, dedupKey, createdBy, appClientId } = opts
   if (!Number.isFinite(delta) || delta === 0) {
     throw new ApiError(400, "积分变动值无效", "INVALID_INPUT")
   }
@@ -191,15 +199,15 @@ export async function applyPoints(
     // 只有余额足够时才插入负数流水；重复 dedup_key 的新 txId 不会出现。
     env.DB.prepare(
       `INSERT OR IGNORE INTO point_transactions
-         (id, user_id, delta, balance, reason, detail, dedup_key, created_by, created_at)
-       SELECT ?, ?, ?, (SELECT balance + ? FROM user_points WHERE user_id = ?), ?, ?, ?, ?, ?
+         (id, user_id, delta, balance, reason, detail, dedup_key, created_by, app_client_id, created_at)
+       SELECT ?, ?, ?, (SELECT balance + ? FROM user_points WHERE user_id = ?), ?, ?, ?, ?, ?, ?
         WHERE EXISTS (
           SELECT 1 FROM user_points
            WHERE user_id = ? AND (? >= 0 OR balance >= ?)
         )`
     ).bind(
       txId, userId, delta, delta, userId, reason, detail ? detail.slice(0, 300) : null,
-      dedupKey ?? null, createdBy ?? null, now, userId, delta, -delta
+      dedupKey ?? null, createdBy ?? null, appClientId ?? null, now, userId, delta, -delta
     ),
     env.DB.prepare(
       `UPDATE user_points

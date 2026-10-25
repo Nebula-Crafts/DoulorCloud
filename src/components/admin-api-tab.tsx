@@ -20,7 +20,6 @@ import { useT } from "@/i18n"
 
 /** 功能标识 → 展示名（用 i18n key） */
 const FEATURE_LABEL_KEY: Record<string, string> = {
-  dns: "adm.api.featureDns",
   mailbox: "adm.api.featureMailbox",
   temp_mailbox: "adm.api.featureTempMailbox",
 }

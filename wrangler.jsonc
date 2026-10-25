@@ -34,6 +34,14 @@
       "pattern": "cloud.doulor.cn/*",
       "zone_name": "doulor.cn"
     },
+    // 管理后台独立子域（可选加强，2026-10-25 预留）：取消注释并换成你的域名后，
+    // admin.<域>/* 由本 Worker 服务（site-worker.js 会把它收敛到 /admin/*）。
+    // 绑定后可在 Cloudflare Zero Trust 给这个子域加 Access（邮箱验证码等），
+    // 给后台多一道独立于站内账号体系的门。
+    // {
+    //   "pattern": "admin.your-domain.com/*",
+    //   "zone_name": "your-domain.com"
+    // },
     // 2026-10-17：7u.nz 整站 301 到主站（见 site-worker.js 的 SITE_REDIRECTS）。
     // 只加根域与 www —— `*.7u.nz` 是用户绑定的子域名，归 API Worker 的动态 Route，
     // 这里绝不能加泛域名路由，否则会把用户站点抢走。

@@ -21,6 +21,7 @@ const SCOPE_LABELS: Record<string, { title: string; desc: string }> = {
   openid: { title: "oc.scope.openid.title", desc: "oc.scope.openid.desc" },
   profile: { title: "oc.scope.profile.title", desc: "oc.scope.profile.desc" },
   email: { title: "oc.scope.email.title", desc: "oc.scope.email.desc" },
+  points: { title: "oc.scope.points.title", desc: "oc.scope.points.desc" },
 }
 
 function scopeLabel(s: string) {

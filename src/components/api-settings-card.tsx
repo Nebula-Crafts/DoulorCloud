@@ -22,31 +22,12 @@ import { publicApi, errMsg } from "@/services/api"
 import { useT } from "@/i18n"
 
 const FEATURE_LABEL_KEY: Record<string, string> = {
-  dns: "apiset.featureDns",
   mailbox: "apiset.featureMailbox",
   temp_mailbox: "apiset.featureTempMailbox",
-  subdomain: "apiset.featureSubdomain",
 }
 
 /** 接口文档（按功能分组；以后加功能这里同步登记 + 后端 public-api.ts 加路由） */
 const API_GROUPS = [
-  {
-    labelKey: "apiset.groupDns",
-    endpoints: [
-      { method: "GET", path: "/api/v1/dns", descKey: "apiset.epDnsList" },
-      { method: "POST", path: "/api/v1/dns", descKey: "apiset.epDnsCreate" },
-      { method: "PUT", path: "/api/v1/dns/:id", descKey: "apiset.epDnsUpdate" },
-      { method: "DELETE", path: "/api/v1/dns/:id", descKey: "apiset.epDnsDelete" },
-    ],
-  },
-  {
-    labelKey: "apiset.groupSubdomain",
-    endpoints: [
-      { method: "GET", path: "/api/v1/subdomain", descKey: "apiset.epSubList" },
-      { method: "POST", path: "/api/v1/subdomain", descKey: "apiset.epSubCreate" },
-      { method: "DELETE", path: "/api/v1/subdomain/:id", descKey: "apiset.epSubDelete" },
-    ],
-  },
   {
     labelKey: "apiset.groupMailbox",
     endpoints: [

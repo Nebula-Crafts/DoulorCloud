@@ -47,6 +47,7 @@ import * as auditHandlers from "./handlers/audit"
 import * as chatHandlers from "./handlers/chat"
 import * as dmHandlers from "./handlers/dm"
 import * as oauthHandlers from "./handlers/oauth"
+import * as oauthPointsHandlers from "./handlers/oauth-points"
 import * as feedbackHandlers from "./handlers/feedback"
 import * as diagLogHandlers from "./handlers/diag-logs"
 import * as perfHandlers from "./handlers/perf"
@@ -2826,6 +2827,20 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
   },
 
   // ---- 公开 API（API Key 认证 + 限额）----
+  // ---- 积分互通（OAuth access_token 认证，scope=points；应用服务端调用） ----
+  {
+    kind: "exact",
+    path: "/v1/points/balance",
+    method: "GET",
+    handle: () => oauthPointsHandlers.pointsBalance(env, request),
+  },
+  {
+    kind: "exact",
+    path: "/v1/points/spend",
+    method: "POST",
+    handle: () => oauthPointsHandlers.pointsSpend(env, request),
+  },
+
   // 邮箱：列表 / 创建 / 删除 / 邮件列表 / 邮件内容 / 回复
   {
     kind: "exact",

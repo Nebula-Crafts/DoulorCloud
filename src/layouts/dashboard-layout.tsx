@@ -97,7 +97,9 @@ const baseNav = [
  * 反馈是给意见），放一起符合直觉；而它比捐献更常用，位置高一点更好点到。
  */
 const settingsNav = { to: "/dashboard/settings", labelKey: "nav.settings", icon: Settings, end: false }
-const adminNav = { to: "/dashboard/admin", labelKey: "nav.admin", icon: ShieldCheck, end: false }
+// 管理后台入口：独立 SPA（/admin），必须整页跳转而不是客户端路由 ——
+// 用一个 marker 标记，渲染处对它特殊处理成 <a href="/admin">。
+const adminNav = { to: "/admin", labelKey: "nav.admin", icon: ShieldCheck, end: false, externalDoc: true } as const
 // 「成就」不再占侧边栏位置，收进右下角账户菜单（排在「个人空间」上方）。
 // 侧边栏底部队列只留更常用的入口，成就属于「偶尔看一眼」的荣誉页。
 const achievementNav = { to: "/dashboard/achievements", labelKey: "nav.achievements", icon: Trophy, end: false }
@@ -335,7 +337,7 @@ export function DashboardLayout({
         return badges.community + badges.chat
       case "/dashboard/feedback":
         return badges.feedback
-      case "/dashboard/admin":
+      case "/admin":
         // 管理入口显示「全部待处理之和」，点进去再看各栏目自己的角标
         return badges.admin?.total ?? 0
       default:
@@ -350,6 +352,8 @@ export function DashboardLayout({
     end: boolean
     /** 「实验中」小标签（AI实验室等尚在打磨的新功能） */
     experimental?: boolean
+    /** 指向另一个 SPA 文档（如管理后台 /admin）：渲染成 <a> 整页跳转 */
+    externalDoc?: boolean
   }) => {
     const active = item.end
       ? location.pathname === item.to
@@ -372,6 +376,40 @@ export function DashboardLayout({
      * 游客态会跳登录页，预载原目标没有意义，故直接跳过（guestBlocked）。
      */
     const warm = guestBlocked ? undefined : () => preloadRoute(item.to)
+    // 管理后台（externalDoc）在另一个 SPA 文档里：客户端路由 <Link> 到不了，
+    // 渲染成普通 <a> 让浏览器整页跳转。样式/角标与 <Link> 完全一致。
+    if (item.externalDoc) {
+      return (
+        <a
+          key={item.to}
+          href={item.to}
+          onClick={() => setOpen(false)}
+          data-nav-active={active ? "1" : undefined}
+          className={cn(
+            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            active
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          )}
+        >
+          <item.icon className="h-4 w-4" />
+          {t(item.labelKey)}
+          {badgeFor(item.to) > 0 && (
+            <span
+              className={cn(
+                "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-medium leading-none tabular-nums",
+                // 「管理」是待办（要你去处理），用实心深色与「有新内容可看」的浅灰区分开。
+                item.to === "/admin"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
+              )}
+            >
+              {badgeFor(item.to) > 99 ? "99+" : badgeFor(item.to)}
+            </span>
+          )}
+        </a>
+      )
+    }
     return (
       <Link
         key={item.to}
@@ -402,11 +440,7 @@ export function DashboardLayout({
           <span
             className={cn(
               "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-medium leading-none tabular-nums",
-              // 「管理」是待办（要你去处理），用实心深色与「有新内容可看」的浅灰区分开。
-              // 本站是黑白灰极简风（主题色均为无彩色），不用大红色，避免突兀。
-              item.to === "/dashboard/admin"
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground"
+              "bg-muted text-muted-foreground"
             )}
           >
             {badgeFor(item.to) > 99 ? "99+" : badgeFor(item.to)}

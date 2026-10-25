@@ -27,6 +27,12 @@ import NotFoundPage from "@/pages/not-found"
 // 它额外登记「路径 → 预载函数」，侧边栏悬停时就能提前把 chunk 取回来，
 // 点下去直接渲染（2026-10-08 站长反馈「侧边栏点一下要等，管理面板点一下就到」）。
 // **新增页面务必带上路径**，漏了不会报错，只是那一个页面没有预载。
+/** 旧地址 /dashboard/admin → 新独立入口 /admin 的整页跳转（见下方路由处的说明） */
+function AdminRedirect() {
+  window.location.replace("/admin")
+  return null
+}
+
 const DashboardPage = page("/dashboard", () => import("@/pages/dashboard"))
 const EmailPage = page("/dashboard/email", () => import("@/pages/email"))
 const StoragePage = page("/dashboard/storage", () => import("@/pages/storage"))
@@ -41,7 +47,6 @@ const FeedbackPage = page("/dashboard/feedback", () => import("@/pages/feedback"
 const AchievementsPage = page("/dashboard/achievements", () => import("@/pages/achievements"))
 const LeaderboardPage = page("/dashboard/leaderboard", () => import("@/pages/leaderboard"))
 const PointsPage = page("/dashboard/points", () => import("@/pages/points"))
-const AdminPage = page("/dashboard/admin", () => import("@/pages/admin"))
 const MessagesPage = page("/dashboard/messages", () => import("@/pages/messages"))
 const DmPage = page("/dashboard/dm", () => import("@/pages/dm"))
 const CommunityPage = page("/dashboard/community", () => import("@/pages/community"))
@@ -252,7 +257,9 @@ function AppRoutes() {
         <Route path="messages/:category" element={<MessagesPage />} />
         <Route path="donations" element={<DonationPage />} />
         <Route path="feedback" element={<FeedbackPage />} />
-        <Route path="admin" element={<AdminPage />} />
+        {/* 管理后台已独立成 /admin 入口（admin.html）：这里必须整页跳转，
+            客户端路由跳不过去 —— 那是另一个 SPA 文档 */}
+        <Route path="admin" element={<AdminRedirect />} />
       </Route>
 
       {/* 临时分享箱公开短链：收敛到控制台路由，保证侧边栏在场且比例正常 */}

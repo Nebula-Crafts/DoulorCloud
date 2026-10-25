@@ -121,7 +121,9 @@ export default function LoginPage() {
     // 原来一律 `navigate(from)` 做客户端跳转，结果被 `*` 兜底成 404 页，
     // 用户登录后卡在「页面不存在」，OAuth 授权永远走不完。
     // 改成整页跳转，让浏览器重新请求 Worker，由它继续 302 到同意页。
-    if (from.startsWith("/api/")) {
+    // /admin 是**另一个 SPA 入口**（管理后台 admin.html），客户端路由到不了 ——
+    // 与 /api/* 同理必须整页跳转，否则会被本 SPA 的 * 兜底成 404 页。
+    if (from.startsWith("/api/") || from.startsWith("/admin")) {
       window.location.assign(from)
       return
     }

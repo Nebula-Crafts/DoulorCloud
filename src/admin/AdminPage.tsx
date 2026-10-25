@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import {
   Ban,
   AlertTriangle,
@@ -59,26 +59,27 @@ import { toast } from "sonner"
 
 // OAuth 应用的 UI 本体单独放一个文件，避免继续撑大本文件
 // （本文件已 4500+ 行，且可能有其他改动同时在动它）。
-import { OAuthAdminPanel } from "./admin-oauth"
-import { AnalyticsPanel } from "./admin-analytics"
-import { CfQuotaPanel } from "./admin-cf-quota"
-import { BrevoQuotaPanel } from "./admin-brevo-quota"
+import { OAuthAdminPanel } from "@/pages/admin-oauth"
+import { AnalyticsPanel } from "@/pages/admin-analytics"
+import { CfQuotaPanel } from "@/pages/admin-cf-quota"
+import { BrevoQuotaPanel } from "@/pages/admin-brevo-quota"
 // 反馈面板同理单独成文件（本文件太大，新增内容尽量外置）
-import { FeedbackPanel } from "./admin-feedback"
+import { FeedbackPanel } from "@/pages/admin-feedback"
 // 性能监控（2026-10-10 新工具）：UI 本体单独成文件
-import { PerfPanel } from "./admin-perf"
-import { AuditPanel } from "./admin-audit"
-import { PointsAdminPanel } from "./admin-points"
-import { FunLinksAdminPanel } from "./admin-fun-links"
-import { TitlesAdminPanel } from "./admin-titles"
-import { ModerationAdminPanel } from "./admin-moderation"
-import { AdminNoticesPanel } from "./admin-notices"
-import { RelayAdminPanel } from "./admin-relay"
+import { PerfPanel } from "@/pages/admin-perf"
+import { AuditPanel } from "@/pages/admin-audit"
+import { PointsAdminPanel } from "@/pages/admin-points"
+import { FunLinksAdminPanel } from "@/pages/admin-fun-links"
+import { TitlesAdminPanel } from "@/pages/admin-titles"
+import { ModerationAdminPanel } from "@/pages/admin-moderation"
+import { AdminNoticesPanel } from "@/pages/admin-notices"
+import { RelayAdminPanel } from "@/pages/admin-relay"
 // DNS 解析管理（全站记录 / 合规扫描 / 与 Cloudflare 对账）同理外置
 
 import { PageHeader } from "@/components/page-header"
 import { EmptyState } from "@/components/empty-state"
 import { NavItem, NavGroup } from "@/components/sub-nav"
+import { SectionedCards } from "@/components/sectioned-cards"
 import { SlidingPill } from "@/components/motion/sliding-pill"
 import { AdminApiTab } from "@/components/admin-api-tab"
 import { AdminLabTab } from "@/components/admin-lab-tab"
@@ -762,7 +763,48 @@ const QUIZ_TEMPLATE = JSON.stringify(
   2
 )
 
-/** 管理面板全部子 tab（用于 URL hash 校验：/dashboard/admin#users 直达） */
+/**
+ * 侧边栏分组归属（2026-10-25 分组默认折叠）：tab → 分组键（= NavGroup 的 i18n label key）。
+ * 「用户」不在任何分组里（常驻顶栏）；当前 tab 所在的分组**强制展开** ——
+ * 否则路由直达 /admin/settings 时侧边栏全是收起的，用户不知道自己在哪。
+ */
+const TAB_GROUP: Record<string, string> = {
+  users: "adm.215",
+  invites: "adm.215",
+  inviteQuotas: "adm.215",
+  reserved: "adm.215",
+  titles: "adm.215",
+  moderation: "adm.215",
+  notices: "adm.215",
+  newapi: "adm.220",
+  relay: "adm.220",
+  lab: "adm.220",
+  gallery: "adm.220",
+  wb2api: "adm.220",
+  r2: "adm.220",
+  proxy: "adm.220",
+  announcements: "adm.226",
+  funLinks: "adm.226",
+  events: "adm.226",
+  points: "adm.226",
+  community: "adm.226",
+  donations: "adm.226",
+  feedback: "adm.226",
+  oauth: "adm.234",
+  analytics: "adm.234",
+  cfQuota: "adm.234",
+  perf: "adm.234",
+  audit: "adm.234",
+  mail: "adm.234",
+  settings: "adm.234",
+  api: "adm.234",
+  permissions: "adm.234",
+}
+
+/** 侧边栏展开状态存 localStorage：管理员手动展开的分组跨刷新保留 */
+const NAV_OPEN_KEY = "admin-nav-open"
+
+/** 管理面板全部子 tab（与路由 /admin/:tab 一一对应） */
 const ADMIN_TAB_KEYS = new Set([
   "users", "invites", "inviteQuotas", "reserved", "titles", "points",
   "donations", "feedback", "announcements", "events", "community", "moderation", "notices",
@@ -798,13 +840,39 @@ export default function AdminPage() {
   const [showRegisterIp, setShowRegisterIp] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
-  // 管理面板当前激活的 tab（受控，供「更多」下拉切换）。
-  // 初始值从 URL hash 读：/dashboard/admin#users 直接打开「用户」栏，
-  // 刷新/分享链接都保持停留在那个子 tab。
-  const [activeTab, setActiveTab] = React.useState<string>(() => {
-    const h = (typeof window !== "undefined" ? window.location.hash : "").replace(/^#\/?/, "")
-    return h && ADMIN_TAB_KEYS.has(h) ? h : "users"
+  // 当前栏目由**真路由** /admin/:tab 决定（原先是 /dashboard/admin#hash）。
+  // 可直达、可分享、刷新/后退都自然工作；非法栏目名回落到「用户」栏。
+  const params = useParams<{ tab?: string }>()
+  const navigate = useNavigate()
+  const activeTab = ADMIN_TAB_KEYS.has(params.tab ?? "") ? (params.tab as string) : "users"
+
+  // 侧边栏分组折叠：默认全收起；手动展开的分组记进 localStorage；
+  // 当前 tab 所在分组始终展开（见 TAB_GROUP 注释）。水合 try-catch：
+  // 隐私模式 / 旧值损坏时回落「全部收起」，不能让整个后台崩掉。
+  const [openGroups, setOpenGroups] = React.useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(NAV_OPEN_KEY)
+      const arr = raw ? (JSON.parse(raw) as unknown) : []
+      return Array.isArray(arr) ? new Set(arr.filter((x) => typeof x === "string")) : new Set()
+    } catch {
+      return new Set()
+    }
   })
+  const toggleGroup = (key: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      try {
+        localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...next]))
+      } catch {
+        /* 存不进去就算了：本次会话内折叠仍然生效 */
+      }
+      return next
+    })
+  }
+  /** 分组是否展开：手动展开 ∨ 含当前 tab */
+  const groupOpen = (key: string) => openGroups.has(key) || TAB_GROUP[activeTab] === key
   // 各栏目「待处理」角标（反馈 / 捐献 / 积分 / 活动），与侧边栏「管理」总角标同源
   const [attention, setAttention] = React.useState<AttentionCounts["admin"]>(null)
 
@@ -3709,13 +3777,12 @@ export default function AdminPage() {
 
   /** 切换管理面板 tab：切到对应标签时懒加载该标签的数据 */
   const handleTabChange = (v: string) => {
-    setActiveTab(v)
-    // 同步 URL hash：让子 tab 可直达、可分享（用 replaceState 不刷历史记录）
-    try {
-      window.history.replaceState(null, "", "#" + v)
-    } catch {
-      /* 某些环境禁用 history API，忽略即可 */
-    }
+    // 切栏目 = 换路由；数据加载统一由下面的 useEffect 按 activeTab 触发
+    navigate(`/admin/${v}`)
+  }
+
+  /** 按栏目懒加载数据（初始直达 / 后退 / 前进时也要跑，所以挂在 useEffect 上） */
+  const loadForTab = (v: string) => {
     if (v === "invites") void loadInvites()
     if (v === "settings") {
       void loadSettings()
@@ -3747,17 +3814,13 @@ export default function AdminPage() {
     }
   }
 
-  /**
-   * 深链接直达（如 /dashboard/admin#r2）时，初始 tab 由 hash 决定，
-   * 但 `handleTabChange` 只在用户**点击**时才跑 ⇒ 该 tab 的懒加载不会触发，
-   * 页面会停在「空状态 / 还没有配置」。
-   * 这里在挂载时补跑一次，触发初始 tab 的数据加载。
-   */
+  // 初始直达（/admin/r2 直接打开）与前进/后退都走这里：路由变了就按新栏目拉数据
   React.useEffect(() => {
-    handleTabChange(activeTab)
-    // 只在挂载时跑一次；依赖故意留空
+    loadForTab(activeTab)
+    // loadForTab 引用的加载函数都是本组件内的 useCallback/普通函数，
+    // 依赖只需要 activeTab —— 变化即重跑
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [activeTab])
 
   return (
     <div>
@@ -3776,13 +3839,14 @@ export default function AdminPage() {
           {/* 左侧二级导航：sticky 固定，右侧内容再长也能随时切栏目。
               「返回控制台」固定在最上，不随下方 nav 滚动 */}
           <aside className="flex w-full shrink-0 flex-col lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:w-48 lg:self-start">
-            <Link
-              to="/dashboard"
+            {/* 管理后台是独立 SPA：回主站必须整页跳转，客户端路由到不了另一个入口 */}
+            <a
+              href="/"
               className="mb-3 inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <ArrowLeft className="h-4 w-4" />
               {t("adm.326")}
-            </Link>
+            </a>
 
             <nav className="flex flex-col gap-0.5 lg:overflow-y-auto lg:pr-1">
               {/* 动效层：栏目切换的滑动高亮（关=现状：关掉时滑块不渲染，
@@ -3791,10 +3855,14 @@ export default function AdminPage() {
                 activeSelector='[data-nav-active="1"]'
                 className="rounded-md bg-accent"
               />
-              {canSeeTab("users") && (
-                <NavItem active={activeTab === "users"} icon={Users} label={t("adm.214")} onClick={() => handleTabChange("users")} />
+              {/* 网站统计放常驻顶部（站长 2026-10-25 要求：高频入口不藏在分组里） */}
+              {canSeeTab("analytics") && (
+                <NavItem active={activeTab === "analytics"} icon={BarChart3} label={t("adm.236")} onClick={() => handleTabChange("analytics")} />
               )}
-              <NavGroup label={t("adm.215")}>
+              <NavGroup label={t("adm.215")} open={groupOpen("adm.215")} onToggle={() => toggleGroup("adm.215")}>
+                {canSeeTab("users") && (
+                  <NavItem active={activeTab === "users"} icon={Users} label={t("adm.214")} onClick={() => handleTabChange("users")} />
+                )}
                 {canSeeTab("invites") && <NavItem active={activeTab === "invites"} icon={KeyRound} label={t("adm.216")} onClick={() => handleTabChange("invites")} />}
                 {canSeeTab("inviteQuotas") && <NavItem active={activeTab === "inviteQuotas"} icon={Ticket} label={t("adm.217")} onClick={() => handleTabChange("inviteQuotas")} />}
                 {canSeeTab("reserved") && <NavItem active={activeTab === "reserved"} icon={ShieldBan} label={t("adm.218")} onClick={() => handleTabChange("reserved")} />}
@@ -3821,7 +3889,7 @@ export default function AdminPage() {
                   />
                 )}
               </NavGroup>
-              <NavGroup label={t("adm.220")}>
+              <NavGroup label={t("adm.220")} open={groupOpen("adm.220")} onToggle={() => toggleGroup("adm.220")}>
                 {canSeeTab("newapi") && <NavItem active={activeTab === "newapi"} icon={Sparkles} label={t("adm.221")} onClick={() => handleTabChange("newapi")} />}
                 {/* 中转站入驻审核（2026-10-16 审核制）：批准 / 拒绝 / 停用。
                     可见性复用 `newapi` 那一栏 —— 后端这三个接口都在
@@ -3849,7 +3917,7 @@ export default function AdminPage() {
                 {canSeeTab("proxy") && <NavItem active={activeTab === "proxy"} icon={Zap} label={t("adm.225")} onClick={() => handleTabChange("proxy")} />}
 
               </NavGroup>
-              <NavGroup label={t("adm.226")}>
+              <NavGroup label={t("adm.226")} open={groupOpen("adm.226")} onToggle={() => toggleGroup("adm.226")}>
                 {canSeeTab("announcements") && <NavItem active={activeTab === "announcements"} icon={Megaphone} label={t("adm.227")} onClick={() => handleTabChange("announcements")} />}
                 {canSeeTab("funLinks") && <NavItem active={activeTab === "funLinks"} icon={Compass} label={t("adm.228")} onClick={() => handleTabChange("funLinks")} />}
                 {/* 角标 = 活动奖励里「自动发放失败、要人工发」的条数（见各活动的「领取名单」） */}
@@ -3893,9 +3961,8 @@ export default function AdminPage() {
                   />
                 )}
               </NavGroup>
-              <NavGroup label={t("adm.234")}>
+              <NavGroup label={t("adm.234")} open={groupOpen("adm.234")} onToggle={() => toggleGroup("adm.234")}>
                 {canSeeTab("oauth") && <NavItem active={activeTab === "oauth"} icon={KeyRound} label={t("adm.235")} onClick={() => handleTabChange("oauth")} />}
-                {canSeeTab("analytics") && <NavItem active={activeTab === "analytics"} icon={BarChart3} label={t("adm.236")} onClick={() => handleTabChange("analytics")} />}
                 {canSeeTab("cfQuota") && <NavItem active={activeTab === "cfQuota"} icon={Gauge} label={t("adm.237")} onClick={() => handleTabChange("cfQuota")} />}
                 {canSeeTab("perf") && <NavItem active={activeTab === "perf"} icon={Activity} label={t("perf.tab")} onClick={() => handleTabChange("perf")} />}
                 {canSeeTab("audit") && <NavItem active={activeTab === "audit"} icon={ScrollText} label={t("adm.238")} onClick={() => handleTabChange("audit")} />}
@@ -4171,9 +4238,9 @@ export default function AdminPage() {
                         asChild
                         title={t("adm.245")}
                       >
-                        <Link to={`/space/${encodeURIComponent(u.username)}`}>
+                        <a href={`/space/${encodeURIComponent(u.username)}`}>
                           <ExternalLink className="h-3.5 w-3.5" />
-                        </Link>
+                        </a>
                       </Button>
                       <Button
                         variant="outline"
@@ -7054,7 +7121,7 @@ export default function AdminPage() {
           {settingsLoading ? (
             <LoadingBlock variant="form" />
           ) : (
-            <div className="space-y-6">
+            <SectionedCards pageKey="settings">
 
               {/* 每日签到配置 */}
               <Card>
@@ -7979,12 +8046,12 @@ export default function AdminPage() {
                   {t("adm.681")}
                 </Button>
               </div>
-            </div>
+            </SectionedCards>
           )}
         </TabsContent>
 
         <TabsContent value="mail">
-          <div className="space-y-6">
+          <SectionedCards pageKey="mail">
             {/* 管理员通知邮箱（frp 申请通知邮箱已随内网穿透功能移除，只剩反馈通知） */}
             <Card>
               <CardHeader>
@@ -8222,7 +8289,7 @@ export default function AdminPage() {
                 {t("adm.720")}
               </Button>
             </div>
-          </div>
+          </SectionedCards>
         </TabsContent>
 
         <TabsContent value="api">

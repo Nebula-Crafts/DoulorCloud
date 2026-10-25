@@ -11,7 +11,34 @@ import { defineConfig } from "vite"
 // 期望产物直接在 dist/。加了插件会导致 wrangler 部署到旧的 dist 内容，
 // 表现为「代码改了、也部署了，但线上没变化」。
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    /**
+     * 管理后台（admin.html）的开发期回退（2026-10-25 多入口改造）。
+     *
+     * 生产环境由 site-worker.js 把 /admin/* 重写到 /admin.html；开发环境没有
+     * Worker，这里用中间件做同一件事：/admin 与 /admin/* 全部落到 admin.html，
+     * 由管理 SPA 自己的路由接管。注意两点：
+     *   1. 必须只匹配 /admin 与 /admin/ 前缀 —— /admin.html 本身（Vite 会 transform）
+     *      与 /assets/*（全局资源目录）都不能被重写；
+     *   2. 在 configureServer 里直接注册（而不是返回函数）意味着它先于 Vite 的
+     *      SPA fallback（index.html 兜底）执行 —— 否则 /admin/settings 会拿到
+     *      用户站的 index.html。
+     */
+    {
+      name: "admin-spa-fallback",
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          const path = (req.url ?? "").split("?")[0]
+          if (path === "/admin" || path.startsWith("/admin/")) {
+            req.url = "/admin.html"
+          }
+          next()
+        })
+      },
+    },
+  ],
   resolve: {
     // 用数组形式：需要精确匹配（正则）的条目必须写成 find/replacement ——
     // 对象 key 是前缀匹配，会把子路径一起误替换掉。
@@ -60,6 +87,12 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      // 双入口（2026-10-25）：用户站 index.html + 管理后台 admin.html。
+      // 两个入口各自一棵 chunk 树 —— 用户站的产物里没有任何管理代码。
+      input: {
+        index: path.resolve(import.meta.dirname, "index.html"),
+        admin: path.resolve(import.meta.dirname, "admin.html"),
+      },
       output: {
         // 把不常变的第三方库单独拆包：用户重新访问时命中浏览器缓存，
         // 只有业务代码变化的那部分需要重新下载。

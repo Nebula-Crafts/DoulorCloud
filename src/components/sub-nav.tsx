@@ -56,14 +56,59 @@ export function NavItem({
   )
 }
 
-/** 侧边栏的分组（带小标题 + 分隔） */
-export function NavGroup({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * 侧边栏的分组（带小标题 + 分隔）。
+ *
+ * 可折叠（2026-10-25 管理后台要求「分组默认收起」）：传入 `open` + `onToggle`
+ * 即进入折叠模式 —— 标题变成按钮并带旋转箭头，收起时隐藏子项。
+ * 不传这两个 props 的调用方（捐献页 / 排行榜）行为不变。
+ */
+export function NavGroup({
+  label,
+  children,
+  open,
+  onToggle,
+}: {
+  label: string
+  children: React.ReactNode
+  /** 折叠模式：当前是否展开 */
+  open?: boolean
+  /** 折叠模式：点击标题的回调。传入即启用折叠（undefined = 永远展开） */
+  onToggle?: () => void
+}) {
+  const collapsible = typeof onToggle === "function"
+  const expanded = collapsible ? open !== false : true
   return (
     <div className="mt-3 first:mt-0">
-      <p className="mb-1 px-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-        {label}
-      </p>
-      <div className="flex flex-col gap-0.5">{children}</div>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="mb-1 flex w-full items-center gap-1 rounded px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+        >
+          <span className="truncate">{label}</span>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={
+              "ml-auto h-3 w-3 shrink-0 transition-transform duration-200 " +
+              (expanded ? "rotate-180" : "")
+            }
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      ) : (
+        <p className="mb-1 px-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+          {label}
+        </p>
+      )}
+      {expanded && <div className="flex flex-col gap-0.5">{children}</div>}
     </div>
   )
 }

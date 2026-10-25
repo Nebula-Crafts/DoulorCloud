@@ -33,7 +33,13 @@ export const CODE_TTL_SECONDS = 60
 export const ACCESS_TOKEN_TTL_SECONDS = 3600
 
 /** 我们支持的 scope。第三方请求了别的会被拒绝（不做静默降级，避免暗中缩小权限） */
-export const SUPPORTED_SCOPES = ["openid", "profile", "email"] as const
+/**
+ * `points`（2026-10-25 积分互通）：授权后应用可查余额并在用户额度内消费积分
+ * （/api/v1/points/balance 与 /api/v1/points/spend，见 handlers/oauth-points.ts）。
+ * 只授权「读 + 花」，不允许应用给用户**加**分 —— 加分是平台行为，开放出去
+ * 等于把积分增发权交给了任意第三方。
+ */
+export const SUPPORTED_SCOPES = ["openid", "profile", "email", "points"] as const
 export type Scope = (typeof SUPPORTED_SCOPES)[number]
 
 /** 未指定 scope 时的默认值 */
@@ -807,6 +813,8 @@ export interface OidcUserInfo {
   preferred_username?: string
   picture?: string
   email_verified?: boolean
+  /** scope 含 points 时下发的当前积分余额 */
+  points_balance?: number
 }
 
 /**
@@ -854,6 +862,12 @@ export async function buildUserInfo(
       info.picture = `${origin}/u/${encodeURIComponent(user.username)}/avatar`
     }
   }
+  if (has("points")) {
+    const row = await env.DB.prepare("SELECT balance FROM user_points WHERE user_id = ?")
+      .bind(userId)
+      .first<{ balance: number }>()
+    info.points_balance = Number(row?.balance ?? 0)
+  }
   return info
 }
 
@@ -880,7 +894,7 @@ export function discoveryDocument(origin: string) {
     id_token_signing_alg_values_supported: [],
     token_endpoint_auth_methods_supported: ["client_secret_post"],
     code_challenge_methods_supported: ["S256"],
-    claims_supported: ["sub", "email", "email_verified", "name", "preferred_username", "picture"],
+    claims_supported: ["sub", "email", "email_verified", "name", "preferred_username", "picture", "points_balance"],
   }
 }
 

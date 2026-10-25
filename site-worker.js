@@ -154,6 +154,39 @@ export default {
       return env.API.fetch(request)
     }
 
+    /**
+     * 管理后台 SPA（admin.html，2026-10-25 多入口改造）。
+     *
+     * 两种进入方式：
+     *   · 主域路径 /admin、/admin/*（开发与本地测试的形态，也是默认形态）；
+     *   · 独立子域 admin.<根域>（生产可选的加强形态：给 wrangler.jsonc 的
+     *     routes 加一条 admin.<你的域>/* 即可启用 —— 独立 host 之后还能在
+     *     Cloudflare Access / IP 白名单前面再挡一道）。
+     *   两者都收敛到 /admin/* 这一种 URL 形态（子域根路径 302 到 /admin），
+     *   管理后台的路由树只认这一种前缀，不用适配两种 basename。
+     *
+     * 注意与 ASSETS 的 SPA 兜底配合：assets 配的是 not_found_handling:
+     * single-page-application，兜底产物是 **index.html（用户站）**——
+     * 所以 /admin/* 必须在这里**先**改写成 /admin.html 再交给 ASSETS，
+     * 否则刷新 /admin/settings 会拿到用户站的入口。
+     * 静态资源（/assets/*）不走这里的改写：它们与入口页无关。
+     */
+    const isAdminHost = url.hostname.split(".")[0] === "admin"
+    const isAdminPath = url.pathname === "/admin" || url.pathname.startsWith("/admin/")
+    if (isAdminHost && !isAdminPath && !url.pathname.startsWith("/assets/")) {
+      // 子域根路径 → 统一 302 到 /admin（保留查询串）
+      return withSecurityHeaders(Response.redirect(url.origin + "/admin" + url.search, 302))
+    }
+    if (isAdminPath) {
+      const adminUrl = new URL(url)
+      adminUrl.pathname = "/admin.html"
+      const adminRes = await env.ASSETS.fetch(new Request(adminUrl.toString(), request))
+      const copy = withSecurityHeaders(adminRes)
+      // HTML 一律不缓存（与下方主入口同一口径：避免部署后旧入口引用已删除的 chunk）
+      copy.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
+      return copy
+    }
+
     // assets 绑定缺失时不要抛错（否则整站 1101），尽力返回请求本身
     if (!env || !env.ASSETS || typeof env.ASSETS.fetch !== "function") {
       return new Response(
