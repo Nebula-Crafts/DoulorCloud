@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
   Mail,
   Settings,
+  Gamepad2,
   LayoutDashboard,
   ShieldCheck,
   LogOut,
@@ -80,6 +81,7 @@ const baseNav = [
   { to: "/dashboard/email", labelKey: "nav.email", icon: Mail, end: false },
   { to: "/dashboard/storage", labelKey: "nav.storage", icon: HardDrive, end: false },
   { to: "/dashboard/ai", labelKey: "nav.ai", icon: Sparkles, end: false },
+  { to: "/dashboard/sim", labelKey: "nav.sim", icon: Gamepad2, end: false },
   { to: "/dashboard/proxy", labelKey: "nav.proxy", icon: Zap, end: false },
   { to: "/dashboard/profile", labelKey: "nav.profile", icon: Contact, end: false },
   { to: "/dashboard/community", labelKey: "nav.community", icon: MessagesSquare, end: false },

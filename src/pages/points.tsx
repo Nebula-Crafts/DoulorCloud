@@ -89,6 +89,8 @@ const REASON_LABEL: Record<string, string> = {
   transfer_out: "pt.reason.transferOut",
   transfer_in: "pt.reason.transferIn",
   app: "pt.reason.app",
+  star_in: "pt.reason.star_in",
+  star_out: "pt.reason.star_out",
 }
 
 /** 订单状态 → 展示标签（用户商品订单的 pending/delivered 含义不同，用 orderStatusText 区分） */

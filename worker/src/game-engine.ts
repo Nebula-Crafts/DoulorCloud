@@ -47,10 +47,6 @@ export interface GameParams {
   maintenanceBps: number
   noiseBps: number
   impactBps: number
-  /** 货币模式：points = 真积分（走 user_points）/ test = 测试币（走 game_test_balances） */
-  currency: "points" | "test"
-  /** 测试币首次领取额度（测试币是游戏内货币，不涉及真实积分） */
-  testGrant: number
   meanReversionBps: number
   /**
    * 均值回复**死区**（bps）：偏离锚在这个范围内时完全不回收。
@@ -87,9 +83,9 @@ export const MIN_DEPTH = 100
  */
 export const MAX_CATCHUP_TICKS = 240
 
-/** 交易对展示名（币种就叫 Doulor 币，计价单位是站内积分） */
+/** 交易对展示名（币种就叫 Doulor 币，计价单位是星币——游戏唯一货币） */
 export const GAME_SYMBOL = "DOULOR"
-export const GAME_QUOTE = "积分"
+export const GAME_QUOTE = "星币"
 
 // ---------------------------------------------------------------------------
 // 确定性随机
@@ -617,8 +613,6 @@ export interface RawGameParams {
   maintenanceBps: unknown
   noiseBps: unknown
   impactBps: unknown
-  currency: unknown
-  testGrant: unknown
   meanReversionBps: unknown
   reversionDeadbandBps: unknown
   anchorFollowBps: unknown
@@ -637,7 +631,6 @@ const PARAM_RANGES = {
   maintenanceBps: [0, 5000],
   noiseBps: [0, 500],
   impactBps: [0, 100_000],
-  testGrant: [0, 100_000_000],
   meanReversionBps: [0, 10_000],
   reversionDeadbandBps: [0, 10_000],
   anchorFollowBps: [0, 10_000],
@@ -681,10 +674,6 @@ export function sanitizeGameParams(raw: RawGameParams): GameParams {
     maintenanceBps: num(raw.maintenanceBps, PARAM_RANGES.maintenanceBps, 50),
     noiseBps: num(raw.noiseBps, PARAM_RANGES.noiseBps, 4),
     impactBps: num(raw.impactBps, PARAM_RANGES.impactBps, 500),
-    // 货币模式：只认 "test"，其余一律按真积分（**兜底选真积分**：宁可少发游戏币，
-    // 也不能因为一个拼错的值就把测试币当成积分发出去）
-    currency: raw.currency === "test" ? "test" : "points",
-    testGrant: num(raw.testGrant, PARAM_RANGES.testGrant, 10000),
     meanReversionBps: num(raw.meanReversionBps, PARAM_RANGES.meanReversionBps, 50),
     // 默认 150 bps（1.5%）：正常下单推出来的波动永久有效，
     // 只有被推到 1.5% 以上才慢慢往回收。

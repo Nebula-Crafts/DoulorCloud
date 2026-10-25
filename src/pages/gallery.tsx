@@ -17,7 +17,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { CollectionAside } from "@/components/collection-nav"
+import { GalleryAside } from "@/components/gallery-nav"
 import { PageHeader } from "@/components/page-header"
 import { EmptyState } from "@/components/empty-state"
 import { EditProjectDialog, type EditProjectActions } from "@/components/lab-edit-project-dialog"
@@ -192,8 +192,8 @@ export default function GalleryPage() {
       <PageHeader title={t("gal.title")} description={t("gal.desc")} />
 
       <div className="flex flex-col gap-6 lg:flex-row">
-        {/* 侧边栏是共享组件（造物典藏 / 典藏设置两个页面用同一份），四项统一走 URL */}
-        <CollectionAside />
+        {/* 侧边栏是造物集自己的目录（展示大厅 / 我的造物集），统一走 URL */}
+        <GalleryAside />
 
         <div className="min-w-0 flex-1">
           {view === "hall" ? (

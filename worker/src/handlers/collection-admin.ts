@@ -18,7 +18,7 @@
 import { ApiError, json } from "../http"
 import { requireAdminScope } from "./admin"
 import { audit, getSettings, updateSettings } from "../settings"
-import { getPointsBalance } from "../points"
+import { getStarRate, getWallet } from "../game-wallet"
 import {
   depositToPool,
   ensureMarket,
@@ -29,7 +29,7 @@ import {
   withdrawFromPool,
 } from "../game-market"
 import { sanitizeGameParams } from "../game-engine"
-import { getPlugin, toPublicPlugin, updatePluginRow } from "../collection-plugins"
+import { getPlugin, listAllPlugins as listAllPluginsPublic, toPublicPlugin, updatePluginRow } from "../collection-plugins"
 import type { Env } from "../env"
 
 /** 「在线投资」在清单里的 slug。将来别的内置游戏各有一份同构的设置接口 */
@@ -49,8 +49,6 @@ const PARAM_KEYS = [
   "game_impact_bps",
   "game_mean_reversion_bps",
   "game_reversion_deadband_bps",
-  "game_currency",
-  "game_test_grant",
   "game_anchor_follow_bps",
   "game_max_impact_bps",
   "game_base_price",
@@ -85,12 +83,12 @@ export async function getGameAdmin(env: Env, request: Request): Promise<Response
   const admin = await requireAdminScope(env, request, "collection")
 
   const params = await loadGameParams(env)
-  const [settings, market, stats, plugin, myBalance] = await Promise.all([
+  const [settings, market, stats, plugin, myStars] = await Promise.all([
     getSettings(env),
     ensureMarket(env, params),
     gameStats(env),
     getPlugin(env, INVEST_SLUG),
-    getPointsBalance(env, admin.id),
+    getWallet(env, INVEST_SLUG, admin.id),
   ])
 
   const raw: Record<string, string> = {}
@@ -117,9 +115,6 @@ export async function getGameAdmin(env: Env, request: Request): Promise<Response
       anchorFollowBps: params.anchorFollowBps,
       maxImpactBps: params.maxImpactBps,
       basePrice: params.basePrice,
-      /** 当前货币模式与测试币额度（管理面板的切换器回显用） */
-      currency: params.currency,
-      testGrant: params.testGrant,
     },
     market: {
       price: market.price,
@@ -130,11 +125,11 @@ export async function getGameAdmin(env: Env, request: Request): Promise<Response
     },
     pool: {
       balance: market.pool_balance,
-      /** 测试币池子（与真积分池互不影响） */
-      testBalance: Number(market.pool_test_balance ?? 0),
-      /** 站长自己的余额 —— 划拨垫本是从他账户扣，页面直接告诉他有多少可划 */
-      myBalance,
+      /** 站长自己的星币钱包余额 —— 划拨垫本前先在游戏内兑换星币 */
+      myStars,
     },
+    /** 星币汇率（星币/积分），管理面板可改 */
+    starRate: await getStarRate(env, INVEST_SLUG),
     stats,
   })
 }
@@ -161,11 +156,6 @@ export async function updateGameAdmin(env: Env, request: Request): Promise<Respo
       patch[key] = v === true || v === "1" || v === 1 || v === "true" ? "1" : "0"
       continue
     }
-    // 字符串型参数：只认这两个取值，其余一律回落 points（安全方向：真积分）
-    if (key === "game_currency") {
-      patch[key] = v === "test" ? "test" : "points"
-      continue
-    }
     const n = numOrUndefined(v)
     if (n !== undefined) patch[key] = String(n)
   }
@@ -190,8 +180,6 @@ export async function updateGameAdmin(env: Env, request: Request): Promise<Respo
       anchorFollowBps: patch.game_anchor_follow_bps ?? current.anchorFollowBps,
       maxImpactBps: patch.game_max_impact_bps ?? current.maxImpactBps,
       basePrice: patch.game_base_price ?? current.basePrice,
-      currency: patch.game_currency ?? current.currency,
-      testGrant: patch.game_test_grant ?? current.testGrant,
     })
 
     await updateSettings(env, {
@@ -210,27 +198,11 @@ export async function updateGameAdmin(env: Env, request: Request): Promise<Respo
       game_anchor_follow_bps: String(merged.anchorFollowBps),
       game_max_impact_bps: String(merged.maxImpactBps),
       game_base_price: String(merged.basePrice),
-      game_currency: merged.currency,
-      game_test_grant: String(merged.testGrant),
     })
-
-    /**
-     * ⚠️ 切换货币时**必须记下时间点**（`currency_since`）。
-     *
-     * 排行榜是拿 game_trades 的盈亏汇总的，而两段时期的 1 分完全不是一回事
-     * （一段是真积分、一段是测试币）。记下切换时刻后，排行榜只统计切换之后的成交，
-     * 否则榜上会出现「真积分时代赚的 3000」压着「测试币时代亏的 20」这种荒谬对比。
-     */
-    if (current.currency !== merged.currency) {
-      await env.DB.prepare(
-        "UPDATE game_market SET currency_since = ?, updated_at = ? WHERE id = 1"
-      )
-        .bind(new Date().toISOString(), new Date().toISOString())
-        .run()
-    }
   }
 
-  // 插件自身的行（上下架 / 卡片外观）。刻意与玩法参数分开：一个是运营状态，一个是玩法
+  // 插件自身的行（上下架 / 卡片外观 / 星币汇率）。刻意与玩法参数分开：一个是运营状态，一个是玩法
+  const currentPlugin = await getPlugin(env, INVEST_SLUG)
   const pluginPatch = (body.plugin ?? {}) as Record<string, unknown>
   const row: {
     status?: string
@@ -238,6 +210,7 @@ export async function updateGameAdmin(env: Env, request: Request): Promise<Respo
     name?: string
     tagline?: string
     description?: string
+    config?: string
   } = {}
   if (typeof pluginPatch.status === "string") {
     const allowed = ["draft", "review", "published", "disabled"]
@@ -253,6 +226,25 @@ export async function updateGameAdmin(env: Env, request: Request): Promise<Respo
       throw new ApiError(400, "强调色要填 #RRGGBB 形式", "INVALID_INPUT")
     }
     row.accent = accent
+  }
+  // 星币汇率（2026-10-25 星币体系）：存 config.starRate，供 game-wallet 的
+  // getStarRate 读取。范围 1 ~ 100 万（防手滑多打 0 把汇率打成天文数字）。
+  if (pluginPatch.config && typeof pluginPatch.config === "object") {
+    const cfg = pluginPatch.config as { starRate?: unknown }
+    if (cfg.starRate !== undefined) {
+      const rate = Math.trunc(Number(cfg.starRate))
+      if (!Number.isFinite(rate) || rate < 1 || rate > 1_000_000) {
+        throw new ApiError(400, "星币汇率需为 1 ~ 100 万的整数", "INVALID_INPUT")
+      }
+      let current: Record<string, unknown> = {}
+      try {
+        current = JSON.parse(currentPlugin?.config || '{}') as Record<string, unknown>
+      } catch {
+        current = {}
+      }
+      current.starRate = rate
+      row.config = JSON.stringify(current)
+    }
   }
   if (typeof pluginPatch.name === "string") row.name = pluginPatch.name.trim().slice(0, 40)
   if (typeof pluginPatch.tagline === "string") row.tagline = pluginPatch.tagline.trim().slice(0, 80)
@@ -272,6 +264,86 @@ export async function updateGameAdmin(env: Env, request: Request): Promise<Respo
   )
 
   return await getGameAdmin(env, request)
+}
+
+/**
+ * PUT /api/admin/collection/plugins/:slug —— 游戏仓库的**通用**插件更新
+ * （2026-10-25 模拟人生改造）。
+ *
+ * body: { status?, name?, icon?, tagline?, description?, accent? }，全部可选。
+ * 这是「未来游戏零改动接入」契约的一半（另一半是清单路由已按管理员口径返回
+ * 未上架插件）：任何游戏（内置或将来 sandbox 用户游戏）的上架/下架/改名
+ * 都走这一个接口，不再需要每个游戏一份同构设置接口。
+ *
+ * 与 `updateGameAdmin` 的 `plugin.status` 的关系：两处写的是**同一列**
+ * （collection_plugins.status），同源无冲突——invest 面板内的开关保留，
+ * 游戏仓库清单上的开关是它的快捷入口。
+ *
+ * 权限：`requireAdminScope("collection")`（与同文件其余接口一致）。
+ */
+export async function updateGamePlugin(
+  env: Env,
+  request: Request,
+  slug: string
+): Promise<Response> {
+  const admin = await requireAdminScope(env, request, "collection")
+  const body = await readJson(request)
+
+  // slug 必须真实存在；清单未同步时先跑一次差异同步（内置插件会补行）
+  let row = await getPlugin(env, slug)
+  if (!row) {
+    await listAllPluginsPublic(env)
+    row = await getPlugin(env, slug)
+  }
+  if (!row) throw new ApiError(404, "插件不存在", "NOT_FOUND")
+
+  const patch: { status?: string; name?: string; icon?: string; tagline?: string; description?: string; accent?: string } = {}
+
+  if (body.status !== undefined) {
+    const status = String(body.status)
+    if (!["published", "disabled"].includes(status)) {
+      throw new ApiError(400, "status 只能是 published 或 disabled", "INVALID_INPUT")
+    }
+    patch.status = status
+  }
+  if (body.name !== undefined) {
+    patch.name = String(body.name).trim().slice(0, 40)
+    if (!patch.name) throw new ApiError(400, "名称不能为空", "INVALID_INPUT")
+  }
+  if (body.icon !== undefined) {
+    patch.icon = String(body.icon).trim().slice(0, 8)
+  }
+  if (body.tagline !== undefined) {
+    patch.tagline = String(body.tagline).trim().slice(0, 80)
+  }
+  if (body.description !== undefined) {
+    patch.description = String(body.description).trim().slice(0, 1000)
+  }
+  if (body.accent !== undefined) {
+    const accent = String(body.accent).trim()
+    // 只允许 hex 色值或空（空 = 用站点默认色）。别让这里变成注入 CSS 的口子
+    if (accent && !/^#[0-9a-fA-F]{3,8}$/.test(accent)) {
+      throw new ApiError(400, "强调色要填 #RRGGBB 形式", "INVALID_INPUT")
+    }
+    patch.accent = accent
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new ApiError(400, "没有给出要更新的字段", "INVALID_INPUT")
+  }
+
+  await updatePluginRow(env, slug, patch)
+  await audit(
+    env,
+    admin.id,
+    "collection.game.plugin",
+    `${admin.username} 更新了游戏「${slug}」：${Object.entries(patch)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(", ")}`
+  )
+
+  const updated = await getPlugin(env, slug)
+  return json({ plugin: updated ? toPublicPlugin(updated, true) : null })
 }
 
 /**

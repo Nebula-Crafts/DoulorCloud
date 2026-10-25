@@ -4095,12 +4095,14 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     method: "GET",
     handle: () => collectionHandlers.investState(env, request),
   },
+  // 星币兑换柜台（2026-10-25 星币体系）：兑入/兑出统一入口
   {
     kind: "exact",
-    path: "/collection/invest/claim-test",
+    path: "/collection/invest/exchange",
     method: "POST",
-    handle: () => collectionHandlers.investClaimTest(env, request),
+    handle: () => collectionHandlers.investExchange(env, request),
   },
+
   {
     kind: "exact",
     path: "/collection/invest/candles",
@@ -4162,6 +4164,14 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     path: "/admin/collection/invest/reset",
     method: "POST",
     handle: () => collectionAdminHandlers.resetGame(env, request),
+  },
+  // 游戏仓库（模拟人生）：通用插件上架/下架/改名（2026-10-25）
+  {
+    kind: "regex",
+    match: (routePath: string) => routePath.match(/^\/admin\/collection\/plugins\/([^/]+)$/),
+    methods: ["PUT"],
+    handle: (m: RegExpMatchArray) =>
+      collectionAdminHandlers.updateGamePlugin(env, request, decodeURIComponent(m[1])),
   },
   ]
 }

@@ -1,9 +1,7 @@
 import * as React from "react"
-import { Link } from "react-router-dom"
 import { AlertTriangle, Loader2, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
 
-import { CollectionAside } from "@/components/collection-nav"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,7 +19,12 @@ import {
 } from "@/services/api"
 
 /**
- * 造物典藏 —— **典藏设置**（管理端，按典藏项目分类）。
+ * 游戏仓库 ·「在线投资」**专属设置面板**（管理后台 → 游戏仓库）。
+ *
+ * 2026-10-25 自造物集「创想设置」页整体迁入（原 /dashboard/gallery/collection/settings）。
+ * 布局仍是「一节一个典藏项目」的骨架：v1 只有「在线投资」一节，
+ * 将来别的游戏各加一节即可，不用重排页面。每个项目内部又是同构的几块：
+ * 玩法参数 / 资金池 / 全服统计 / 危险操作。
  *
  * 布局刻意是「一节一个典藏项目」的骨架：v1 只有「在线投资」一节，
  * 将来别的游戏各加一节即可，不用重排页面。每个项目内部又是同构的几块：
@@ -84,7 +87,7 @@ const STAT_KEYS = [
   "candleCount",
 ] as const
 
-export default function CollectionSettingsPage() {
+export function InvestGamePanel() {
   const { t } = useT()
   const [data, setData] = React.useState<GameAdminData | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -139,13 +142,21 @@ export default function CollectionSettingsPage() {
     const enabled = (form.game_enabled ?? "1") === "1"
     if (enabled !== data.effective.enabled) params.game_enabled = enabled ? "1" : "0"
 
-    if (Object.keys(params).length === 0) {
+    // 星币汇率：存插件 config.starRate（与玩法参数分开提交）
+    const rateRaw = form["plugin.starRate"]
+    const rateChanged =
+      rateRaw !== undefined && Number(rateRaw) !== data.starRate
+    const plugin: { config?: { starRate?: number } } | undefined = rateChanged
+      ? { config: { starRate: Math.max(1, Math.round(Number(rateRaw) || 100)) } }
+      : undefined
+
+    if (Object.keys(params).length === 0 && !plugin) {
       toast.info(t("cs.saved"))
       return
     }
     setSaving(true)
     try {
-      const res = await adminCollectionApi.updateInvest({ params })
+      const res = await adminCollectionApi.updateInvest({ params, plugin })
       setData(res)
       setForm(res.raw ?? {})
       toast.success(t("cs.saved"))
@@ -163,28 +174,6 @@ export default function CollectionSettingsPage() {
       toast.success(t("cs.saved"))
     } catch (err) {
       toast.error(errMsg(err, t("cs.saveFailed")))
-    }
-  }
-
-  /**
-   * 切换结算货币（积分 ⇄ 测试币）。
-   *
-   * 立即生效、不需要点「保存参数」—— 这是一个运营开关，站长点下去就该看到结果。
-   * 服务端在货币真的变化时会记下 `currency_since`，排行榜随之只统计切换之后的成交
-   * （两种货币的 1 分不是一回事，混着比没有意义）。
-   */
-  const switchCurrency = async (cur: "points" | "test") => {
-    if (saving || data?.effective.currency === cur) return
-    setSaving(true)
-    try {
-      const res = await adminCollectionApi.updateInvest({ params: { game_currency: cur } })
-      setData(res)
-      setForm(res.raw ?? {})
-      toast.success(t("cs.currencySwitched"))
-    } catch (err) {
-      toast.error(errMsg(err, t("cs.saveFailed")))
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -242,9 +231,6 @@ export default function CollectionSettingsPage() {
             <ShieldAlert className="h-6 w-6 text-muted-foreground" />
             <p className="text-sm font-medium">{t("cs.denied")}</p>
             <p className="max-w-sm text-xs text-muted-foreground">{t("cs.deniedDesc")}</p>
-            <Button asChild variant="secondary" size="sm">
-              <Link to="/dashboard/gallery/collection">{t("cs.back")}</Link>
-            </Button>
           </CardContent>
         </Card>
       </div>
@@ -277,10 +263,7 @@ export default function CollectionSettingsPage() {
     <div>
       <PageHeader title={t("cs.title")} description={t("cs.desc")} />
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <CollectionAside />
-
-        <div className="min-w-0 flex-1 space-y-4">
+      <div className="min-w-0 space-y-4">
           {failed && (
             <p className="text-xs text-amber-600 dark:text-amber-400">{t("col.loadFailedDesc")}</p>
           )}
@@ -331,23 +314,21 @@ export default function CollectionSettingsPage() {
                 <div className="mb-2">
                   <p className="text-sm font-medium">{t("cs.currency")}</p>
                   <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    {t("cs.currencyHint")}
+                    {t("cs.rateHint")}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {(["points", "test"] as const).map((cur) => (
-                    <Button
-                      key={cur}
-                      size="sm"
-                      variant={data.effective.currency === cur ? "default" : "outline"}
-                      disabled={saving}
-                      onClick={() => void switchCurrency(cur)}
-                    >
-                      {t(`cs.currency.${cur}`)}
-                    </Button>
-                  ))}
+                  <Input
+                    id="starRate"
+                    inputMode="numeric"
+                    className="w-32 tabular-nums"
+                    value={form["plugin.starRate"] ?? String(data.starRate)}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, "plugin.starRate": e.target.value }))
+                    }
+                  />
                   <span className="text-[11px] text-muted-foreground">
-                    {t("cs.testPool")}：{data.pool.testBalance.toLocaleString()}
+                    {t("cs.rateUnit")}
                   </span>
                 </div>
               </div>
@@ -391,11 +372,10 @@ export default function CollectionSettingsPage() {
                     <p className="text-2xl font-semibold tabular-nums">
                       {data.pool.balance.toLocaleString()}
                 <span className="ml-2 text-muted-foreground">
-                  {t("cs.testPool")}：{data.pool.testBalance.toLocaleString()}
-                </span>
+                                  </span>
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      {t("cs.myBalance").replace("{n}", data.pool.myBalance.toLocaleString())}
+                      {t("cs.myStars").replace("{n}", data.pool.myStars.toLocaleString())}
                     </p>
                   </div>
                   <div className="flex items-end gap-2">
@@ -529,7 +509,6 @@ export default function CollectionSettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
       </div>
 
       {/* 重置确认（危险操作要二次确认，且要求手打确认按钮而不是 window.confirm） */}

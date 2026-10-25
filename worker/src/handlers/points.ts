@@ -675,9 +675,11 @@ export async function listPointsOverview(env: Env, request: Request): Promise<Re
     //    · `shop_sell` —— 用户商城的卖家收益，钱来自买家那笔 `shop` 支出；
     //    · `transfer_in` —— 用户间转账的收款方，钱来自转出方的 `transfer_out`。
     //    算进去的话，用户互相买卖/转账一次，平台「累计发放」就凭空涨一倍。
+    //    · `star_out` —— 星币兑出（解封积分）也是中性转换：兑入时等值积分已
+    //      封存（star_in 扣减），把兑出算增发同样会虚胖。
     env.DB.prepare(
       `SELECT
-         COALESCE(SUM(CASE WHEN delta > 0 AND reason NOT IN ('shop_sell','transfer_in') THEN delta ELSE 0 END), 0) AS issued,
+         COALESCE(SUM(CASE WHEN delta > 0 AND reason NOT IN ('shop_sell','transfer_in','star_out') THEN delta ELSE 0 END), 0) AS issued,
          COALESCE(SUM(CASE WHEN reason IN ('redeem', 'shop', 'frp_rental') AND delta < 0 THEN -delta ELSE 0 END), 0) AS redeemed,
          COALESCE(SUM(CASE WHEN reason IN ('shop_sell','transfer_in') AND delta > 0 THEN delta ELSE 0 END), 0) AS traded
        FROM point_transactions`

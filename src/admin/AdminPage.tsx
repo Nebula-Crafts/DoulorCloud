@@ -54,6 +54,7 @@ import {
   EyeOff,
   Webhook,
   Activity,
+  Gamepad2,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -79,6 +80,7 @@ import { PageHeader } from "@/components/page-header"
 import { EmptyState } from "@/components/empty-state"
 import { NavItem, NavGroup } from "@/components/sub-nav"
 import { SectionedCards } from "@/components/sectioned-cards"
+import GamesTab from "@/admin/games-tab"
 import { SlidingPill } from "@/components/motion/sliding-pill"
 import { AdminApiTab } from "@/components/admin-api-tab"
 import { AdminLabTab } from "@/components/admin-lab-tab"
@@ -806,7 +808,7 @@ const NAV_OPEN_KEY = "admin-nav-open"
 const ADMIN_TAB_KEYS = new Set([
   "users", "invites", "inviteQuotas", "reserved", "titles", "points",
   "donations", "feedback", "announcements", "events", "community", "moderation", "notices",
-  "newapi", "r2", "proxy", "mail", "analytics", "cfQuota", "audit",
+  "newapi", "r2", "proxy", "mail", "analytics", "cfQuota", "audit", "games",
   "oauth", "settings", "funLinks", "wb2api", "api", "permissions", "lab", "perf",
   // 造物集（2026-10-17 站长要求：从「AI 实验室」里独立出来）
   "gallery",
@@ -3889,6 +3891,17 @@ export default function AdminPage() {
               </NavGroup>
               <NavGroup label={t("adm.220")} open={groupOpen("adm.220")} onToggle={() => toggleGroup("adm.220")}>
                 {canSeeTab("newapi") && <NavItem active={activeTab === "newapi"} icon={Sparkles} label={t("adm.221")} onClick={() => handleTabChange("newapi")} />}
+                {/* 游戏仓库：本 tab 的全部接口都在 collection 权限域下，
+                    可见性必须用 collection（tab key 是 games 但权限树没有它——
+                    见 canSeeTab 的「无映射栏目全放行」兜底与 relay 时代的同一坑） */}
+                {canSeeTab("collection") && (
+                  <NavItem
+                    active={activeTab === "games"}
+                    icon={Gamepad2}
+                    label={t("adm.games.tab")}
+                    onClick={() => handleTabChange("games")}
+                  />
+                )}
                 {/* 中转站入驻审核（2026-10-16 审核制）：批准 / 拒绝 / 停用。
                     可见性复用 `newapi` 那一栏 —— 后端这三个接口都在
                     `newapi.subscriptions` 权限域下（assertAdminScope），
@@ -7102,6 +7115,10 @@ export default function AdminPage() {
 
         <TabsContent value="audit">
           <AuditPanel />
+        </TabsContent>
+
+        <TabsContent value="games">
+          <GamesTab />
         </TabsContent>
 
         <TabsContent value="settings">

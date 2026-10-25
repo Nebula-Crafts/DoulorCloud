@@ -4564,14 +4564,13 @@ export interface GameConfig {
 export interface GameState {
   enabled: boolean
   /**
-   * 当前货币：`points` = 站内真积分 / `test` = 游戏专用测试币。
-   * 前端所有「积分」字样都按它切换，别写死。
+   * 星币兑换柜台（2026-10-25 星币体系）：
+   * 汇率（星币/积分）与玩家当前积分余额——兑换卡直接展示。
    */
-  currency: "points" | "test"
-  /** 测试币首次领取额度 */
-  testGrant: number
-  /** 还能不能领测试币（每人一次） */
-  canClaimTest: boolean
+  exchange: {
+    rate: number
+    points: number
+  }
   market: GameMarket
   pool: {
     /** 做市池余额 = 全服可赚取的上限 */
@@ -4646,10 +4645,12 @@ export const investApi = {
   /** 行情 + 我的持仓。**服务端会在这次调用里推进行情并强平**，所以轮询它就是「行情在走」 */
   state: () => request<GameState>("/collection/invest/state"),
   /** 领取测试币（每人一次；不是测试币模式会 400） */
-  claimTest: () =>
-    request<{ granted: number; balance: number }>("/collection/invest/claim-test", {
-      method: "POST",
-    }),
+  /** 星币兑换柜台：in = 积分兑入（铸星币）/ out = 星币兑出（解封积分） */
+  exchange: (direction: "in" | "out", payload: { points?: number; stars?: number }) =>
+    request<{ direction: string; applied: boolean; stars: number; points: number }>(
+      "/collection/invest/exchange",
+      { method: "POST", body: JSON.stringify({ direction, ...payload }) }
+    ),
 
   candles: (interval: string, limit = 300) =>
     request<{ interval: string; candles: GameCandle[] }>(
@@ -4729,13 +4730,11 @@ export interface GameAdminData {
     anchorFollowBps: number
     maxImpactBps: number
     basePrice: number
-    /** 当前货币模式（管理面板切换器回显） */
-    currency: "points" | "test"
-    /** 测试币首次领取额度 */
-    testGrant: number
   }
   market: { price: number; anchor: number; tickSeq: number; lastTickAt: string; candleOpenAt: string }
-  pool: { balance: number; myBalance: number; /** 测试币池（与真积分池互不影响） */ testBalance: number }
+  pool: { balance: number; /** 站长自己的星币钱包余额（划拨垫本从这里扣） */ myStars: number }
+  /** 星币汇率（星币/积分），存于插件 config.starRate */
+  starRate: number
   stats: Record<string, number>
 }
 
@@ -4759,7 +4758,14 @@ export const adminCollectionApi = {
    */
   updateInvest: (payload: {
     params?: Record<string, string | number>
-    plugin?: { status?: string; accent?: string; name?: string; tagline?: string; description?: string }
+    plugin?: {
+      status?: string
+      accent?: string
+      name?: string
+      tagline?: string
+      description?: string
+      config?: { starRate?: number }
+    }
   }) =>
     request<GameAdminData>("/admin/collection/invest", {
       method: "PUT",
@@ -4775,6 +4781,19 @@ export const adminCollectionApi = {
 
   ledger: (limit = 50) =>
     request<{ entries: PoolLedgerEntry[] }>(`/admin/collection/invest/ledger?limit=${limit}`),
+
+  /**
+   * 游戏仓库（2026-10-25）：**通用**插件上架/下架/改名。
+   * 任何游戏（含未来 sandbox 用户游戏）都用这一个接口，不再每游戏一份。
+   */
+  updatePlugin: (
+    slug: string,
+    patch: { status?: string; name?: string; icon?: string; tagline?: string; description?: string; accent?: string }
+  ) =>
+    request<{ plugin: CollectionPlugin }>(
+      `/admin/collection/plugins/${encodeURIComponent(slug)}`,
+      { method: "PUT", body: JSON.stringify(patch) }
+    ),
 
   reset: () =>
     request<{ ok: boolean; price: number }>("/admin/collection/invest/reset", {

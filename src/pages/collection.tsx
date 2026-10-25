@@ -2,7 +2,6 @@ import * as React from "react"
 import { Link } from "react-router-dom"
 import { Loader2, Play, Sparkles } from "lucide-react"
 
-import { CollectionAside } from "@/components/collection-nav"
 import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -49,10 +48,8 @@ export default function CollectionPage() {
     <div>
       <PageHeader title={t("col.title")} description={t("col.desc")} />
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <CollectionAside />
-
-        <div className="min-w-0 flex-1">
+      <div>
+        <div className="min-w-0">
           {loading ? (
             <div className="flex min-h-[240px] items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

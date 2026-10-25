@@ -38,6 +38,16 @@ export type PointReason =
    * 属于积分销毁（花掉即退出流通），统计口径与 shop 同类：不是平台增发。
    */
   | "app"
+  /**
+   * 星币兑换（2026-10-25 模拟人生）：游戏筹码与积分的双向转换。
+   *   · `star_in`  —— 兑入：玩家 −积分，铸等值星币（积分进入封存状态）
+   *   · `star_out` —— 兑出：烧星币，解封积分还给玩家
+   * 两者都是**中性转换**（非增发非消耗）：全站不变量是
+   * 「积分总量 + 未兑出星币/汇率 = 常数」。⚠️ 绝不能进 COMMISSIONABLE_REASONS
+   * （给兑出返佣等于凭空造分）；「累计发放」统计也已排除 star_out（见 handlers/points.ts）。
+   */
+  | "star_in"
+  | "star_out"
   | "event"
   | "admin"
   | "redeem"

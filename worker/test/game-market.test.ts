@@ -13,7 +13,8 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import { env } from "cloudflare:workers"
 import { makeUser, setSetting, type TestUser } from "./helpers"
-import { applyPoints, getPointsBalance } from "../src/points"
+import { applyPoints } from "../src/points"
+import { mintStars, getWallet } from "../src/game-wallet"
 import {
   advanceAndSweep,
   advanceMarket,
@@ -69,15 +70,21 @@ async function setupGame(over: Record<string, string> = {}): Promise<GameParams>
   return await loadGameParams(env)
 }
 
-/** 给用户发分（走唯一入口，保证 user_points 行存在） */
-async function fund(userId: string, amount: number): Promise<void> {
-  const res = await applyPoints(env, {
+/**
+ * 给用户发**星币**（走兑换入口：先 grant 积分再 mint 铸星币，两段账本都闭环）。
+ * 单位是星币；按默认汇率 100 折算成兑入积分。
+ * （beforeEach 会清空 user_points —— 现实里用户的积分来自充值/奖励等别的来源，
+ *   测试里得自己先造出来，mint 才有积分可销。）
+ */
+async function fund(userId: string, stars: number): Promise<void> {
+  const points = Math.ceil(stars / 100)
+  await applyPoints(env, {
     userId,
-    delta: amount,
+    delta: points,
     reason: "admin",
-    detail: "测试发分",
+    detail: "测试发分（星币储备）",
   })
-  expect(res.applied).toBe(true)
+  await mintStars(env, "invest", userId, points)
 }
 
 /**
@@ -88,8 +95,10 @@ async function fund(userId: string, amount: number): Promise<void> {
  * 只对前两项求和会得到「一开仓就少钱」的假阳性。
  */
 async function conserved(): Promise<number> {
+  // 星币体系下的守恒量：Σ 星币钱包 + 池子 + Σ 在仓保证金（全在星币计价）。
+  // 积分侧的守恒（Σ用户积分 + 未兑出星币/汇率 = 常数）由兑换闭环测试单独钉住。
   const users = await env.DB.prepare(
-    "SELECT COALESCE(SUM(balance), 0) AS s FROM user_points"
+    "SELECT COALESCE(SUM(balance), 0) AS s FROM game_wallets WHERE game_slug = 'invest'"
   ).first<{ s: number }>()
   const pool = await env.DB.prepare(
     "SELECT COALESCE(pool_balance, 0) AS s FROM game_market WHERE id = 1"
@@ -136,6 +145,7 @@ beforeEach(async () => {
     env.DB.prepare("DELETE FROM game_candles"),
     env.DB.prepare("DELETE FROM game_market"),
     env.DB.prepare("DELETE FROM user_points"),
+    env.DB.prepare("DELETE FROM game_wallets"),
   ])
   admin = await makeUser({ role: "root", username: `root_${Math.random().toString(36).slice(2, 7)}` })
 })
@@ -345,7 +355,7 @@ describe("做市池垫本（唯一的资金注入入口）", () => {
     const res = await depositToPool(env, admin, 3000)
     expect(res.pool).toBe(3000)
     expect(res.balance).toBe(2000)
-    expect(await getPointsBalance(env, admin.id)).toBe(2000)
+    expect(await getWallet(env, "invest", admin.id)).toBe(2000)
     expect(await conserved()).toBe(before)
 
     // 审计流水要留下痕迹（含余额快照，便于二分定位）
@@ -362,7 +372,7 @@ describe("做市池垫本（唯一的资金注入入口）", () => {
     await ensureMarket(env, params)
     await fund(admin.id, 100)
     await expect(depositToPool(env, admin, 500)).rejects.toMatchObject({
-      code: "INSUFFICIENT_POINTS",
+      code: "INSUFFICIENT_STARS",
     })
     expect((await loadMarket(env))?.pool_balance).toBe(0)
   })
@@ -380,7 +390,7 @@ describe("做市池垫本（唯一的资金注入入口）", () => {
     })
     // 被拒绝的那次一分钱都不能动
     expect((await loadMarket(env))?.pool_balance).toBe(600)
-    expect(await getPointsBalance(env, admin.id)).toBe(1400)
+    expect(await getWallet(env, "invest", admin.id)).toBe(1400)
   })
 })
 
@@ -398,7 +408,7 @@ describe("开仓", () => {
     const res = await openPosition(env, user, { side: "long", leverage: 10, margin: 100 })
 
     // 保证金 100 + 手续费 max(1, 1000×5bps=0.5→1) = 101
-    expect(await getPointsBalance(env, user.id)).toBe(899)
+    expect(await getWallet(env, "invest", user.id)).toBe(899)
     expect(res.position.margin).toBe(100)
     expect(res.position.size).toBe(1000)
     // ⚠️ 成交价 = **被自己推高之后**的价（+3%，见下）—— 不是下单前的 100。
@@ -501,27 +511,28 @@ describe("开仓", () => {
 
     const orderNo = "order-idem-1"
     const first = await openPosition(env, user, { side: "long", leverage: 5, margin: 100, orderNo })
-    const balanceAfterFirst = await getPointsBalance(env, user.id)
+    const balanceAfterFirst = await getWallet(env, "invest", user.id)
     const second = await openPosition(env, user, { side: "long", leverage: 5, margin: 100, orderNo })
 
     expect(second.duplicated).toBe(true)
     expect(second.position.id).toBe(first.position.id)
-    expect(await getPointsBalance(env, user.id)).toBe(balanceAfterFirst)
+    expect(await getWallet(env, "invest", user.id)).toBe(balanceAfterFirst)
     const count = await env.DB.prepare("SELECT COUNT(*) AS c FROM game_positions WHERE order_no = ?")
       .bind(orderNo)
       .first<{ c: number }>()
     expect(Number(count?.c)).toBe(1)
   })
 
-  it("积分不足时拒绝，且余额一分不动", async () => {
+  it("星币不足时拒绝，且余额一分不动", async () => {
     const params = await withPool(admin, 1000)
     const user = await makeUser()
     await fund(user.id, 50)
 
     await expect(
       openPosition(env, user, { side: "long", leverage: 20, margin: 1000 })
-    ).rejects.toMatchObject({ code: "INSUFFICIENT_POINTS" })
-    expect(await getPointsBalance(env, user.id)).toBe(50)
+    ).rejects.toMatchObject({ code: "INSUFFICIENT_STARS" })
+    // fund(user.id, 50)：按汇率 100 兑入 1 积分 → 钱包是 100 星币（50 向上取整为 1 积分）
+    expect(await getWallet(env, "invest", user.id)).toBe(100)
     expect((await listMyPositions(env, user.id)).length).toBe(0)
   })
 
@@ -581,7 +592,7 @@ describe("平仓", () => {
     await fund(pusher.id, 12_000)
 
     const opened = await openPosition(env, user, { side: "long", leverage: 10, margin: 100 })
-    const balanceAfterOpen = await getPointsBalance(env, user.id)
+    const balanceAfterOpen = await getWallet(env, "invest", user.id)
     const before = await conserved()
 
     // 让价格涨：另一个玩家开多推价。要推得比自己那一来一回的滑点更大，
@@ -601,7 +612,7 @@ describe("平仓", () => {
     expect(res.credit).toBe(100 + res.pnl - res.fee)
     expect(Number.isInteger(res.credit)).toBe(true)
     // 余额 = 开仓后的余额 + 这次到账（不是「等于到账」——开仓已经扣过保证金了）
-    expect(await getPointsBalance(env, user.id)).toBe(balanceAfterOpen + res.credit)
+    expect(await getWallet(env, "invest", user.id)).toBe(balanceAfterOpen + res.credit)
     expect(await conserved()).toBe(before)
   })
 
@@ -613,7 +624,7 @@ describe("平仓", () => {
     await fund(pusher.id, 10_000)
 
     const opened = await openPosition(env, user, { side: "long", leverage: 10, margin: 100 })
-    const balanceAfterOpen = await getPointsBalance(env, user.id)
+    const balanceAfterOpen = await getWallet(env, "invest", user.id)
     const before = await conserved()
 
     await openPosition(env, pusher, { side: "short", leverage: 1, margin: 3000 })
@@ -621,7 +632,7 @@ describe("平仓", () => {
     const poolBefore = Number((await loadMarket(env))?.pool_balance ?? 0)
     const res = await closePosition(env, user, opened.position.id)
     expect(res.pnl).toBeLessThan(0)
-    expect(await getPointsBalance(env, user.id)).toBe(balanceAfterOpen + res.credit)
+    expect(await getWallet(env, "invest", user.id)).toBe(balanceAfterOpen + res.credit)
     // 亏损让池子变厚
     expect(Number((await loadMarket(env))?.pool_balance ?? 0)).toBeGreaterThan(poolBefore)
     expect(await conserved()).toBe(before)
@@ -634,12 +645,12 @@ describe("平仓", () => {
 
     const opened = await openPosition(env, user, { side: "long", leverage: 5, margin: 100 })
     const first = await closePosition(env, user, opened.position.id)
-    const balanceAfter = await getPointsBalance(env, user.id)
+    const balanceAfter = await getWallet(env, "invest", user.id)
     const second = await closePosition(env, user, opened.position.id)
 
     expect(second.alreadyClosed).toBe(true)
     expect(second.credit).toBe(0)
-    expect(await getPointsBalance(env, user.id)).toBe(balanceAfter)
+    expect(await getWallet(env, "invest", user.id)).toBe(balanceAfter)
     expect(first.credit).toBeGreaterThan(0)
   })
 
@@ -930,7 +941,7 @@ describe("全仓 / 逐仓两种保证金模式", () => {
       margin: 100,
       marginMode: "isolated",
     })
-    const balanceAfterOpen = await getPointsBalance(env, user.id)
+    const balanceAfterOpen = await getWallet(env, "invest", user.id)
 
     // 砸穿爆仓价
     const bear = await makeUser()
@@ -946,7 +957,7 @@ describe("全仓 / 逐仓两种保证金模式", () => {
     expect(row?.status).toBe("liquidated")
     expect(Number(row?.pnl)).toBe(-100)
     // 逐仓：余额不再被扣（只有那 100 保证金没了）
-    expect(await getPointsBalance(env, user.id)).toBe(balanceAfterOpen)
+    expect(await getWallet(env, "invest", user.id)).toBe(balanceAfterOpen)
   })
 
   it("全仓：余额为整仓担保 —— 爆仓更晚，但亏损会从余额追缴", async () => {
@@ -964,7 +975,7 @@ describe("全仓 / 逐仓两种保证金模式", () => {
       margin: 900,
       marginMode: "cross",
     })
-    const balanceAfterOpen = await getPointsBalance(env, user.id)
+    const balanceAfterOpen = await getWallet(env, "invest", user.id)
     // ⚠️ 守恒基线必须在**所有发分之后**取：发分本身会让 Σ余额增加，
     //    基线取早了就会把「发分」当成不守恒（这个坑我在这个文件里踩过第二次了）。
     const bear = await makeUser()
@@ -1003,7 +1014,7 @@ describe("全仓 / 逐仓两种保证金模式", () => {
 
     // 全仓的本质：**亏损超过本仓保证金，差额从余额追缴**。
     // 追缴额 = 余额 − 维持保证金 ≈ 1091 − 90 = 1001 ⇒ 余额被扣到只剩维持保证金。
-    const after = await getPointsBalance(env, user.id)
+    const after = await getWallet(env, "invest", user.id)
     expect(after).toBeLessThan(balanceAfterOpen)
     expect(after).toBeGreaterThanOrEqual(0)
     expect(balanceAfterOpen - after).toBeGreaterThan(500)
@@ -1101,7 +1112,7 @@ describe("强平", () => {
     expect(Number(row?.fee_close)).toBe(0)
 
     // 保证金进池子；用户拿不到任何返还
-    expect(await getPointsBalance(env, user.id)).toBe(899)
+    expect(await getWallet(env, "invest", user.id)).toBe(899)
     expect(Number((await loadMarket(env))?.pool_balance ?? 0)).toBeGreaterThanOrEqual(poolBefore + 100)
     expect(await conserved()).toBe(before)
 

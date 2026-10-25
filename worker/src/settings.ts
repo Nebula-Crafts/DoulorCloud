@@ -956,8 +956,6 @@ export const SETTING_DEFAULTS = {
    * 停在极值上越久越有人能慢慢把差价从池子里兑走。**正常波动永久有效、极端偏离会被拉回**。
    */
   game_reversion_deadband_bps: "150",
-  game_currency: "points",
-  game_test_grant: "10000",
   /**
    * 锚（anchor）跟随价格的速度（bps/tick）。锚是均值回复的目标价：
    * 太快 = 回复失效（锚跟着价格跑，等于没有回复力），太慢 = 价格被死死按在初始价上。

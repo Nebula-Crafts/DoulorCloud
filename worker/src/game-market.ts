@@ -49,13 +49,18 @@
  *   · 排行榜直接扫 `game_trades`（这张表本来就要给用户看流水），不额外建汇总表。
  */
 import { ApiError } from "./http"
+import { getWallet } from "./game-wallet"
 import { uuid } from "./crypto"
-import { applyPoints, getPointsBalance } from "./points"
+import { getPlugin } from "./collection-plugins"
+import { applyPoints } from "./points"
 import {
   audit,
   getSettings,
   siteOffsetHours,
 } from "./settings"
+/** 「在线投资」的插件 slug（与 collection-plugins.ts 的 BUILTIN_PLUGINS、collection-admin 的 INVEST_SLUG 同值） */
+const INVEST_PLUGIN_SLUG = "invest"
+
 import {
   MAX_CATCHUP_TICKS,
   averageEntryPrice,
@@ -92,9 +97,7 @@ export interface MarketRow {
   anchor: number
   pool_balance: number
   /** 测试币池子（迁移 0151）。与真积分池完全隔离。 */
-  pool_test_balance?: number
   /** 货币切换时刻（迁移 0151）：排行榜只统计它之后的成交 */
-  currency_since?: string | null
   tick_seq: number
   last_tick_at: string
   seed: string
@@ -188,8 +191,6 @@ export async function loadGameParams(env: Env): Promise<GameParams> {
     impactBps: s.game_impact_bps,
     meanReversionBps: s.game_mean_reversion_bps,
     reversionDeadbandBps: s.game_reversion_deadband_bps,
-    currency: s.game_currency === "test" ? "test" : "points",
-    testGrant: Number(s.game_test_grant) || 0,
     anchorFollowBps: s.game_anchor_follow_bps,
     maxImpactBps: s.game_max_impact_bps,
     basePrice: s.game_base_price,
@@ -359,7 +360,7 @@ export async function advanceMarket(
       const next = stepPrice({
         price,
         anchor,
-        pool: activePool(market, params),
+        pool: activePool(market),
         seq,
         seed: market.seed,
         params,
@@ -428,119 +429,56 @@ export async function advanceMarket(
 // 池子记账
 // ---------------------------------------------------------------------------
 
-/**
- * 本游戏使用的两种货币。
- *
- * · `points` —— 站内真积分（`user_points`）。**动的是真钱**。
- * · `test`   —— 游戏专用测试币（`game_test_balances`）。与积分**完全隔离**：
- *              测试币的任何加减都不会碰 `user_points`，反之亦然。
- *
- * 由设置 `game_currency` 决定当前用哪种；管理面板可切换。
- * ⚠️ 兜底方向是 `points`（见 sanitizeGameParams）：值写错时宁可走真积分，
- *    也不能把测试币当积分发出去。
- */
-export type GameCurrency = "points" | "test"
-
-/** 当前货币下读取某个用户的余额 */
-export async function gameBalance(
-  env: Env,
-  currency: GameCurrency,
-  userId: string
-): Promise<number> {
-  if (currency === "points") return getPointsBalance(env, userId)
-  const row = await env.DB.prepare(
-    "SELECT balance FROM game_test_balances WHERE user_id = ?"
-  )
-    .bind(userId)
-    .first<{ balance: number }>()
-  return Number(row?.balance ?? 0)
+/** 读玩家在该游戏星币钱包里的余额（星币）*/
+export async function gameBalance(env: Env, slug: string, userId: string): Promise<number> {
+  return getWallet(env, slug, userId)
 }
 
 /**
- * 当前货币下的加减。返回 `applied=false` 表示没扣成（余额不足等）。
+ * 软下架闸（2026-10-25 模拟人生改造）：
+ * 游戏在插件清单里被**显式**下架（collection_plugins.status='disabled'）时，
+ * 禁止新开仓 / 领测试币；平仓、看行情、cron 推进不受影响——
+ * 「对玩家关门」不等于「把有持仓的人锁死」。
  *
- * 真积分走 `applyPoints`（带 dedup 幂等键与条件 UPDATE，绝不允许负余额）；
- * 测试币走 `game_test_balances` 的条件 UPDATE，同样不允许透支 ——
- * 测试币虽然是游戏币，但「余额变成负数」会让所有均价/强平计算失去意义。
+ * ⚠️ **行缺失 = 视为已上架**（只有显式 disabled 才拦）：清单未同步过的
+ * 老部署、以及直接调引擎的测试，都不该被误伤。
  */
+async function assertPluginOpen(env: Env): Promise<void> {
+  const plugin = await getPlugin(env, INVEST_PLUGIN_SLUG)
+  if (plugin?.status === "disabled") {
+    throw new ApiError(403, "该游戏已下架", "GAME_DISABLED")
+  }
+}
+
 async function gameApply(
   env: Env,
-  currency: GameCurrency,
+  slug: string,
   input: Parameters<typeof applyPoints>[1]
 ): Promise<{ applied: boolean; balance: number; reason?: string }> {
-  if (currency === "points") {
-    const res = await applyPoints(env, input)
-    return { applied: res.applied, balance: res.balance, reason: res.reason }
-  }
   const now = new Date().toISOString()
-  // 先确保有这一行（新玩家第一次进游戏）
   await env.DB.prepare(
-    "INSERT OR IGNORE INTO game_test_balances (user_id, balance, updated_at) VALUES (?, 0, ?)"
+    "INSERT OR IGNORE INTO game_wallets (game_slug, user_id, balance, updated_at) VALUES (?, ?, 0, ?)"
   )
-    .bind(input.userId, now)
+    .bind(slug, input.userId, now)
     .run()
   if (input.delta === 0) {
-    return { applied: false, balance: await gameBalance(env, currency, input.userId), reason: "zero" }
+    return { applied: false, balance: await gameBalance(env, slug, input.userId), reason: "zero" }
   }
   const res = await env.DB.prepare(
-    "UPDATE game_test_balances SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND balance + ? >= 0"
+    "UPDATE game_wallets SET balance = balance + ?, updated_at = ? WHERE game_slug = ? AND user_id = ? AND balance + ? >= 0"
   )
-    .bind(input.delta, now, input.userId, input.delta)
+    .bind(input.delta, now, slug, input.userId, input.delta)
     .run()
   if ((res.meta?.changes ?? 0) !== 1) {
     return {
       applied: false,
-      balance: await gameBalance(env, currency, input.userId),
+      balance: await gameBalance(env, slug, input.userId),
       reason: "insufficient",
     }
   }
-  return { applied: true, balance: await gameBalance(env, currency, input.userId) }
+  return { applied: true, balance: await gameBalance(env, slug, input.userId) }
 }
 
-/**
- * 测试币状态：余额 + 是否已经领过（决定要不要显示「领取测试币」按钮）。
- */
-export async function testCoinInfo(
-  env: Env,
-  userId: string
-): Promise<{ balance: number; granted: boolean }> {
-  const row = await env.DB.prepare(
-    "SELECT balance, granted_at FROM game_test_balances WHERE user_id = ?"
-  )
-    .bind(userId)
-    .first<{ balance: number; granted_at: string | null }>()
-  return { balance: Number(row?.balance ?? 0), granted: row?.granted_at != null }
-}
-
-/**
- * 领取测试币（每人一次）。
- *
- * 只在测试币模式下有意义。用 `granted_at IS NULL` 做「只能领一次」的条件更新，
- * 并发下也只会有一个请求拿到钱。
- */
-export async function claimTestCoins(
-  env: Env,
-  user: UserRow
-): Promise<{ granted: number; balance: number }> {
-  const params = await loadGameParams(env)
-  if (params.currency !== "test") {
-    throw new ApiError(400, "当前不是测试币模式", "WRONG_CURRENCY")
-  }
-  const now = new Date().toISOString()
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO game_test_balances (user_id, balance, updated_at) VALUES (?, 0, ?)"
-  )
-    .bind(user.id, now)
-    .run()
-  const res = await env.DB.prepare(
-    `UPDATE game_test_balances SET balance = balance + ?, granted_at = ?, updated_at = ?
-      WHERE user_id = ? AND granted_at IS NULL`
-  )
-    .bind(params.testGrant, now, now, user.id)
-    .run()
-  const balance = await gameBalance(env, "test", user.id)
-  return { granted: (res.meta?.changes ?? 0) === 1 ? params.testGrant : 0, balance }
-}
 /**
  * 池子余额变更（原子算术 + 不为负）+ 写审计流水。
  *
@@ -550,7 +488,6 @@ export async function claimTestCoins(
  */
 async function addPool(
   env: Env,
-  currency: GameCurrency,
   delta: number,
   kind: string,
   userId: string | null,
@@ -558,13 +495,8 @@ async function addPool(
   note: string | null
 ): Promise<number> {
   const now = new Date().toISOString()
-  /**
-   * ⚠️ 两种货币**各有各的池子列**：真积分走 `pool_balance`，测试币走 `pool_test_balance`。
-   *    列名是代码里拼的（不是用户输入），两个取值都是常量，不存在注入问题。
-   */
-  const col = currency === "test" ? "pool_test_balance" : "pool_balance"
   const res = await env.DB.prepare(
-    `UPDATE game_market SET ${col} = MAX(0, ${col} + ?), updated_at = ? WHERE id = 1`
+    `UPDATE game_market SET pool_balance = MAX(0, pool_balance + ?), updated_at = ? WHERE id = 1`
   )
     .bind(delta, now)
     .run()
@@ -581,14 +513,14 @@ async function addPool(
     throw new ApiError(500, "行情数据缺失，本次资金变动已放弃", "MARKET_MISSING")
   }
   const row = await env.DB.prepare(
-    `SELECT ${col} AS bal FROM game_market WHERE id = 1`
+    `SELECT pool_balance AS bal FROM game_market WHERE id = 1`
   ).first<{ bal: number }>()
   const balance = Number(row?.bal ?? 0)
   await env.DB.prepare(
     `INSERT INTO game_pool_ledger (id, delta, balance_after, kind, user_id, ref, note, created_at, currency)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(uuid(), delta, balance, kind, userId, ref, note, now, currency)
+    .bind(uuid(), delta, balance, kind, userId, ref, note, now, "star")
     .run()
   return balance
 }
@@ -602,7 +534,6 @@ async function addPool(
  */
 async function takeFromPool(
   env: Env,
-  currency: GameCurrency,
   amount: number,
   kind: string,
   userId: string | null,
@@ -610,10 +541,9 @@ async function takeFromPool(
   note: string | null
 ): Promise<number> {
   const now = new Date().toISOString()
-  const col = currency === "test" ? "pool_test_balance" : "pool_balance"
   const res = await env.DB.prepare(
-    `UPDATE game_market SET ${col} = ${col} - ?, updated_at = ?
-      WHERE id = 1 AND ${col} >= ?`
+    `UPDATE game_market SET pool_balance = pool_balance - ?, updated_at = ?
+      WHERE id = 1 AND pool_balance >= ?`
   )
     .bind(amount, now, amount)
     .run()
@@ -621,14 +551,14 @@ async function takeFromPool(
     throw new ApiError(400, "做市池余额不足，无法取出这么多", "POOL_INSUFFICIENT")
   }
   const row = await env.DB.prepare(
-    `SELECT ${col} AS bal FROM game_market WHERE id = 1`
+    `SELECT pool_balance AS bal FROM game_market WHERE id = 1`
   ).first<{ bal: number }>()
   const balance = Number(row?.bal ?? 0)
   await env.DB.prepare(
     `INSERT INTO game_pool_ledger (id, delta, balance_after, kind, user_id, ref, note, created_at, currency)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(uuid(), -amount, balance, kind, userId, ref, note, now, currency)
+    .bind(uuid(), -amount, balance, kind, userId, ref, note, now, "star")
     .run()
   return balance
 }
@@ -652,25 +582,25 @@ export async function depositToPool(
   // 而「站长的积分已经扣了、池子却没收到」是最不能接受的一种状态。
   const params = await loadGameParams(env)
   await ensureMarket(env, params)
-  const res = await gameApply(env, params.currency, {
+  const res = await gameApply(env, INVEST_PLUGIN_SLUG, {
     userId: admin.id,
     delta: -value,
     reason: "game_pool",
-    detail: `划拨做市池垫本 ${value} 积分`,
+    detail: `划拨做市池垫本 ${value} 星币`,
   })
   if (!res.applied) {
     if (res.reason === "insufficient") {
-      throw new ApiError(400, "你的积分不足，无法划拨这么多", "INSUFFICIENT_POINTS")
+      throw new ApiError(400, "你的星币不足，无法划拨这么多（先在游戏内兑换星币）", "INSUFFICIENT_STARS")
     }
     throw new ApiError(409, "重复操作", "DUPLICATED")
   }
 
   let pool: number
   try {
-    pool = await addPool(env, params.currency, value, "seed_deposit", admin.id, null, "站长划拨垫本")
+    pool = await addPool(env, value, "seed_deposit", admin.id, null, "站长划拨垫本")
   } catch (err) {
     // 池子写失败就把钱退回站长账户（同一幂等键路径：用补偿流水，金额相同）
-    await gameApply(env, params.currency, {
+    await gameApply(env, INVEST_PLUGIN_SLUG, {
       userId: admin.id,
       delta: value,
       reason: "game_pool",
@@ -696,16 +626,16 @@ export async function withdrawFromPool(
   // 同 depositToPool：先保证行情行存在，否则「池子里明明有钱却扣不动」
   const params = await loadGameParams(env)
   await ensureMarket(env, params)
-  const pool = await takeFromPool(env, params.currency, value, "withdraw", admin.id, null, "站长抽回资金")
-  const res = await gameApply(env, params.currency, {
+  const pool = await takeFromPool(env, value, "withdraw", admin.id, null, "站长抽回资金")
+  const res = await gameApply(env, INVEST_PLUGIN_SLUG, {
     userId: admin.id,
     delta: value,
     reason: "game_pool",
-    detail: `从做市池取回 ${value} 积分`,
+    detail: `从做市池取回 ${value} 星币`,
   })
   if (!res.applied && res.reason !== "duplicated") {
     // 到账失败：把池子的钱放回去，并记一条反向流水（不留「钱不见了」的状态）
-    await addPool(env, params.currency, value, "adjust", admin.id, null, "取回失败回滚")
+    await addPool(env, value, "adjust", admin.id, null, "取回失败回滚")
     throw new ApiError(500, "取回到账失败，已回滚", "WITHDRAW_FAILED")
   }
   await audit(env, admin.id, "collection.game.pool_withdraw", `${admin.username} 从做市池取回 ${value} 积分`)
@@ -719,21 +649,13 @@ export async function withdrawFromPool(
  * （`settlePosition` 会把赔付封顶到 0，用户会看到「赚了但没到账」）。
  * 与其让人白玩，不如直接拒绝开仓并说明原因。
  */
-/**
- * 当前货币对应的对手盘余额。
- *
- * ⚠️ 两种货币**各有各的池子**：真积分池 `pool_balance`、测试币池 `pool_test_balance`。
- *    所有「池子够不够赔付 / 市场深度是多少」的判断都必须走这里 ——
- *    否则切到测试币后，真积分池剩余的那点钱会变成测试币的市场深度（滑点算错）。
- */
-function activePool(market: MarketRow, params: GameParams): number {
-  return params.currency === "test"
-    ? Number(market.pool_test_balance ?? 0)
-    : Number(market.pool_balance ?? 0)
+/** 对手盘余额（做市池，星币计价）。所有「够不够赔付/深度多少」的判断都走这里。 */
+function activePool(market: MarketRow): number {
+  return Number(market.pool_balance ?? 0)
 }
 
-function assertPoolCanQuote(market: MarketRow, params: GameParams): void {
-  if (activePool(market, params) <= 0) {
+function assertPoolCanQuote(market: MarketRow): void {
+  if (activePool(market) <= 0) {
     throw new ApiError(
       409,
       "对手盘资金已见底，暂时无法开仓（等对手盘补充后再来，或先平掉已有持仓）",
@@ -776,7 +698,7 @@ async function applyOrderImpact(
       continue
     }
 
-    const bps = orderImpactBps(signedNotional, activePool(market, params), params)
+    const bps = orderImpactBps(signedNotional, activePool(market), params)
     if (bps === 0) return market.price
     const price = applyImpactBps(market.price, bps)
     const candle = mergeInto(candleOf(market), price, volume, 1)
@@ -848,11 +770,13 @@ export async function openPosition(
   if (!params.enabled) {
     throw new ApiError(403, "造物典藏尚未开放", "GAME_DISABLED")
   }
+  // 插件级软下架（见 assertPluginOpen 注释）：平仓不受影响
+  await assertPluginOpen(env)
   const side: Side = input.side === "short" ? "short" : "long"
   const marginMode = normalizeMarginMode(input.marginMode)
 
   const market = await advanceMarket(env, params)
-  assertPoolCanQuote(market, params)
+  assertPoolCanQuote(market)
 
   const quote = quoteOpen(side, Number(input.margin), Number(input.leverage), market.price, params)
   if (!quote.ok) throw new ApiError(400, quote.error, "INVALID_INPUT")
@@ -872,12 +796,12 @@ export async function openPosition(
       position: existing,
       price: existing.entry_price,
       duplicated: true,
-      balance: await gameBalance(env, params.currency, user.id),
+      balance: await gameBalance(env, INVEST_PLUGIN_SLUG, user.id),
     }
   }
 
   const total = q.margin + q.fee
-  const deducted = await gameApply(env, params.currency, {
+  const deducted = await gameApply(env, INVEST_PLUGIN_SLUG, {
     userId: user.id,
     delta: -total,
     reason: "game_open",
@@ -896,15 +820,15 @@ export async function openPosition(
           position: raced,
           price: raced.entry_price,
           duplicated: true,
-          balance: await gameBalance(env, params.currency, user.id),
+          balance: await gameBalance(env, INVEST_PLUGIN_SLUG, user.id),
         }
       }
     }
-    throw new ApiError(400, "积分不足，无法开仓", "INSUFFICIENT_POINTS")
+    throw new ApiError(400, "星币不足，无法开仓", "INSUFFICIENT_STARS")
   }
 
   // 手续费入池（必须成功：这是守恒等式的收入项）
-  await addPool(env, params.currency, q.fee, "fee", user.id, orderNo, "开仓手续费")
+  await addPool(env, q.fee, "fee", user.id, orderNo, "开仓手续费")
 
   /**
    * 价格冲击 —— **必须在记 entry_price 之前施加**。
@@ -951,14 +875,14 @@ export async function openPosition(
     })
   } catch (err) {
     // 落库失败 ⇒ 退回保证金 + 手续费，并从池子里扣回那笔手续费（不能白赚）
-    await gameApply(env, params.currency, {
+    await gameApply(env, INVEST_PLUGIN_SLUG, {
       userId: user.id,
       delta: total,
       reason: "game_settle",
       detail: `开仓失败退回 ${total} 积分`,
       dedupKey: `game:open-refund:${orderNo}`,
     })
-    await addPool(env, params.currency, -q.fee, "adjust", user.id, orderNo, "开仓失败退回手续费")
+    await addPool(env, -q.fee, "adjust", user.id, orderNo, "开仓失败退回手续费")
     const raced = await env.DB.prepare("SELECT * FROM game_positions WHERE order_no = ?")
       .bind(orderNo)
       .first<PositionRow>()
@@ -967,7 +891,7 @@ export async function openPosition(
         position: raced,
         price: raced.entry_price,
         duplicated: true,
-        balance: await gameBalance(env, params.currency, user.id),
+        balance: await gameBalance(env, INVEST_PLUGIN_SLUG, user.id),
       }
     }
     throw err
@@ -1258,7 +1182,7 @@ export async function closePosition(
       fee: pos.fee_close,
       pnl: pos.pnl ?? 0,
       capped: false,
-      balance: await gameBalance(env, params.currency, user.id),
+      balance: await gameBalance(env, INVEST_PLUGIN_SLUG, user.id),
       alreadyClosed: true,
     }
   }
@@ -1277,7 +1201,7 @@ export async function closePosition(
   const closeSigned = pos.side === "long" ? -pos.size : pos.size
   const exitPrice = applyImpactBps(
     market.price,
-    orderImpactBps(closeSigned, activePool(market, params), params)
+    orderImpactBps(closeSigned, activePool(market), params)
   )
 
   // 行情可能在推进过程中已经把它强平了，这里再判一次（读的是刚推进后的价格）
@@ -1288,7 +1212,7 @@ export async function closePosition(
     size: pos.size,
     margin: pos.margin,
     feeCloseBps: params.feeCloseBps,
-    poolBalance: activePool(market, params),
+    poolBalance: activePool(market),
   })
 
   const now = new Date().toISOString()
@@ -1315,7 +1239,7 @@ export async function closePosition(
       fee: fresh?.fee_close ?? 0,
       pnl: fresh?.pnl ?? 0,
       capped: false,
-      balance: await gameBalance(env, params.currency, user.id),
+      balance: await gameBalance(env, INVEST_PLUGIN_SLUG, user.id),
       alreadyClosed: true,
     }
   }
@@ -1326,7 +1250,6 @@ export async function closePosition(
   // 池子先记账（含收入与赔付；负值也会被 MAX(0,…) 兜住不会透支）
   await addPool(
     env,
-    params.currency,
     settled.poolDelta,
     settled.poolDelta >= 0 ? "intake" : "payout",
     user.id,
@@ -1336,9 +1259,9 @@ export async function closePosition(
 
   // 再给用户到账。delta 为 0 时 applyPoints 会拒绝（「积分变动值无效」），
   // 那种情况说明保证金刚好亏光 —— 本来就没有钱可给。
-  let balance = await gameBalance(env, params.currency, user.id)
+  let balance = await gameBalance(env, INVEST_PLUGIN_SLUG, user.id)
   if (settled.credit > 0) {
-    const credited = await gameApply(env, params.currency, {
+    const credited = await gameApply(env, INVEST_PLUGIN_SLUG, {
       userId: user.id,
       delta: settled.credit,
       reason: "game_settle",
@@ -1450,7 +1373,7 @@ export async function sweepLiquidations(
     if ((claim.meta?.changes ?? 0) !== 1) continue
 
     // 强平：保证金全额归池（玩家拿不到任何返还）
-    await addPool(env, params.currency, pos.margin, "intake", pos.user_id, pos.id, "强平保证金归池")
+    await addPool(env, pos.margin, "intake", pos.user_id, pos.id, "强平保证金归池")
 
     await env.DB.prepare(
       `INSERT INTO game_trades
@@ -1474,7 +1397,7 @@ export async function sweepLiquidations(
 
   let impactBps = 0
   if (done.length > 0 && signedNotional !== 0) {
-    impactBps = orderImpactBps(signedNotional, activePool(market, params), params)
+    impactBps = orderImpactBps(signedNotional, activePool(market), params)
     if (impactBps !== 0) {
       await applyOrderImpact(env, params, signedNotional, 0)
     }
@@ -1537,7 +1460,7 @@ async function sweepCrossAccounts(
     const positions = full.results ?? []
     if (positions.length === 0) continue
 
-    const balance = await gameBalance(env, params.currency, userId)
+    const balance = await gameBalance(env, INVEST_PLUGIN_SLUG, userId)
     const acct = crossAccount(
       positions.map((p) => ({
         side: p.side === "short" ? ("short" as Side) : ("long" as Side),
@@ -1555,7 +1478,7 @@ async function sweepCrossAccounts(
     // 先把追缴额从余额划走（余额不足时按实际余额兜底，绝不出现负余额）
     const shortfall = Math.min(acct.shortfall, balance)
     if (shortfall > 0) {
-      const taken = await gameApply(env, params.currency, {
+      const taken = await gameApply(env, INVEST_PLUGIN_SLUG, {
         userId,
         delta: -shortfall,
         reason: "game_settle",
@@ -1563,7 +1486,7 @@ async function sweepCrossAccounts(
         dedupKey: `game:cross-liq:${userId}:${market.tick_seq}`,
       })
       if (taken.applied) {
-        await addPool(env, params.currency, shortfall, "intake", userId, null, "全仓强平追缴")
+        await addPool(env, shortfall, "intake", userId, null, "全仓强平追缴")
       }
     }
 
@@ -1578,7 +1501,7 @@ async function sweepCrossAccounts(
         .run()
       if ((claim.meta?.changes ?? 0) !== 1) continue
 
-      await addPool(env, params.currency, pos.margin, "intake", userId, pos.id, "全仓强平保证金归池")
+      await addPool(env, pos.margin, "intake", userId, pos.id, "全仓强平保证金归池")
       await env.DB.prepare(
         `INSERT INTO game_trades
            (id, user_id, position_id, kind, side, leverage, price, size, margin, fee, pnl,
@@ -1781,15 +1704,6 @@ export async function gameLeaderboard(
     since = new Date(c.getTime() - offset * 3600_000).toISOString()
   }
 
-  /**
-   * ⚠️ 只统计**当前货币生效之后**的成交。
-   * 切换货币时 `game_market.currency_since` 会被写成切换时刻，
-   * 于是「真积分时代的盈亏」和「测试币时代的盈亏」不会混在一张榜上 ——
-   * 两种货币的 1 分不是一回事，混着比毫无意义。
-   */
-  const marketRow = await loadMarket(env)
-  const currencySince = marketRow?.currency_since ?? null
-  if (currencySince && (!since || currencySince > since)) since = currencySince
   const where = since ? "AND t.created_at >= ?" : ""
   const params = since ? [since] : []
 
@@ -1936,7 +1850,7 @@ export async function resetMarket(
     )
     .run()
 
-  await addPool(env, params.currency, 0, "adjust", admin.id, null, "重置行情")
+  await addPool(env, 0, "adjust", admin.id, null, "重置行情")
   await audit(env, admin.id, "collection.game.reset", `${admin.username} 重置了在线投资行情`)
 
   const market = await loadMarket(env)

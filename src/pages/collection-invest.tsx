@@ -1,12 +1,12 @@
 import * as React from "react"
 import { Link } from "react-router-dom"
-import { ArrowLeft, Loader2, TrendingDown, TrendingUp } from "lucide-react"
+import { ArrowLeft, Loader2, Sparkles, TrendingDown, TrendingUp } from "lucide-react"
 import { toast } from "sonner"
 
 import { CandleChart } from "@/components/candle-chart"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SkeletonCards } from "@/components/skeletons"
@@ -14,7 +14,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { localeOf, useT } from "@/i18n"
 import { setVisibleInterval } from "@/lib/visible-interval"
 import { cn } from "@/lib/utils"
-import { isAdminRole } from "@/components/collection-nav"
+import { isAdminRole } from "@/components/gallery-nav"
 import {
   HttpError,
   investApi,
@@ -188,6 +188,10 @@ export default function CollectionInvestPage() {
   const [leverage, setLeverage] = React.useState(5)
   const [margin, setMargin] = React.useState("100")
   const [busy, setBusy] = React.useState(false)
+  /** 兑换输入：兑入（积分）/ 兑出（星币） */
+  const [exchangePoints, setExchangePoints] = React.useState("")
+  const [exchangeStars, setExchangeStars] = React.useState("")
+  const [showExchange, setShowExchange] = React.useState(false)
   const [closingId, setClosingId] = React.useState<string | null>(null)
 
   // 下方标签页
@@ -288,27 +292,40 @@ export default function CollectionInvestPage() {
   const price = state?.market.price ?? 0
   const cfg = state?.config
   const balance = state?.me.balance ?? 0
-  /**
-   * ⚠️ 当前货币名（积分 / 测试币）。
-   * 页面上**所有**「积分」字样都必须走它 —— 写死的话，切到测试币模式后
-   * 用户会以为自己在拿真积分下单（这是最不能出现的一种误导）。
-   */
-  const coin = t(state?.currency === "test" ? "inv.coin.test" : "inv.coin.points")
+  /** 货币名固定为「星币」（星币是该游戏唯一货币，2026-10-25 起无测试币模式） */
+  const coin = t("inv.coin.star")
 
-  /** 领取测试币（每人一次）。领完直接就地更新余额，不再多打一次接口。 */
-  const claimTest = async () => {
+  /** 星币兑换：兑入（积分→星币）/ 兑出（星币→积分）。就地刷新余额。 */
+  const doExchange = async (direction: "in" | "out") => {
     if (busy) return
+    const rate = state?.exchange.rate ?? 100
+    const raw = direction === "in" ? exchangePoints : exchangeStars
+    const n = Math.floor(Number(raw) || 0)
+    if (n < 1) return
+    // 兑出必须是汇率的整数倍（后端同校验）——「全部兑出」向下取整，余数留钱包
+    if (direction === "out" && n % rate !== 0) {
+      toast.error(t("inv.exchange.notMultiple").replace("{n}", String(rate)))
+      return
+    }
     setBusy(true)
     try {
-      const res = await investApi.claimTest()
-      if (res.granted > 0) {
-        toast.success(t("inv.claimTestDone").replace("{n}", nf(res.granted)))
-      }
+      const res = await investApi.exchange(direction, direction === "in" ? { points: n } : { stars: n })
       setState((prev) =>
         prev
-          ? { ...prev, canClaimTest: false, me: { ...prev.me, balance: res.balance } }
+          ? {
+              ...prev,
+              exchange: { rate: prev.exchange.rate, points: res.points },
+              me: { ...prev.me, balance: res.stars },
+            }
           : prev
       )
+      toast.success(
+        direction === "in"
+          ? t("inv.exchange.inDone").replace("{s}", nf(res.stars))
+          : t("inv.exchange.outDone").replace("{p}", nf(res.points))
+      )
+      setExchangePoints("")
+      setExchangeStars("")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("col.loadFailedDesc"))
     } finally {
@@ -500,7 +517,7 @@ export default function CollectionInvestPage() {
             <p className="max-w-md text-xs text-muted-foreground">{t("inv.disabledDesc")}</p>
             {isAdminRole(user?.role) && (
               <Button asChild size="sm" variant="secondary">
-                <Link to="/dashboard/gallery/collection/settings">{t("inv.goSettings")}</Link>
+                <a href="/admin/games">{t("inv.goSettings")}</a>
               </Button>
             )}
           </CardContent>
@@ -515,6 +532,63 @@ export default function CollectionInvestPage() {
   return (
     <div className="-mx-4 space-y-4 lg:-mx-8">
       <BackBar />
+
+      {/* ---- 星币钱包 / 兑换柜台 ---- */}
+      {showExchange && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-amber-400" />
+              {t("inv.exchange.title")}
+            </CardTitle>
+            <CardDescription>{t("inv.exchange.desc")}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-sm font-medium">{t("inv.exchange.in")}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {t("inv.exchange.rate").replace("{r}", nf(state.exchange.rate))}
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  inputMode="numeric"
+                  className="tabular-nums"
+                  placeholder={t("inv.exchange.pointsPh")}
+                  value={exchangePoints}
+                  onChange={(e) => setExchangePoints(e.target.value.replace(/[^0-9]/g, ""))}
+                />
+                <Button disabled={busy} onClick={() => void doExchange("in")}>
+                  {t("inv.exchange.in")}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {t("inv.exchange.pointsBalance").replace("{p}", nf(state.exchange.points))}
+              </p>
+            </div>
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-sm font-medium">{t("inv.exchange.out")}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {t("inv.exchange.rate").replace("{r}", nf(state.exchange.rate))}
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  inputMode="numeric"
+                  className="tabular-nums"
+                  placeholder={t("inv.exchange.starsPh").replace("{r}", nf(state.exchange.rate))}
+                  value={exchangeStars}
+                  onChange={(e) => setExchangeStars(e.target.value.replace(/[^0-9]/g, ""))}
+                />
+                <Button disabled={busy} onClick={() => void doExchange("out")}>
+                  {t("inv.exchange.out")}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {t("inv.exchange.starsBalance").replace("{s}", nf(balance))}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ---- 顶栏：价格 / 涨跌 / 对手盘 ---- */}
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 px-1">
@@ -576,17 +650,13 @@ export default function CollectionInvestPage() {
               {t("inv.balance").replace("{n}", coin)}
             </p>
             <p className="text-lg font-medium tabular-nums">{nf(balance)}</p>
-            {state.canClaimTest && (
-              <button
-                type="button"
-                onClick={() => void claimTest()}
-                disabled={busy}
-                title={t("inv.claimTestHint")}
-                className="mt-1 rounded-md border px-2 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:opacity-50"
-              >
-                {t("inv.claimTest").replace("{n}", nf(state.testGrant))}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setShowExchange((v) => !v)}
+              className="mt-1 rounded-md border px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+            >
+              {t("inv.exchange.toggle")}
+            </button>
             {state.me.unrealizedTotal !== 0 && (
               <p
                 className={cn(
@@ -1181,9 +1251,9 @@ function BackBar() {
   return (
     <div className="flex items-center gap-2 px-1">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link to="/dashboard/gallery/collection">
+        <Link to="/dashboard/sim">
           <ArrowLeft className="h-4 w-4" />
-          {t("col.tab.hall")}
+          {t("col.backToHub")}
         </Link>
       </Button>
       <span className="text-sm font-medium">{t("inv.title")}</span>

@@ -12,7 +12,7 @@ import { pluginViewFor } from "@/lib/collection-plugins"
 /**
  * 造物典藏 —— **插件宿主**。
  *
- * 路由 `/dashboard/gallery/collection/:slug`。它自己**不画任何游戏界面**，
+ * 路由 `/dashboard/sim/:slug`。它自己**不画任何游戏界面**，
  * 只做三件事：
  *   1. 从服务端清单里按 slug 找到这个插件（名字/图标/说明都来自清单）；
  *   2. 按 `runtime` 选择渲染方式：
@@ -76,7 +76,7 @@ export default function CollectionPluginPage() {
             {plugin ? t("col.soonDesc") : t("gal.notFound")}
           </p>
           <Button asChild variant="secondary" size="sm">
-            <Link to="/dashboard/gallery/collection">{t("col.tab.hall")}</Link>
+            <Link to="/dashboard/sim">{t("col.backToHub")}</Link>
           </Button>
         </CardContent>
       </Card>

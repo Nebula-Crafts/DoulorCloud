@@ -33,6 +33,19 @@ function AdminRedirect() {
   return null
 }
 
+/** 旧地址 /dashboard/gallery/collection/settings → 管理后台游戏仓库。
+ *  /admin 是独立 SPA 文档（admin.html），客户端路由到不了，必须整页跳转。 */
+function OldCollectionSettingsRedirect() {
+  window.location.assign("/admin/games")
+  return null
+}
+
+/** 旧地址 /dashboard/gallery/collection/:slug → /dashboard/sim/:slug（同文档，客户端跳转） */
+function OldCollectionSlugRedirect() {
+  const slug = useParams().slug
+  return <Navigate to={`/dashboard/sim/${slug ?? ""}`} replace />
+}
+
 const DashboardPage = page("/dashboard", () => import("@/pages/dashboard"))
 const EmailPage = page("/dashboard/email", () => import("@/pages/email"))
 const StoragePage = page("/dashboard/storage", () => import("@/pages/storage"))
@@ -57,9 +70,8 @@ const GalleryPage = page("/dashboard/gallery", () => import("@/pages/gallery"))
 // ⚠️ 只登记大厅这一条路径：`page()` 是按路径注册预载项的，同一前缀下多登记会互相覆盖
 //    （与下面 ToolboxDetailPage 同理）。游戏页与设置页都是「点了大厅之后才可能进」，
 //    那时它们的 chunk 按需加载即可，不必预载。
-const CollectionPage = page("/dashboard/gallery/collection", () => import("@/pages/collection"))
-const CollectionPluginPage = React.lazy(() => import("@/pages/collection-plugin"))
-const CollectionSettingsPage = React.lazy(() => import("@/pages/collection-settings"))
+const SimPage = page("/dashboard/sim", () => import("@/pages/collection"))
+const SimPluginPage = React.lazy(() => import("@/pages/collection-plugin"))
 // 工具详情页挂在 /dashboard/toolbox 之下，不单独登记（同前缀会互相覆盖注册项）：
 // 用户是先进列表、再点某个工具，那时 ToolboxPage 早已加载，详情按需加载即可。
 const ToolboxDetailPage = React.lazy(() => import("@/pages/toolbox-detail"))
@@ -240,9 +252,13 @@ function AppRoutes() {
           ⚠️ `settings` 必须能被静态段优先匹配到（React Router 的排序规则保证：
              静态段 > 动态段），所以它写在 `:slug` 前面只是书写可读性，不依赖顺序。
         */}
-        <Route path="gallery/collection" element={<CollectionPage />} />
-        <Route path="gallery/collection/settings" element={<CollectionSettingsPage />} />
-        <Route path="gallery/collection/:slug" element={<CollectionPluginPage />} />
+        {/* ---- 模拟人生（游戏仓库，2026-10-25 自造物集整体迁出） ---- */}
+        <Route path="sim" element={<SimPage />} />
+        <Route path="sim/:slug" element={<SimPluginPage />} />
+        {/* 旧地址重定向。settings 指向管理后台（独立 SPA 文档），必须整页跳转 */}
+        <Route path="gallery/collection" element={<Navigate to="/dashboard/sim" replace />} />
+        <Route path="gallery/collection/:slug" element={<OldCollectionSlugRedirect />} />
+        <Route path="gallery/collection/settings" element={<OldCollectionSettingsRedirect />} />
         <Route path="toolbox/:toolId" element={<ToolboxDetailPage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="achievements" element={<AchievementsPage />} />

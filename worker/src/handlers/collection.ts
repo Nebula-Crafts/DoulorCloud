@@ -21,7 +21,6 @@ import { isAnyAdmin, requireUser } from "../auth"
 import { guardRateLimit } from "../ratelimit"
 import {
   advanceAndSweep,
-  claimTestCoins,
   closePosition,
   gameBalance,
   gameLeaderboard,
@@ -31,10 +30,11 @@ import {
   listMyTrades,
   loadGameParams,
   openPosition,
-  testCoinInfo,
   type MarketRow,
   type PositionRow,
 } from "../game-market"
+import { burnStars, getStarRate, mintStars } from "../game-wallet"
+import { getPointsBalance } from "../points"
 import {
   crossAccount,
   crossLiqPrice,
@@ -44,7 +44,7 @@ import {
   normalizeMarginMode,
   type GameParams,
 } from "../game-engine"
-import { listAllPlugins, listPublishedPlugins, toPublicPlugin } from "../collection-plugins"
+import { getPlugin, listAllPlugins, listPublishedPlugins, toPublicPlugin } from "../collection-plugins"
 import type { Env } from "../env"
 
 /** 轮询间隔由前端控制（3 秒）；这里只限「别被脚本打成洪水」 */
@@ -169,27 +169,18 @@ export async function investState(env: Env, request: Request): Promise<Response>
   const { market, liquidated } = await advanceAndSweep(env, params)
 
   const positions = await listMyPositions(env, user.id)
-  /**
-   * ⚠️ 余额与池子都要**按当前货币**取：
-   *    · points → 站内真积分 `user_points` / 真池子 `pool_balance`
-   *    · test   → 测试币 `game_test_balances` / 测试池 `pool_test_balance`
-   *    混用会出现「用测试币玩、却扣了真积分」这种最不能接受的结果。
-   */
-  const balance = await gameBalance(env, params.currency, user.id)
-  const poolBalance =
-    params.currency === "test"
-      ? Number(market.pool_test_balance ?? 0)
-      : Number(market.pool_balance)
-  const coin = params.currency === "test" ? await testCoinInfo(env, user.id) : null
+  /** 星币钱包余额（星币是该游戏唯一货币，见 game-wallet.ts） */
+  const balance = await gameBalance(env, "invest", user.id)
+  const poolBalance = Number(market.pool_balance)
+
+  /** 兑换柜台所需：汇率 + 玩家积分余额（兑换卡直接展示，免二次请求） */
+  const [starRate, pointsBalance] = await Promise.all([
+    getStarRate(env, "invest"),
+    getPointsBalance(env, user.id),
+  ])
 
   return json({
     enabled: params.enabled,
-    /** 当前货币：前端据此把「积分」显示成「测试币」 */
-    currency: params.currency,
-    /** 测试币首次领取额度（前端按钮文案用） */
-    testGrant: params.testGrant,
-    /** 还能不能领测试币（每人一次） */
-    canClaimTest: params.currency === "test" && !(coin?.granted ?? true),
     market: publicMarket(market, params),
     pool: {
       /** 对手盘余额 = 全服可赚取的总量上限 */
@@ -247,6 +238,11 @@ export async function investState(env: Env, request: Request): Promise<Response>
         shortfall: Math.min(acct.shortfall, Math.max(0, balance)),
       }
     })(),
+    /** 星币兑换柜台（汇率来自插件 config.starRate，默认 100） */
+    exchange: {
+      rate: starRate,
+      points: pointsBalance,
+    },
     me: {
       balance,
       positions: positions.map((p) =>
@@ -265,14 +261,44 @@ export async function investState(env: Env, request: Request): Promise<Response>
 }
 
 /**
- * POST /api/collection/invest/claim-test —— 领取测试币（每人一次）。
+ * POST /api/collection/invest/exchange —— 星币兑换柜台（2026-10-25 星币体系）。
  *
- * 只在测试币模式下有意义：`claimTestCoins` 会用 `granted_at IS NULL` 做条件更新，
- * 并发点两次也只会到账一次。
+ * body: { direction: "in" | "out", points?, stars? }
+ *   · in  ：兑入 points 积分 → 铸 points × starRate 星币（软下架时**关闭**——游戏停业不收新客）
+ *   · out ：兑出 stars 星币 → 解封 stars ÷ starRate 积分（软下架时**永远放行**——
+ *           用户资产必须可取，这是「星币 100% 积分储备」承诺的兑现口）
+ *
+ * 汇率、原子性都在 game-wallet.ts（mintStars / burnStars）。
  */
-export async function investClaimTest(env: Env, request: Request): Promise<Response> {
+export async function investExchange(env: Env, request: Request): Promise<Response> {
   const user = await requireUser(env, request)
-  return json(await claimTestCoins(env, user))
+  const body = await readJson(request)
+  const direction = body.direction === "out" ? "out" : "in"
+
+  if (direction === "in") {
+    // 兑入走与开仓同一条软下架闸（游戏停业不收新筹码）
+    const plugin = await getPlugin(env, "invest")
+    if (plugin?.status === "disabled") {
+      throw new ApiError(403, "该游戏已下架，暂停星币兑入", "GAME_DISABLED")
+    }
+    const points = Math.trunc(Number(body.points))
+    const res = await mintStars(env, "invest", user.id, points)
+    if (!res.applied) {
+      throw new ApiError(409, "积分余额不足", "INSUFFICIENT_POINTS")
+    }
+    return json({ direction, applied: true, stars: res.stars, points: res.points })
+  }
+
+  // 兑出：不做软下架拦截（用户资产可取优先于运营状态）
+  const stars = Math.trunc(Number(body.stars))
+  const res = await burnStars(env, "invest", user.id, stars)
+  if (!res.applied) {
+    if (res.reason === "insufficient_stars") {
+      throw new ApiError(409, "星币余额不足", "INSUFFICIENT_STARS")
+    }
+    throw new ApiError(409, "兑换失败", "EXCHANGE_FAILED")
+  }
+  return json({ direction, applied: true, stars: res.stars, points: res.points })
 }
 
 /**
