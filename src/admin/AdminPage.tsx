@@ -73,7 +73,6 @@ import { FunLinksAdminPanel } from "@/pages/admin-fun-links"
 import { TitlesAdminPanel } from "@/pages/admin-titles"
 import { ModerationAdminPanel } from "@/pages/admin-moderation"
 import { AdminNoticesPanel } from "@/pages/admin-notices"
-import { RelayAdminPanel } from "@/pages/admin-relay"
 // DNS 解析管理（全站记录 / 合规扫描 / 与 Cloudflare 对账）同理外置
 
 import { PageHeader } from "@/components/page-header"
@@ -777,7 +776,6 @@ const TAB_GROUP: Record<string, string> = {
   moderation: "adm.215",
   notices: "adm.215",
   newapi: "adm.220",
-  relay: "adm.220",
   lab: "adm.220",
   gallery: "adm.220",
   wb2api: "adm.220",
@@ -808,7 +806,7 @@ const NAV_OPEN_KEY = "admin-nav-open"
 const ADMIN_TAB_KEYS = new Set([
   "users", "invites", "inviteQuotas", "reserved", "titles", "points",
   "donations", "feedback", "announcements", "events", "community", "moderation", "notices",
-  "newapi", "relay", "r2", "proxy", "mail", "analytics", "cfQuota", "audit",
+  "newapi", "r2", "proxy", "mail", "analytics", "cfQuota", "audit",
   "oauth", "settings", "funLinks", "wb2api", "api", "permissions", "lab", "perf",
   // 造物集（2026-10-17 站长要求：从「AI 实验室」里独立出来）
   "gallery",
@@ -3895,14 +3893,6 @@ export default function AdminPage() {
                     可见性复用 `newapi` 那一栏 —— 后端这三个接口都在
                     `newapi.subscriptions` 权限域下（assertAdminScope），
                     这里若只看 `relay`（权限树里没有这个大类）会变成「人人可见、点了全 403」。 */}
-                {canSeeTab("newapi") && (
-                  <NavItem
-                    active={activeTab === "relay"}
-                    icon={ShieldCheck}
-                    label={t("adm.relay.tab")}
-                    onClick={() => handleTabChange("relay")}
-                  />
-                )}
                 {/* AI 实验室：模型来源（统一 Key / 免费试用）、免费渠道、Agent 提示词 */}
                 {canSeeTab("lab") && <NavItem active={activeTab === "lab"} icon={FlaskConical} label={t("nav.lab")} onClick={() => handleTabChange("lab")} />}
                 {/* 造物集（2026-10-17 站长要求：从实验室里独立成一个选项卡）。
@@ -5268,9 +5258,6 @@ export default function AdminPage() {
         </TabsContent>
 
         {/* 中转站入驻审核（审核制）：数据由面板自己加载，这里不需要懒加载钩子 */}
-        <TabsContent value="relay">
-          <RelayAdminPanel />
-        </TabsContent>
 
         <TabsContent value="events">
           <div className="mb-4 flex items-center justify-between">

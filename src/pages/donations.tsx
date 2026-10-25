@@ -1,7 +1,6 @@
 import * as React from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import {
-  Boxes,
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
@@ -29,7 +28,6 @@ import { toast } from "sonner"
 
 import { PageHeader } from "@/components/page-header"
 import { EmptyState } from "@/components/empty-state"
-import { RelayProviderCard } from "@/components/relay-provider-card"
 import { LoadingBlock } from "@/components/loading-block"
 import { NavItem, NavGroup } from "@/components/sub-nav"
 import { SlidingPill } from "@/components/motion/sliding-pill"
@@ -121,7 +119,7 @@ const AI_FORMATS: { value: string; label: string; channelType: number }[] = [
 ]
 
 /** 捐献页的分区（与 URL 的 `?tab=` 一一对应；缺省 = overview） */
-const DONATION_TABS = ["overview", "invite", "relay", "ai", "proxy"] as const
+const DONATION_TABS = ["overview", "invite", "ai", "proxy"] as const
 
 export default function DonationPage() {
   const { t } = useT()
@@ -582,12 +580,6 @@ export default function DonationPage() {
               />
               {/* 中转站入驻（2026-10-12 站长要求放在这里）：朋友登记自己的
                   NewAPI / Sub2API，用户在 AI 页能顺便看到那边的余额与订阅 */}
-              <NavItem
-                active={activeTab === "relay"}
-                icon={Boxes}
-                label={t("relayp.nav")}
-                onClick={() => changeTab("relay")}
-              />
               <NavGroup label={t("don.nav.group")}>
                 <NavItem
                   active={activeTab === "ai"}
@@ -993,10 +985,6 @@ export default function DonationPage() {
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            <TabsContent value="relay">
-              <RelayProviderCard />
             </TabsContent>
 
             <TabsContent value="ai">

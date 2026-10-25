@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useNavigate, Link, useSearchParams } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import {
   ArrowDown,
   Bot,
@@ -60,7 +60,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { newapiApi, HttpError } from "@/services/api"
-import { RelayStationView, RelaySwitcher } from "@/components/relay-station-view"
 import { fmtTime } from "@/lib/format"
 import { useT, tStatic } from "@/i18n"
 import type {
@@ -1075,7 +1074,6 @@ function OfficialRelayPage() {
           actions={
             <div className="flex flex-wrap items-center gap-2">
               <HealthBadge health={status.health} />
-              <RelaySwitcher />
             </div>
           }
         />
@@ -1124,8 +1122,6 @@ function OfficialRelayPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <HealthBadge health={status.health} />
-            {/* 「去看看其他中转站」：点开是朋友登记的站列表，进去就是那台站的完整界面 */}
-            <RelaySwitcher />
           </div>
         }
       />
@@ -1874,19 +1870,9 @@ function BindDialog({
 }
 
 /**
- * 路由入口：本站中转站 / 别人登记的站 二选一。
- *
- * 🔴 必须**拆成两个组件再二选一**，不能在一个组件里提前 return
- * （那些会改变 hooks 数量的写法会让 React 抛 #300，2026-10-12 实测踩过）。
- * `?relay=<id>` 时只挂载 RelayStationView，本站那套接口一个都不打。
+ * 路由入口。原来在「本站中转站 / 别人登记的站」之间二选一（?relay=<id>），
+ * 中转站入驻功能移除（2026-10-25）后只保留官方站。
  */
 export default function AiPage() {
-  const [searchParams] = useSearchParams()
-  const relayId = searchParams.get("relay")
-  // key 让「换一台站」时整棵子树重新挂载：否则会残留上一台站的状态（余额/Key 列表）
-  return relayId ? (
-    <RelayStationView key={relayId} id={relayId} />
-  ) : (
-    <OfficialRelayPage key="official" />
-  )
+  return <OfficialRelayPage key="official" />
 }

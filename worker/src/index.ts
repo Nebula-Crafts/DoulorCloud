@@ -14,7 +14,6 @@ import * as labHttpHandlers from "./handlers/lab-http"
 import * as labShotHandlers from "./handlers/lab-shot"
 import * as adminMailboxHandlers from "./handlers/admin-mailboxes"
 import * as adminUsersStatusHandlers from "./handlers/admin-users-status"
-import * as relayProviderHandlers from "./handlers/relay-providers"
 import * as adminChannelHandlers from "./handlers/admin-channels"
 import * as adminPermHandlers from "./handlers/admin-perms"
 import * as noticeHandlers from "./handlers/notices"
@@ -3352,86 +3351,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     method: "POST",
     handle: () =>
       storageHandlers.toggleShare(env, request),
-  },
-
-  // ---- 中转站登记（2026-10-12）：朋友自助登记他们的 NewAPI / Sub2API，
-  // 用户在 AI 页能顺便看到自己在那边的余额与订阅（**只读**，不代发额度）。
-  // ⚠️ 2026-10-16 起是**审核制**：登记落库为 pending，站长批准后才对其他人可用 ----
-  {
-    kind: "exact",
-    path: "/relay/providers",
-    method: "GET",
-    handle: () => relayProviderHandlers.listRelayProviders(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/relay/providers",
-    method: "POST",
-    handle: () => relayProviderHandlers.createRelayProvider(env, request),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/relay\/providers\/([^/]+)\/me$/),
-    methods: ["GET"],
-    handle: (m: RegExpMatchArray) =>
-      relayProviderHandlers.getRelayProviderView(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/relay\/providers\/([^/]+)\/keys$/),
-    methods: ["GET"],
-    handle: (m: RegExpMatchArray) =>
-      relayProviderHandlers.getRelayProviderKeys(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/relay\/providers\/([^/]+)\/models$/),
-    methods: ["GET"],
-    handle: (m: RegExpMatchArray) =>
-      relayProviderHandlers.getRelayProviderModels(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/relay\/providers\/([^/]+)$/),
-    methods: ["PUT"],
-    handle: (m: RegExpMatchArray) =>
-      relayProviderHandlers.updateRelayProvider(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/relay\/providers\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (m: RegExpMatchArray) =>
-      relayProviderHandlers.deleteRelayProvider(env, request, decodeURIComponent(m[1])),
-  },
-  // 站长视角：全部登记（含待审核 / 已拒绝）+ 一键停用 + 批准/拒绝（审核制，2026-10-16）
-  {
-    kind: "exact",
-    path: "/admin/relay-providers",
-    method: "GET",
-    handle: () => relayProviderHandlers.adminListRelayProviders(env, request),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/relay-providers\/([^/]+)\/enabled$/),
-    methods: ["POST"],
-    handle: (m: RegExpMatchArray) =>
-      relayProviderHandlers.adminSetRelayProviderEnabled(
-        env,
-        request,
-        decodeURIComponent(m[1])
-      ),
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/relay-providers\/([^/]+)\/review$/),
-    methods: ["POST"],
-    handle: (m: RegExpMatchArray) =>
-      relayProviderHandlers.adminReviewRelayProvider(
-        env,
-        request,
-        decodeURIComponent(m[1])
-      ),
   },
 
   {
