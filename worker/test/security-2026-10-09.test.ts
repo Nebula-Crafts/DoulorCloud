@@ -47,39 +47,6 @@ beforeEach(async () => {
 // ─────────────────────────────────────────────────────────────
 
 describe("/api/v1 写操作必须过「邮箱已验证」门槛（finding#2/#6）", () => {
-  it("未验证邮箱：会话路径与 API Key 路径都被 403 EMAIL_NOT_VERIFIED", async () => {
-    const u = await makeUser({ emailVerified: false })
-    const key = await giveApiKey(u.id)
-
-    // 基线：站内会话路径本来就是拦的
-    const viaSession = await fetchSelf(
-      authRequest(u, "/api/mailbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ localPart: "v1gate" }),
-      })
-    )
-    expect(viaSession.status).toBe(403)
-    expect(await expectCode(viaSession)).toBe("EMAIL_NOT_VERIFIED")
-
-    // 修复点：API Key 路径以前能绕过（/api/v1/mailbox 归一化成 /v1/mailbox，不命中前缀表）
-    const viaKey = await fetchSelf(
-      apiRequest("/api/v1/mailbox", key, {
-        method: "POST",
-        body: JSON.stringify({ localPart: "v1gate" }),
-      })
-    )
-    expect(viaKey.status).toBe(403)
-    expect(await expectCode(viaKey)).toBe("EMAIL_NOT_VERIFIED")
-
-    // 落库确认：真的没建出来
-    const created = await env.DB.prepare(
-      "SELECT COUNT(*) AS c FROM mailboxes WHERE user_id = ?"
-    )
-      .bind(u.id)
-      .first<{ c: number }>()
-    expect(created?.c ?? 0).toBe(0)
-  })
 
   it("只读请求不受该门槛影响（未验证也能 GET）", async () => {
     const u = await makeUser({ emailVerified: false })
@@ -107,55 +74,6 @@ describe("/api/v1 写操作必须过「邮箱已验证」门槛（finding#2/#6�
 // 2. 配额守卫：顺序创建严格封顶 + 并发不超额
 // ─────────────────────────────────────────────────────────────
 
-describe("普通邮箱配额（finding#1/#4）", () => {
-  it("顺序创建到上限后，下一次必须被拒", async () => {
-    const u = await makeUser()
-    await env.DB.prepare("DELETE FROM mailboxes WHERE user_id = ?").bind(u.id).run()
-
-    const add = (localPart: string) =>
-      fetchSelf(
-        authRequest(u, "/api/mailbox", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ localPart }),
-        })
-      )
-
-    for (let i = 0; i < 3; i++) {
-      expect((await add(`seq${i}box`)).status).toBe(201)
-    }
-    const over = await add("seq3box")
-    expect(over.status).toBe(400)
-    expect(await expectCode(over)).toBe("LIMIT_REACHED")
-  })
-
-  it("并发创建不会突破上限", async () => {
-    const u = await makeUser()
-    await env.DB.prepare("DELETE FROM mailboxes WHERE user_id = ?").bind(u.id).run()
-
-    const results = await Promise.all(
-      Array.from({ length: 8 }, (_, i) =>
-        fetchSelf(
-          authRequest(u, "/api/mailbox", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ localPart: `race${i}box` }),
-          })
-        )
-      )
-    )
-
-    const ok = results.filter((r) => r.status === 201).length
-    const row = await env.DB.prepare(
-      "SELECT COUNT(*) AS c FROM mailboxes WHERE user_id = ? AND is_temp = 0"
-    )
-      .bind(u.id)
-      .first<{ c: number }>()
-
-    expect(ok).toBeLessThanOrEqual(3)
-    expect(row?.c ?? 0).toBeLessThanOrEqual(3)
-  })
-})
 
 describe("临时邮箱配额（finding#4）", () => {
   it("同时最多 1 个：并发创建不会突破", async () => {

@@ -187,7 +187,17 @@
     <script>
       // PWA：等页面加载完再注册 Service Worker，不抢首屏时间。
       // 注册失败（旧浏览器/隐私模式）不影响站点本身。
-      if ("serviceWorker" in navigator) {
+      //
+      // ⚠️ 本地开发**不注册**（2026-11-05 排查「后台点入口无反应」时定位）：
+      //    sw.js 对静态资源是 cache-first。dev 下 Vite 用 /src/*.tsx 直接提供模块，
+      //    一旦被 SW 缓存，刷新就会拿旧模块 ⇒ 新代码的 URL 跳转配旧代码的界面，
+      //    表现为「点了没反应 / URL 变了内容不变」。HMR 也救不了（缓存优先）。
+      //    只有在真正的站点域名下才注册。
+      var isLocalDev =
+        location.hostname === "localhost" ||
+        location.hostname === "127.0.0.1" ||
+        location.hostname === "[::1]"
+      if ("serviceWorker" in navigator && !isLocalDev) {
         window.addEventListener("load", function () {
           navigator.serviceWorker.register("/sw.js").catch(function () {})
         })

@@ -3,24 +3,18 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
   Mail,
   Settings,
-  Gamepad2,
+  ShoppingBag,
   LayoutDashboard,
   ShieldCheck,
   LogOut,
   Menu,
   X,
-  HardDrive,
-  Heart,  Sparkles,
   Contact,
-  Zap,
   Trophy,
   Medal,
   Coins,
   MessagesSquare,
   MessageSquare,
-  Wrench,
-  FlaskConical,
-  LayoutGrid,
   LogIn,
 } from "lucide-react"
 
@@ -78,16 +72,9 @@ const ATTENTION_POLL_MS = 60_000
 /** 主体功能，排在侧边栏上部 */
 const baseNav = [
   { to: "/dashboard", labelKey: "nav.overview", icon: LayoutDashboard, end: true },
-  { to: "/dashboard/email", labelKey: "nav.email", icon: Mail, end: false },
-  { to: "/dashboard/storage", labelKey: "nav.storage", icon: HardDrive, end: false },
-  { to: "/dashboard/ai", labelKey: "nav.ai", icon: Sparkles, end: false },
-  { to: "/dashboard/sim", labelKey: "nav.sim", icon: Gamepad2, end: false },
-  { to: "/dashboard/proxy", labelKey: "nav.proxy", icon: Zap, end: false },
-  { to: "/dashboard/profile", labelKey: "nav.profile", icon: Contact, end: false },
   { to: "/dashboard/community", labelKey: "nav.community", icon: MessagesSquare, end: false },
-  { to: "/dashboard/lab", labelKey: "nav.lab", icon: FlaskConical, end: false, experimental: true },
-  { to: "/dashboard/gallery", labelKey: "nav.gallery", icon: LayoutGrid, end: false },
-  { to: "/dashboard/toolbox", labelKey: "nav.toolbox", icon: Wrench, end: false },
+  { to: "/dashboard/points", labelKey: "nav.points", icon: Coins, end: false },
+  { to: "/dashboard/shop", labelKey: "nav.shop", icon: ShoppingBag, end: false },
 ]
 
 /**
@@ -115,8 +102,6 @@ const achievementNav = { to: "/dashboard/achievements", labelKey: "nav.achieveme
 const leaderboardNav = { to: "/dashboard/leaderboard", labelKey: "nav.leaderboard", icon: Medal, end: false }
 // 积分与成就原本并列（都是「成长/奖励」体系），成就移入账户菜单后这里只剩积分。
 // 文案用「积分与商城」：该页同时承载「积分余额」与「积分商城」两块，光写「积分」看不出有商城。
-const pointsNav = { to: "/dashboard/points", labelKey: "nav.points", icon: Coins, end: false }
-const donationNav = { to: "/dashboard/donations", labelKey: "nav.donations", icon: Heart, end: false }
 const feedbackNav = { to: "/dashboard/feedback", labelKey: "nav.feedback", icon: MessageSquare, end: false }
 
 /**
@@ -301,8 +286,8 @@ export function DashboardLayout({
   // 即「从下往上」为 设置 → 管理 → 积分与商城 → 捐献 → 反馈，设置紧贴账户信息。
   // 「成就」已移入右下角账户菜单（个人空间上方），不再占侧边栏位置。
   const bottomNav = isAdmin
-    ? [feedbackNav, donationNav, pointsNav, adminNav, settingsNav]
-    : [feedbackNav, donationNav, pointsNav, settingsNav]
+    ? [feedbackNav, adminNav, settingsNav]
+    : [feedbackNav, settingsNav]
 
   /**
    * 空闲预载侧边栏一级入口（2026-10-08）。

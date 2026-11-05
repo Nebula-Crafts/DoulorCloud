@@ -11,7 +11,6 @@ import {
   Check,
   ExternalLink,
   Inbox,
-  Plus,
   Upload,
   Zap,
   History,
@@ -871,7 +870,6 @@ const QuickActions = React.memo(function QuickActions() {
   const actions = [
     { label: t("dash.quick.mail"), icon: Mail, to: "/dashboard/email" },
     { label: t("dash.quick.upload"), icon: Upload, to: "/dashboard/storage" },
-    { label: t("dash.quick.domain"), icon: Plus, to: "/dashboard/domains" },
     { label: t("dash.quick.topup"), icon: Zap, to: "/dashboard/ai" },
   ]
   return (

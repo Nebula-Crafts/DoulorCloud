@@ -48,6 +48,7 @@ export type PointReason =
    */
   | "star_in"
   | "star_out"
+  | "level_up"
   | "event"
   | "admin"
   | "redeem"

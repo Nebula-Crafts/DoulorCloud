@@ -106,19 +106,6 @@ async function config(env: Env): Promise<NewApiConfig> {
   }
 }
 
-/** 上游 baseUrl（去掉尾部斜杠）。站内 AI 功能（网页实验室）直连 /v1 时用。 */
-export function newApiBaseUrl(env: Env): string {
-  const baseUrl = env.NEWAPI_BASE_URL
-  if (!baseUrl) {
-    throw new ApiError(
-      503,
-      "AI 中转站未配置（缺少 NEWAPI_BASE_URL）",
-      "NEWAPI_NOT_CONFIGURED"
-    )
-  }
-  return baseUrl.replace(/\/+$/, "")
-}
-
 /** 站点地址与管理员令牌是否都已具备（决定 AI 功能可用性） */
 export async function isNewApiConfigured(env: Env): Promise<boolean> {
   if (!env.NEWAPI_BASE_URL) return false

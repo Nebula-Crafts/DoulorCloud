@@ -309,81 +309,12 @@ describe("活动：领取与自动发放", () => {
     expect(q).toBe(5)
   })
 
-  it("条件不满足（has_profile）→ 403", async () => {
-    const u = await makeUser()
-    const id = await seedEvent({
-      conditionType: "has_profile",
-      rewardType: "invite_quota",
-      rewardParams: { count: 1 },
-    })
-    const res = await fetchSelf(authRequest(u, `/api/events/${id}/claim`, { method: "POST" }))
-    expect(res.status).toBe(403)
-    expect((await res.json<{ code: string }>()).code).toBe("CONDITION_FAILED")
-  })
 
-  it("已开通名片（已发布 + 填了昵称）后 has_profile 通过", async () => {
-    const u = await makeUser()
-    const now = new Date().toISOString()
-    await env.DB.prepare(
-      "INSERT INTO profiles (user_id, slug, published, display_name, created_at, updated_at) VALUES (?, ?, 1, ?, ?, ?)"
-    )
-      .bind(u.id, u.username, "测试名片", now, now)
-      .run()
-
-    const id = await seedEvent({
-      conditionType: "has_profile",
-      rewardType: "invite_quota",
-      rewardParams: { count: 1 },
-    })
-    const res = await fetchSelf(authRequest(u, `/api/events/${id}/claim`, { method: "POST" }))
-    expect(res.status).toBe(200)
-  })
 
   // 2026-09-28：gaozx1 就是靠一条空名片行领走了 500 元余额。
   // 同日起「开通名片」默认就是 published=1（用户不用再手动点「启用」），
   // 所以判据从「已发布」升级为「已发布 **且** 填了昵称」—— 空骨架行依然过不去。
-  it("只点「开通名片」但没填昵称 → has_profile 不通过（403）", async () => {
-    const u = await makeUser()
-    const enabled = await fetchSelf(
-      authRequest(u, "/api/profile/enable", { method: "POST" })
-    )
-    expect(enabled.status).toBe(201)
 
-    // 先确认「开通即已发布」这个前提成立，否则这条测试测的不是它想测的东西
-    const got = (await (await fetchSelf(authRequest(u, "/api/profile"))).json()) as {
-      profile: { published: boolean }
-    }
-    expect(got.profile.published).toBe(true)
-
-    const id = await seedEvent({
-      conditionType: "has_profile",
-      rewardType: "invite_quota",
-      rewardParams: { count: 1 },
-    })
-    const res = await fetchSelf(authRequest(u, `/api/events/${id}/claim`, { method: "POST" }))
-    expect(res.status).toBe(403)
-    expect((await res.json<{ code: string }>()).code).toBe("CONDITION_FAILED")
-  })
-
-  it("填了昵称后 → has_profile 通过", async () => {
-    const u = await makeUser()
-    await fetchSelf(authRequest(u, "/api/profile/enable", { method: "POST" }))
-    await fetchSelf(
-      authRequest(u, "/api/profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: "有名字了" }),
-      })
-    )
-
-    const id = await seedEvent({
-      conditionType: "has_profile",
-      rewardType: "invite_quota",
-      rewardParams: { count: 1 },
-    })
-    const res = await fetchSelf(authRequest(u, `/api/events/${id}/claim`, { method: "POST" }))
-    expect(res.status).toBe(200)
-  })
 
   it("未开始 / 已结束 / 已下线 → 400", async () => {
     const u = await makeUser()

@@ -27,7 +27,7 @@
 //   ⚠️ 代价：所有人下次加载会重新拉一遍静态资源（和 2026-10-03 升 v3 一样的代价）。
 //   兜底：投毒窗口内改绑解绑过的用户，若其浏览器仍持有旧 SW，需等本 SW 更新到 v4 才恢复；
 //   app 侧另有主动注销异常注册的逻辑（见 src/lib/chunk-error.ts）。
-const CACHE = "doulor-shell-v4"
+const CACHE = "doulor-shell-v5"
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -67,6 +67,24 @@ self.addEventListener("fetch", (event) => {
     )
     return
   }
+
+  /**
+   * ⚠️ 本地开发产物**绝不缓存**（2026-11-05）。
+   *
+   * Vite dev 直接以 /src/**.tsx 提供模块，HMR 还会加 ?t= / ?import 查询串。
+   * 这些请求一旦进 cache-first，刷新就会拿旧模块 —— 新代码的路由配旧代码的
+   * 界面，表现为「点入口没反应、URL 变了内容不变」，而且刷新多少次都好不了。
+   * 生产构建的产物是 /assets/**.js（带内容哈希），照旧缓存。
+   */
+  const isDevArtifact =
+    url.pathname.startsWith("/src/") ||
+    url.pathname.startsWith("/@vite/") ||
+    url.pathname.startsWith("/@react-refresh") ||
+    url.pathname.startsWith("/@fs/") ||
+    url.pathname.includes("/node_modules/") ||
+    url.searchParams.has("t") ||
+    url.searchParams.has("import")
+  if (isDevArtifact) return
 
   // 静态资源：缓存优先
   event.respondWith(

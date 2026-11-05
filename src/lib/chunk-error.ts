@@ -108,6 +108,42 @@ export function reloadOnceForChunkError(err: unknown): boolean {
  * 失败一律静默：自愈是尽力而为，绝不能因为它出错而影响主站启动。
  */
 export function selfHealServiceWorkers(): void {
+  /**
+   * ⚠️ 本地开发：**注销全部** SW 并清空缓存（2026-11-05）。
+   *
+   * 背景（真实排查）：dev 下 index.html 曾无条件注册 /sw.js，而它是静态资源
+   * cache-first —— Vite 的 /src/*.tsx 模块被缓存后，刷新会拿到旧模块，
+   * 表现为「点后台入口没反应 / URL 变了内容不变」，刷新多少次都好不了。
+   * 现在注册端已加 localhost 判断，但**已经装过的浏览器**还要靠这里清掉。
+   */
+  const isLocalDev =
+    location.hostname === "localhost" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname === "[::1]"
+
+  if (isLocalDev) {
+    try {
+      if (!("serviceWorker" in navigator)) return
+      void navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => Promise.all(regs.map((r) => r.unregister().catch(() => false))))
+        .catch(() => {})
+    } catch {
+      /* ignore */
+    }
+    try {
+      if ("caches" in window) {
+        void caches
+          .keys()
+          .then((keys) => Promise.all(keys.map((k) => caches.delete(k).catch(() => false))))
+          .catch(() => {})
+      }
+    } catch {
+      /* ignore */
+    }
+    return
+  }
+
   try {
     if (!("serviceWorker" in navigator)) return
     void navigator.serviceWorker
@@ -131,7 +167,7 @@ export function selfHealServiceWorkers(): void {
   }
   try {
     if ("caches" in window) {
-      // 被投毒的那一版缓存（v3）。v4 是当前版本，不动它。
+      // 被投毒的那一版缓存（v3）。v5 是当前版本，不动它。
       void caches.delete("doulor-shell-v3").catch(() => {})
     }
   } catch {

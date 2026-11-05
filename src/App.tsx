@@ -47,15 +47,8 @@ function OldCollectionSlugRedirect() {
 }
 
 const DashboardPage = page("/dashboard", () => import("@/pages/dashboard"))
-const EmailPage = page("/dashboard/email", () => import("@/pages/email"))
-const StoragePage = page("/dashboard/storage", () => import("@/pages/storage"))
-const AiPage = page("/dashboard/ai", () => import("@/pages/ai"))
-const ProfilePage = page("/dashboard/profile", () => import("@/pages/profile"))
-const ProxyPage = page("/dashboard/proxy", () => import("@/pages/proxy"))
-const TempboxPage = page("/dashboard/tempbox", () => import("@/pages/tempbox"))
 const OAuthConsentPage = page("/oauth/consent", () => import("@/pages/oauth-consent"))
 const SettingsPage = page("/dashboard/settings", () => import("@/pages/settings"))
-const DonationPage = page("/dashboard/donations", () => import("@/pages/donations"))
 const FeedbackPage = page("/dashboard/feedback", () => import("@/pages/feedback"))
 const AchievementsPage = page("/dashboard/achievements", () => import("@/pages/achievements"))
 const LeaderboardPage = page("/dashboard/leaderboard", () => import("@/pages/leaderboard"))
@@ -63,9 +56,6 @@ const PointsPage = page("/dashboard/points", () => import("@/pages/points"))
 const MessagesPage = page("/dashboard/messages", () => import("@/pages/messages"))
 const DmPage = page("/dashboard/dm", () => import("@/pages/dm"))
 const CommunityPage = page("/dashboard/community", () => import("@/pages/community"))
-const ToolboxPage = page("/dashboard/toolbox", () => import("@/pages/toolbox"))
-const LabPage = page("/dashboard/lab", () => import("@/pages/lab"))
-const GalleryPage = page("/dashboard/gallery", () => import("@/pages/gallery"))
 // 造物典藏（游戏大厅）：一个插件宿主 + 每个游戏自己的全屏界面。
 // ⚠️ 只登记大厅这一条路径：`page()` 是按路径注册预载项的，同一前缀下多登记会互相覆盖
 //    （与下面 ToolboxDetailPage 同理）。游戏页与设置页都是「点了大厅之后才可能进」，
@@ -74,7 +64,6 @@ const SimPage = page("/dashboard/sim", () => import("@/pages/collection"))
 const SimPluginPage = React.lazy(() => import("@/pages/collection-plugin"))
 // 工具详情页挂在 /dashboard/toolbox 之下，不单独登记（同前缀会互相覆盖注册项）：
 // 用户是先进列表、再点某个工具，那时 ToolboxPage 早已加载，详情按需加载即可。
-const ToolboxDetailPage = React.lazy(() => import("@/pages/toolbox-detail"))
 const SpacePage = page("/space", () => import("@/pages/space"))
 const ActivityPage = page("/activity", () => import("@/pages/activity"))
 const AppealPage = page("/appeal", () => import("@/pages/appeal"))
@@ -235,18 +224,10 @@ function AppRoutes() {
         element={<DashboardGate />}
       >
         <Route index element={<DashboardPage />} />
-        <Route path="email" element={<EmailPage />} />
-        <Route path="storage" element={<StoragePage />} />
-        <Route path="ai" element={<AiPage />} />
-        <Route path="proxy" element={<ProxyPage />} />
-        <Route path="tempbox" element={<TempboxPage />} />
-        <Route path="profile" element={<ProfilePage />} />
         <Route path="community" element={<CommunityPage inDashboard />} />
         <Route path="community/:id" element={<CommunityPage inDashboard />} />
-        <Route path="toolbox" element={<ToolboxPage />} />
-        <Route path="lab" element={<LabPage />} />
-        {/* 造物集：展示大厅 / 我的造物集（?view=mine）在同一个页面里切换视图 */}
-        <Route path="gallery" element={<GalleryPage />} />
+        {/* AI 实验室与创想造物已下线（2026-11-05）：旧链接重定向到仍存在的相关页面，
+            别让外发过的链接 404。lab 的用户多半是冲着 AI 去的 → 中转站。 */}
         {/*
           造物典藏（游戏大厅 · 插件宿主）。
           ⚠️ `settings` 必须能被静态段优先匹配到（React Router 的排序规则保证：
@@ -259,7 +240,6 @@ function AppRoutes() {
         <Route path="gallery/collection" element={<Navigate to="/dashboard/sim" replace />} />
         <Route path="gallery/collection/:slug" element={<OldCollectionSlugRedirect />} />
         <Route path="gallery/collection/settings" element={<OldCollectionSettingsRedirect />} />
-        <Route path="toolbox/:toolId" element={<ToolboxDetailPage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="achievements" element={<AchievementsPage />} />
         <Route path="leaderboard" element={<LeaderboardPage />} />
@@ -271,7 +251,6 @@ function AppRoutes() {
         <Route path="dm/:username" element={<DmPage />} />
         {/* 消息中心每个分类都有自己的 URL（深链）：/dashboard/messages/<system|site|social|event> */}
         <Route path="messages/:category" element={<MessagesPage />} />
-        <Route path="donations" element={<DonationPage />} />
         <Route path="feedback" element={<FeedbackPage />} />
         {/* 管理后台已独立成 /admin 入口（admin.html）：这里必须整页跳转，
             客户端路由跳不过去 —— 那是另一个 SPA 文档 */}

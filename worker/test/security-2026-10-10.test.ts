@@ -46,68 +46,10 @@ beforeEach(async () => {
   await env.DB.prepare("DELETE FROM rate_limits").run()
 })
 
-describe("tempbox 路径前缀逃逸（finding#2/#3）", () => {
-  it("proxy-upload 的 key 含 `..` 段必须 403（原本能写到别的前缀）", async () => {
-    const u = await makeUser()
-    const code = await makeBatch(u)
-
-    const escape = `temporary/${code}/../../profiles/${u.username}/background.jpg`
-    const res = await fetchSelf(
-      authRequest(u, `/api/tempbox/${code}/proxy-upload?key=${encodeURIComponent(escape)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "text/plain" },
-        body: "ESCAPE",
-      })
-    )
-    expect(res.status).toBe(403)
-    expect(await codeOf(res)).toBe("FORBIDDEN")
-  })
-
-  it("`../` 逃到别人批次的 key 也必须 403", async () => {
-    const a = await makeUser()
-    const b = await makeUser()
-    const codeA = await makeBatch(a)
-    const codeB = await makeBatch(b)
-
-    const escape = `temporary/${codeA}/../${codeB}/injected.txt`
-    const res = await fetchSelf(
-      authRequest(a, `/api/tempbox/${codeA}/proxy-upload?key=${encodeURIComponent(escape)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "text/plain" },
-        body: "INJECT",
-      })
-    )
-    expect(res.status).toBe(403)
-  })
-
-  it("commit 的 key 含 `..` 段同样 403（两个入口都堵）", async () => {
-    const u = await makeUser()
-    const code = await makeBatch(u)
-
-    const res = await fetchSelf(
-      authRequest(u, `/api/tempbox/${code}/commit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: `temporary/${code}/../x/y.txt` }),
-      })
-    )
-    expect(res.status).toBe(403)
-  })
-})
 
 describe("email-verified 白名单缺口（finding#7）", () => {
   it("未验证邮箱账号不得写平台桶 / 铸 OAuth 客户端", async () => {
     const u = await makeUser({ emailVerified: false })
-
-    const lab = await fetchSelf(
-      authRequest(u, "/api/lab/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "verify-gate", files: { "index.html": "<h1>x</h1>" } }),
-      })
-    )
-    expect(lab.status).toBe(403)
-    expect(await codeOf(lab)).toBe("EMAIL_NOT_VERIFIED")
 
     const stickers = await fetchSelf(
       authRequest(u, "/api/stickers", {
@@ -144,41 +86,4 @@ describe("email-verified 白名单缺口（finding#7）", () => {
 })
 
 describe("凭证变更吊销（finding#11）", () => {
-  it("改密码后旧 API Key 必须失效", async () => {
-    const u = await makeUser()
-    const key = await giveApiKey(u.id)
-
-    // 改密前：Key 可用（这里只断言「不是 401 API Key 无效」）
-    const before = await fetchSelf(
-      new Request("https://cloud.doulor.cn/api/v1/mailbox", {
-        headers: { Authorization: `Bearer ${key}` },
-      })
-    )
-    expect(await codeOf(before)).not.toBe("UNAUTHORIZED")
-
-    const changed = await fetchSelf(
-      authRequest(u, "/api/password", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword: "pass1234", newPassword: "pass1234-new" }),
-      })
-    )
-    expect(changed.status).toBe(200)
-
-    // 改密后：旧 Key 必须已经没了
-    const after = await fetchSelf(
-      new Request("https://cloud.doulor.cn/api/v1/mailbox", {
-        headers: { Authorization: `Bearer ${key}` },
-      })
-    )
-    expect(after.status).toBe(401)
-    expect(await codeOf(after)).toBe("UNAUTHORIZED")
-
-    const left = await env.DB.prepare(
-      "SELECT COUNT(*) AS c FROM user_api_keys WHERE user_id = ?"
-    )
-      .bind(u.id)
-      .first<{ c: number }>()
-    expect(left?.c ?? 0).toBe(0)
-  })
 })

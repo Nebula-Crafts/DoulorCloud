@@ -14,7 +14,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { localeOf, useT } from "@/i18n"
 import { setVisibleInterval } from "@/lib/visible-interval"
 import { cn } from "@/lib/utils"
-import { isAdminRole } from "@/components/gallery-nav"
+import { isAdminRole } from "@/lib/roles"
 import {
   HttpError,
   investApi,

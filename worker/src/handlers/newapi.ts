@@ -49,7 +49,6 @@ import {
   changePassword as changePasswordRemote,
 } from "../newapi-client"
 import { audit, getSetting, getSettings, parseRecommendedModels } from "../settings"
-import { LAB_KEY_NAME, isLabKeyName } from "../lab-key"
 import { resolveDonationGroup } from "../donation-provision"
 import { hasFeature, parsePermissions, parseOpenFeatures } from "../permissions"
 import { guardRateLimit } from "../ratelimit"
@@ -947,13 +946,13 @@ function mapKeyRow(
   r: Record<string, unknown>,
   groupByTokenId: Map<number, string>
 ): Record<string, unknown> {
-  // 「AI 实验室」自动建的那个 Key 是**系统 Key**：显示名统一成规范名
-  // （老库里存的是「网页实验室」），并打上标记 —— 前端据此隐藏复制/删除按钮。
-  const system = isLabKeyName(String(r.name ?? ""))
+  // （AI 实验室已移除；历史上自动建的「AI实验室/网页实验室」Key 不再是
+  //  系统 Key，按普通 Key 对待——用户可自行删除。）
+  const system = false
   return {
     id: r.id,
     tokenId: r.token_id,
-    name: system ? LAB_KEY_NAME : r.name,
+    name: r.name,
     maskedKey: r.key_prefix,
     /** 该 Key 所属分组；读不到为 null */
     group: groupByTokenId.get(Number(r.token_id)) ?? null,
@@ -1009,16 +1008,6 @@ export async function createKey(env: Env, request: Request): Promise<Response> {
   const body = (await request.json()) as { name?: string; group?: string }
   const name = (body.name ?? "").trim().slice(0, 50) || `doulor-${user.username}`
 
-  // 实验室那个 Key 的名字是**系统保留**的：如果允许用户手工占用，
-  // 不但列表里会出现两个同名 Key，还会把「系统 Key」的判定搞乱
-  // （判定只看名字，见 lab-key.ts）。
-  if (isLabKeyName(name)) {
-    throw new ApiError(
-      400,
-      `「${name}」是系统保留名称，请换一个名字`,
-      "RESERVED_NAME"
-    )
-  }
 
   // 可选分组 = 站点分组 + 捐献分组（2026-10-01 起放开）。
   //
@@ -1095,15 +1084,6 @@ export async function removeKey(
     .first<{ id: string; token_id: number; name: string }>()
   if (!row) throw new ApiError(404, "Key 不存在", "NOT_FOUND")
 
-  // 系统 Key（AI 实验室专用）不允许删除：界面里不显示删除按钮，
-  // 但接口是公开的，所以服务端必须自己拦一道。
-  if (isLabKeyName(row.name)) {
-    throw new ApiError(
-      403,
-      "「AI实验室」是系统自动维护的 Key，不能删除（删掉也会被自动重建）",
-      "SYSTEM_KEY"
-    )
-  }
 
   try {
     await runWithUserToken(env, account, (token, userId) =>
@@ -1145,16 +1125,6 @@ export async function revealKey(
     .first<{ id: string; token_id: number; name: string }>()
   if (!row) throw new ApiError(404, "Key 不存在", "NOT_FOUND")
 
-  // 系统 Key（AI 实验室专用）不提供「读取完整内容」。
-  // 只藏按钮是不够的 —— 不然用户直接调这个接口照样能拿到明文，
-  // 「不可复制」就成了纸面规定。实验室自己取 Key 走的是服务端内部路径，不受影响。
-  if (isLabKeyName(row.name)) {
-    throw new ApiError(
-      403,
-      "「AI实验室」是系统自动维护的 Key，仅供站内使用，不提供复制",
-      "SYSTEM_KEY"
-    )
-  }
 
   let key: string
   try {
