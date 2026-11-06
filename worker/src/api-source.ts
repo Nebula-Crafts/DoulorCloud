@@ -22,15 +22,6 @@ export const API_SOURCE_HEADER = "X-Doulor-Api-Source"
  */
 export const API_ADMIN_HEADER = "X-Doulor-Api-Admin"
 
-export function isApiRequest(request: Request): boolean {
-  return request.headers.get(API_SOURCE_HEADER) === "api"
-}
-
-/** 是否来自「管理员 Key」的公开 API 调用（限额一律放行）。两个头都要对，缺一不可 */
-export function isAdminApiRequest(request: Request): boolean {
-  return isApiRequest(request) && request.headers.get(API_ADMIN_HEADER) === "1"
-}
-
 /**
  * 剥掉客户端伪造的内部标记头（入口必调）。
  *

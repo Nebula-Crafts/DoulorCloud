@@ -14,7 +14,7 @@
  *   4. 额度用 `POST /api/user/manage` 的 add_quota（mode: override = 绝对赋值）。
  */
 import { ApiError } from "./http"
-import { decryptSecret, encryptSecret } from "./crypto"
+import { decryptSecret } from "./crypto"
 import { fetchWithTimeout } from "./async-utils"
 import type { Env } from "./env"
 
@@ -234,64 +234,6 @@ export async function findUserByUsername(
   return match
 }
 
-/**
- * 按邮箱找账号（NewAPI 的 search 接口同时匹配用户名 / 邮箱 / 显示名）。
- *
- * 为什么要按邮箱找：**中转站侧的用户名不一定等于我们站的用户名** ——
- * 账号是用 OIDC 在中转站登录时创建/关联的，用户名可能被那边改过或另有后缀。
- * 2026-10-12 实例：用户 `masters` 在中转站的账号叫 `master3test`
- * （oidc_id 就是他，等于绑好了，但我们按用户名永远找不到 ⇒ 一直提示"还没有你的账号"）。
- */
-export async function findUserByEmail(
-  env: Env,
-  email: string
-): Promise<NewApiUser | null> {
-  const target = email.trim().toLowerCase()
-  if (!target) return null
-  const res = await newApiFetch(
-    env,
-    "/api/user/search?keyword=" + encodeURIComponent(email.trim()),
-    { method: "GET" }
-  )
-  const data = await unwrap<NewApiUser[] | { items?: NewApiUser[] }>(res, "查询账号")
-  const list = Array.isArray(data) ? data : (data.items ?? [])
-  const match = list.find((u) => String(u.email ?? "").toLowerCase() === target)
-  if (!match || match.DeletedAt) return null
-  return match
-}
-
-/**
- * 解析「**我**在中转站的账号」——绑定与开通的唯一入口（2026-10-12）。
- *
- * 🔴 认人的权威依据是 `oidc_id === 我的 cloud 用户 id`：那是 OIDC 登录时由本站签发的
- * `sub`，别人伪造不了、也不会随用户名变化。用户名只是**候选**（可能被那边改过），
- * 邮箱是次一级候选。
- *
- * 返回：
- *   · `mine`   —— oidc_id 命中的那个账号（能安全绑定）
- *   · `others` —— 找到但**不属于我**的候选（用于给出「同名账号不是用 Doulor Cloud 建的」这类提示，
- *                 绝不能拿去绑定）
- */
-export async function resolveMyRelayAccount(
-  env: Env,
-  opts: { userId: string; username: string; emails: string[] }
-): Promise<{ mine: NewApiUser | null; others: NewApiUser[] }> {
-  const found = new Map<number, NewApiUser>()
-  const take = (u: NewApiUser | null) => {
-    if (u) found.set(u.id, u)
-  }
-  // 三个候选来源都试；任一失败不影响其它（探测阶段不能因为一个报错就整体失败）
-  await Promise.all([
-    findUserByUsername(env, opts.username).then(take).catch(() => undefined),
-    ...opts.emails
-      .filter(Boolean)
-      .map((e) => findUserByEmail(env, e).then(take).catch(() => undefined)),
-  ])
-  const all = [...found.values()]
-  const mine = all.find((u) => u.oidc_id === opts.userId) ?? null
-  return { mine, others: all.filter((u) => u.id !== mine?.id) }
-}
-
 export interface NewApiUser {
   id: number
   username: string
@@ -430,45 +372,6 @@ export async function adminSetUserStatus(
   await unwrap(res, action === "enable" ? "启用账号" : "禁用账号")
 }
 
-/**
- * 管理员给指定用户设置/重置密码（`PUT /api/user`）。
- *
- * ⚠️ 明文密码只在这里短暂出现，用于「OIDC 开通后给账号补一个密码」，
- * 从而让本站能用「用户名 + 密码」登录换取 access token（代用户建 Key 依赖它）。
- * NewAPI 的 UpdateUser 接口只要 `id` + `password`，明文传入、由它自己哈希；
- * 不需要旧密码，也不校验 role 变更（我们这里不碰 role）。
- */
-export async function adminSetUserPassword(
-  env: Env,
-  userId: number,
-  username: string,
-  password: string
-): Promise<void> {
-  // ⚠️ 2026-10-07：rc.41 起 `PUT /api/user` **在真正设置密码时**要求 step-up 安全验证
-  //（上游 controller/user.go：`if updatePassword || AdminPermissions != nil { requireAdminUserProof(...) }`；
-  //  只改分组/显示名不触发，所以本文件里的 `adminSetUserGroup` 不受影响）。
-  // 不补这一步的后果非常隐蔽：「开通 / 重新绑定中转站」里是先
-  // `adminSetUserPassword` 再 `login` —— 设密码静默失败 ⇒ 随后用新密码登录必然失败
-  // ⇒ 前端让用户「重新输入密码」，用户输多少遍都没用
-  //（ventus 反馈的「key同步失败 / 输入密码还是不行」就是这个）。
-  const proof = await acquireSecurityProof(env, "admin.user.update", { user_id: userId })
-  if (proof) {
-    const res = await stepUpFetch(env, "PUT", "/api/user", { id: userId, username, password }, proof)
-    await unwrap(res, "设置账号密码")
-    return
-  }
-
-  const res = await newApiFetch(env, "/api/user", {
-    method: "PUT",
-    body: JSON.stringify({
-      id: userId,
-      username,
-      password,
-    }),
-  })
-  await unwrap(res, "设置账号密码")
-}
-
 // 这里原本有一个 `adminSetUserGroup`（管理员把用户转到指定分组），2026-10-13 删除。
 // 它对应的那套「绑定后转进 0 倍率免费组，让绑定成为通往免费的唯一闸门」的方案已作废：
 // 仓库里从来没有过「免费组」这个设置项，全仓也没有任何调用点。
@@ -523,17 +426,6 @@ export interface NewApiCurrency {
   perUnit: number
 }
 
-/** 只读缓存、不打上游 —— 首屏用（拿不到就用兜底值，由 /dev/usage 随后补正） */
-export function peekCurrency(fallbackPerUnit?: number): NewApiCurrency {
-  const hit = cacheTake<NewApiCurrency>("currency", CURRENCY_TTL_MS)
-  if (hit) return hit
-  return {
-    symbol: "$",
-    code: "USD",
-    perUnit: fallbackPerUnit || 500000,
-  }
-}
-
 export async function getCurrencyInfo(env: Env): Promise<NewApiCurrency> {
   const cached = cacheTake<NewApiCurrency>("currency", CURRENCY_TTL_MS)
   if (cached) return cached
@@ -562,48 +454,6 @@ export interface NewApiHealth {
   latencyMs: number
   /** 站点版本号（在线时从 /api/status 读取） */
   version: string | null
-}
-
-/**
- * 中转站健康检查：调公开的 /api/status 测连通性与延迟。
- * 不抛错——离线也返回 { online:false }，供前端显示「在线/离线」徽章。
- *
- * 必须带超时：这个探测是「AI 中转站」页面每次加载都要等的，
- * 而它没有任何兜底——地址被防火墙黑洞（连不上也断不开）时会一直挂着，
- * 页面就一直转圈。5 秒拿不到结果直接当离线，比挂死强。
- */
-export async function checkHealth(env: Env): Promise<NewApiHealth> {
-  // 成功缓存 120 秒（徽章不需要秒级新鲜，见 2026-10-12 站长反馈的性能问题）；
-  // 失败缓存 60 秒，尽快恢复但不连续打一个慢上游。
-  const cached = cacheTake<NewApiHealth>("health", 120_000)
-  if (cached) return cached
-  if (!(await isNewApiConfigured(env))) {
-    return { online: false, latencyMs: -1, version: null }
-  }
-  const startedAt = Date.now()
-  try {
-    const res = await newApiFetch(env, "/api/status", {
-      method: "GET",
-      auth: "none",
-      signal: AbortSignal.timeout(3000),
-    })
-    const data = await unwrap<Record<string, unknown>>(res, "健康检查")
-    const value: NewApiHealth = {
-      online: true,
-      latencyMs: Date.now() - startedAt,
-      version: data?.version ? String(data.version) : null,
-    }
-    cachePut("health", value)
-    return value
-  } catch {
-    // 失败结果只缓存 60 秒（成功 120 秒）：既不连续重试打爆上游，又能较快恢复。
-    // 写法：把时间戳往前拨 60 秒 ⇒ 离 120 秒的 TTL 只剩 60 秒。
-    newapiGlobalCache.set("health", {
-      at: Date.now() - 60_000,
-      value: { online: false, latencyMs: -1, version: null },
-    })
-    return { online: false, latencyMs: -1, version: null }
-  }
 }
 
 /**
@@ -751,31 +601,6 @@ async function asUser(
   )
 }
 
-/** 读取用户自身信息（额度 / 用量） */
-export async function getUserSelf(
-  env: Env,
-  accessToken: string,
-  userId: number
-): Promise<NewApiUser> {
-  const res = await asUser(env, accessToken, userId, "/api/user/self", {
-    method: "GET",
-  })
-  return unwrap<NewApiUser>(res, "读取账号信息")
-}
-
-/** 可用模型列表（用户视角，返回字符串数组） */
-export async function listModels(
-  env: Env,
-  accessToken: string,
-  userId: number
-): Promise<string[]> {
-  const res = await asUser(env, accessToken, userId, "/api/user/models", {
-    method: "GET",
-  })
-  const data = await unwrap<string[]>(res, "获取模型列表")
-  return Array.isArray(data) ? data : []
-}
-
 export interface UserToken {
   id: number
   name: string
@@ -791,150 +616,12 @@ export interface UserToken {
   used_quota: number
 }
 
-/** 用户已有 API Key 列表（key 为掩码形式） */
-export async function listTokens(
-  env: Env,
-  accessToken: string,
-  userId: number
-): Promise<UserToken[]> {
-  const res = await asUser(
-    env,
-    accessToken,
-    userId,
-    "/api/token/?p=1&page_size=100",
-    { method: "GET" }
-  )
-  const data = await unwrap<{ items?: UserToken[] }>(res, "获取 Key 列表")
-  return data.items ?? []
-}
-
-/**
- * 新建 API Key 并返回完整 key。
- *
- * 两步走是必须的：AddToken 只返回 {"success":true}，完整 key 只能通过
- * `/api/token/:id/key` 取得。新建的 token id 取列表中最大的 id
- * （列表按 id 倒序，用 created_time 兜底）。
- */
-export async function createApiKey(
-  env: Env,
-  accessToken: string,
-  userId: number,
-  name: string,
-  group = ""
-): Promise<{ tokenId: number; fullKey: string; maskedKey: string }> {
-  const before = await listTokens(env, accessToken, userId)
-  const existingIds = new Set(before.map((t) => t.id))
-
-  const createRes = await asUser(env, accessToken, userId, "/api/token/", {
-    method: "POST",
-    body: JSON.stringify({
-      name: name.slice(0, 50),
-      remain_quota: 0,
-      unlimited_quota: true, // 额度由账户级 quota 控制
-      expired_time: -1, // 永不过期
-      model_limits_enabled: false,
-      model_limits: "",
-      allow_ips: "",
-      // 分组决定该 Key 能用哪些渠道（可用分组来自 /api/pricing 的 enable_groups）
-      group: group || "",
-      cross_group_retry: false,
-    }),
-  })
-  await unwrap(createRes, "创建 Key")
-
-  // 找出新建的 token（新出现的 id）
-  const after = await listTokens(env, accessToken, userId)
-  const created =
-    after.find((t) => !existingIds.has(t.id)) ??
-    after.sort((a, b) => b.id - a.id)[0]
-
-  if (!created) {
-    throw new ApiError(502, "创建 Key 后未能定位到该 Key", "NEWAPI_ERROR")
-  }
-
-  return {
-    tokenId: created.id,
-    fullKey: await readApiKey(env, accessToken, userId, created.id),
-    maskedKey: created.key,
-  }
-}
-
-/**
- * 读取某个 Token 的完整 Key（创建后首次读取、以及日后随时复制，共用这一条）。
- *
- * NewAPI 的列表接口只回掩码（`abcd**********wxyz`），完整 Key 得靠
- * `/api/token/:id/key` 单独取；本站只在响应里透传，不落库明文。
- */
-export async function readApiKey(
-  env: Env,
-  accessToken: string,
-  userId: number,
-  tokenId: number
-): Promise<string> {
-  const res = await asUser(
-    env,
-    accessToken,
-    userId,
-    `/api/token/${tokenId}/key`,
-    { method: "POST" }
-  )
-  const data = await unwrap<{ key?: string }>(res, "读取完整 Key")
-  if (!data?.key) {
-    throw new ApiError(502, "NewAPI 未返回完整 Key", "NEWAPI_ERROR")
-  }
-  return data.key
-}
-
-/** 删除某个 API Key */
-export async function deleteApiKey(
-  env: Env,
-  accessToken: string,
-  userId: number,
-  tokenId: number
-): Promise<void> {
-  const res = await asUser(
-    env,
-    accessToken,
-    userId,
-    `/api/token/${tokenId}`,
-    { method: "DELETE" }
-  )
-  await unwrap(res, "删除 Key")
-}
-
 /**
  * ⚠️ 2026-10-13：这里原本有 `extractVerificationCode(text)`（从 NewAPI 验证码邮件
  * 正文里抠验证码的正则组）。已删除：它只服务于上面那条已作废的「自助注册」链，
  * 而那条链连同 `requestEmailCode` / `registerUser` 一起删了 —— 全仓从来没有
  * 任何读收件箱的代码把它喂进去过。
  */
-
-/**
- * 修改 NewAPI 密码（用户自助）。
- *
- * 源码（rc.15 UpdateSelf）要点：
- *   - 需同时传 `password`（新）与 `original_password`（旧，用于校验）
- *   - `currentUser.Password != ""` 时才校验原密码；且 cleanUser 只落
- *     Id/Username/Password/DisplayName，其它字段不会被动到
- */
-export async function changePassword(
-  env: Env,
-  accessToken: string,
-  userId: number,
-  username: string,
-  originalPassword: string,
-  newPassword: string
-): Promise<void> {
-  const res = await asUser(env, accessToken, userId, "/api/user/self", {
-    method: "PUT",
-    body: JSON.stringify({
-      username,
-      password: newPassword,
-      original_password: originalPassword,
-    }),
-  })
-  await unwrap(res, "修改密码", (msg) => /原密码错误/.test(msg))
-}
 
 /**
  * 用兑换码（邀请码）充值额度。
@@ -973,42 +660,6 @@ export async function redeemCode(
   return { added: Number(body.data ?? 0), message: body.message ?? "" }
 }
 
-/**
- * 读取模型 → 可用分组映射（公开接口，无需鉴权）。
- *
- * `/api/pricing` 返回每个模型的 `enable_groups`，据此可以把「默认分组」与
- * 「付费分组」的可用模型分开列出。失败时返回空数组，不影响主流程。
- */
-export async function listPricing(
-  env: Env
-): Promise<{ model: string; groups: string[] }[]> {
-  // 定价（模型→分组）变化很慢，缓存 2 分钟：AI 页首屏每次加载都调它
-  const cached = cacheTake<{ model: string; groups: string[] }[]>("pricing", 120_000)
-  if (cached) return cached
-  try {
-    // 用管理员凭据访问（默认 auth=admin）：NewAPI 的「定价页」若被管理员设为
-    // requireAuth=true，公开访问会 401，导致 availableGroups 为空、前端下拉看不到模型。
-    const res = await newApiFetch(env, "/api/pricing", {
-      method: "GET",
-    })
-    const data = await unwrap<
-      { model_name?: string; enable_groups?: string[] }[]
-    >(res, "读取模型分组")
-    if (!Array.isArray(data)) return []
-    const value = data
-      .filter((m) => m?.model_name)
-      .map((m) => ({
-        model: m.model_name as string,
-        groups: Array.isArray(m.enable_groups) ? m.enable_groups : [],
-      }))
-    cachePut("pricing", value)
-    return value
-  } catch (err) {
-    console.error("读取模型分组失败:", err)
-    return []
-  }
-}
-
 // ---- 渠道管理（管理员接口，用于「AI 渠道捐献」自动化）----
 //
 // 口径已对 NewAPI v1.0.0-rc.40 源码核对（controller/channel.go + router/channel-router.go）：
@@ -1021,10 +672,6 @@ export async function listPricing(
 // ⚠️ `model_mapping` 的方向（relay/helper/model_mapped.go 实证）：
 //     键 = 客户端请求的模型名，值 = 实际发给上游的模型名。
 //     所以「给捐献模型加前缀」要写成 `{"donation-x": "x"}`。
-
-/** 渠道状态常量（common/constants.go） */
-export const CHANNEL_STATUS_ENABLED = 1
-export const CHANNEL_STATUS_MANUALLY_DISABLED = 2
 
 /**
  * 渠道的多密钥元信息（对应 NewAPI 的 `channel_info` JSON 列）。
@@ -1207,145 +854,6 @@ export interface NewApiChannelInput {
   tag?: string
 }
 
-/** 新建一个单密钥渠道 */
-export async function addChannel(
-  env: Env,
-  input: NewApiChannelInput
-): Promise<void> {
-  const res = await newApiFetch(env, "/api/channel/", {
-    method: "POST",
-    body: JSON.stringify({
-      mode: "single",
-      channel: {
-        name: input.name,
-        type: input.type,
-        key: input.key,
-        base_url: input.baseUrl,
-        models: input.models,
-        model_mapping: input.modelMapping,
-        group: input.group,
-        status: CHANNEL_STATUS_ENABLED,
-        weight: 0,
-        ...(input.testModel ? { test_model: input.testModel } : {}),
-        ...(input.tag ? { tag: input.tag } : {}),
-      },
-    }),
-  })
-  await unwrap(res, "创建渠道")
-}
-
-/**
- * 只改渠道的**所属分组**（`PUT /api/channel/`）。
- *
- * 为什么只需要传 `id + group`：同 `updateChannelModels` —— NewAPI 的
- * `UpdateChannel` 走 GORM `Updates(结构体)`，只会写非零字段，没传的
- * name / key / base_url / models 全部原样保留。这正好绕开「读渠道拿不到明文 key」
- * 的死结（列表接口一律 `Omit("key")`），所以**改分组完全不需要 key**。
- *
- * ⚠️ 绝不能带 `status`（`UpdateChannel` 见到就报参数错误），启停要走
- * `/api/channel/:id/status`。
- *
- * 用途：把 2026-10-01 之前建在 `default` 分组里的捐献渠道，纠正到捐献分组
- * （见 handlers/donations.ts 复用渠道时的自愈）。
- */
-export async function updateChannelGroup(
-  env: Env,
-  channelId: number,
-  group: string
-): Promise<void> {
-  const res = await newApiFetch(env, "/api/channel/", {
-    method: "PUT",
-    body: JSON.stringify({ id: channelId, group }),
-  })
-  await unwrap(res, "更新渠道分组")
-}
-
-/**
- * 只改渠道的模型列表与重定向表（`PUT /api/channel/`）。
- *
- * ⚠️ 只传这两个字段是**刻意**的：NewAPI 的 `UpdateChannel` 最终走
- * `DB.Model(channel).Updates(channel)`，GORM 对结构体只更新**非零值**，
- * 所以没传的字段（name / key / base_url / group…）原样保留。
- * 反过来，如果为了「保险」把整条渠道都传回去，就要连带传 `status` ——
- * 而 `UpdateChannel` 明确拒绝 body 里出现 `status`（直接报参数错误）。
- *
- * 用途：逐个测完上游模型后，把不可用的从渠道里剔掉。
- */
-export async function updateChannelModels(
-  env: Env,
-  channelId: number,
-  models: string,
-  modelMapping: string
-): Promise<void> {
-  const res = await newApiFetch(env, "/api/channel/", {
-    method: "PUT",
-    body: JSON.stringify({
-      id: channelId,
-      models,
-      model_mapping: modelMapping,
-    }),
-  })
-  await unwrap(res, "更新渠道模型")
-}
-
-/**
- * **就地覆盖**渠道的密钥（连同 base_url / 模型）—— `PUT /api/channel/`。
- *
- * 与 updateChannelGroup / updateChannelModels 同一套「只传要改的非零字段」思路
- * （见那两处注释：GORM `Updates(结构体)` 只写非零字段，没传的原样保留）。
- *
- * 用途（2026-10-05 站长要求）：同一用户对**同一个上游**提交了新的 Key 时，
- * 直接替换旧渠道里的 Key，而不是删掉重建 —— 既避免「重复渠道」，也不会让该上游
- * 短暂失联。`key` 是非零值，GORM 会写入；其余字段（name/group/tag）不动。
- */
-export async function updateChannelKey(
-  env: Env,
-  channelId: number,
-  input: { key: string; baseUrl: string; models: string; modelMapping: string }
-): Promise<void> {
-  const res = await newApiFetch(env, "/api/channel/", {
-    method: "PUT",
-    body: JSON.stringify({
-      id: channelId,
-      key: input.key,
-      base_url: input.baseUrl,
-      models: input.models,
-      model_mapping: input.modelMapping,
-    }),
-  })
-  await unwrap(res, "更新渠道密钥")
-}
-
-/**
- * 往「多密钥渠道」里**追加**一把 Key（`PUT /api/channel/` + `key_mode: "append"`）。
- *
- * 为什么必须用 append 而不是自己拼：NewAPI 的 `UpdateChannel` 是「整体覆盖」语义，
- * 直接传 `key` 会**把渠道原有的 Key 全部替换掉**；而正确做法（先读出原 Key 再拼接）
- * 我们做不到 —— 读渠道的接口一律 `Omit("key")`，想看明文 Key 得走
- * `POST /api/channel/:id/key`，那个接口还额外要求「安全验证」，服务端调用过不去。
- * append 模式由 NewAPI 自己读原有 Key、去重、再换行拼接，正是我们要的语义。
- *
- * ⚠️ 三条只对多密钥渠道成立的约束（调用方必须先自查，见 sensenova.ts）：
- *   1. 目标渠道必须 `channel_info.is_multi_key === true`。否则 NewAPI 会**跳过**
- *      append 分支，`key` 直接当覆盖写进去 —— 一整个渠道的 Key 就没了；
- *   2. 只传 `{ id, key, key_mode }`。`ValidateChannel(isAdd=false)` 不要求
- *      models / key 非空，GORM 的 `Updates` 又只写非零字段，所以 name / models /
- *      group / base_url 都会原样保留 —— 多带字段反而有覆盖风险；
- *   3. **绝不能带 `status`**：`UpdateChannel` 见到 body 里有 status 直接报参数错误
- *      （启停要走 `/api/channel/:id/status`）。
- */
-export async function appendChannelKey(
-  env: Env,
-  channelId: number,
-  key: string
-): Promise<void> {
-  const res = await newApiFetch(env, "/api/channel/", {
-    method: "PUT",
-    body: JSON.stringify({ id: channelId, key, key_mode: "append" }),
-  })
-  await unwrap(res, "追加渠道密钥")
-}
-
 /** 多密钥渠道里单把 Key 的状态（**拿不到完整 Key，只有前 10 位预览**） */
 export interface NewApiChannelKeyStatus {
   index: number
@@ -1353,169 +861,6 @@ export interface NewApiChannelKeyStatus {
   status: number
   /** NewAPI 生成的预览：`前10位 + "..."`（Key 本身不足 10 位则为全量） */
   preview: string
-}
-
-/**
- * 读多密钥渠道里每把 Key 的状态（`POST /api/channel/multi_key/manage`）。
- *
- * 这是**唯一**能在服务端侧定位「某把 Key 在渠道里的位置」的手段：它返回的是
- * `key_preview`（前 10 位），不是明文。所以用它做匹配时必须容忍歧义
- * （见 sensenova.ts 的 keyPreview / releaseSenseNovaKey）。
- */
-export async function listChannelKeyStatus(
-  env: Env,
-  channelId: number,
-  pageSize = 200
-): Promise<NewApiChannelKeyStatus[]> {
-  const res = await newApiFetch(env, "/api/channel/multi_key/manage", {
-    method: "POST",
-    body: JSON.stringify({
-      channel_id: channelId,
-      action: "get_key_status",
-      page: 1,
-      page_size: pageSize,
-    }),
-  })
-  const data = await unwrap<{
-    keys?: { index?: number; status?: number; key_preview?: string }[]
-  }>(res, "读取渠道密钥状态")
-  return (data.keys ?? []).map((k) => ({
-    index: Number(k.index ?? 0),
-    status: Number(k.status ?? 1),
-    preview: String(k.key_preview ?? ""),
-  }))
-}
-
-/**
- * 按索引删掉多密钥渠道里的一把 Key（服务端会重建索引与状态表）。
- *
- * ⚠️ 索引是**位置**，不是身份：中间删掉一把，后面所有 Key 的 index 都会前移。
- * 所以调用方必须在删除前**当场**读一次状态并定位，不能缓存索引。
- * NewAPI 拒绝删除最后一把 Key（返回「不能删除最后一个密钥」）。
- */
-export async function deleteChannelKey(
-  env: Env,
-  channelId: number,
-  keyIndex: number
-): Promise<void> {
-  const res = await newApiFetch(env, "/api/channel/multi_key/manage", {
-    method: "POST",
-    body: JSON.stringify({
-      channel_id: channelId,
-      action: "delete_key",
-      key_index: keyIndex,
-    }),
-  })
-  await unwrap(res, "删除渠道密钥")
-}
-
-/**
- * 把上游/中转站返回的报错压成一行可读文本。
- *
- * 上游的报错经常是**整页 HTML**（最典型：上游挂了 Cloudflare，把中转站服务器的
- * IP 当成攻击拦了，返回 403 + 一大段 `<!DOCTYPE html>`）。原样写进
- * `donations.review_note` 会：① 撑爆字段；② 用户和邮件里看到的全是标签，
- * 完全不知道该干什么。所以识别出 HTML 后只留「站点 + Ray ID」这两个能拿去找上游
- * 运维的信息。
- */
-export function summarizeUpstreamError(msg: string, max = 240): string {
-  const raw = (msg ?? "").trim()
-  if (!raw) return ""
-  if (/<!doctype html|<html[\s>]/i.test(raw)) {
-    const host = /unable to access<\/span>\s*([^<]+)</i.exec(raw)?.[1]?.trim()
-    const ray = /Ray ID:\s*<strong>([^<]+)<\/strong>/i.exec(raw)?.[1]?.trim()
-    return [
-      "[上游返回 HTML 错误页，通常是被 Cloudflare 拦截]",
-      host ? `站点 ${host}` : "",
-      ray ? `Ray ID ${ray}` : "",
-      "把这两项给上游运维即可定位",
-    ]
-      .filter(Boolean)
-      .join("；")
-  }
-  const flat = raw.replace(/\s+/g, " ")
-  return flat.length > max ? `${flat.slice(0, max)}…` : flat
-}
-
-/**
- * 测试渠道连通性（可指定模型）。
- *
- * **不抛错**：NewAPI 的这个接口永远返回 HTTP 200，成功与否只看 body 的 success。
- * 失败原因（上游 401 / 模型不存在 / 余额不足）都在 message 里，需要原样带给管理员。
- *
- * ⚠️ 必须自带超时：一次捐献要逐个模型测试，最坏情况下每个都卡住的话，
- * 整个提交会拖到客户端超时。超时按「未通过」算，并给出可读的原因。
- */
-export async function testChannel(
-  env: Env,
-  channelId: number,
-  model?: string,
-  timeoutMs = 10000
-): Promise<{ ok: boolean; message: string; time: number }> {
-  const qs = model ? `?model=${encodeURIComponent(model)}` : ""
-  let res: Response
-  try {
-    res = await newApiFetch(env, `/api/channel/test/${channelId}${qs}`, {
-      method: "GET",
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-  } catch (err) {
-    const timedOut = err instanceof Error && err.name === "TimeoutError"
-    return {
-      ok: false,
-      message: timedOut
-        ? `测试超时（超过 ${Math.round(timeoutMs / 1000)} 秒无响应）`
-        : err instanceof Error
-          ? err.message
-          : String(err),
-      time: timeoutMs / 1000,
-    }
-  }
-  const text = await res.text()
-  let body: { success?: boolean; message?: string; time?: number } | null = null
-  try {
-    body = JSON.parse(text) as { success?: boolean; message?: string; time?: number }
-  } catch {
-    body = null
-  }
-  if (!body) {
-    return {
-      ok: false,
-      message: `HTTP ${res.status}：${summarizeUpstreamError(text, 200)}`,
-      time: 0,
-    }
-  }
-  return {
-    ok: body.success === true,
-    message: summarizeUpstreamError(body.message ?? ""),
-    time: Number(body.time ?? 0),
-  }
-}
-
-/** 删除渠道（撤销捐献时收回资源用） */
-export async function deleteChannel(env: Env, channelId: number): Promise<void> {
-  const res = await newApiFetch(env, `/api/channel/${channelId}`, {
-    method: "DELETE",
-  })
-  await unwrap(res, "删除渠道")
-}
-
-/**
- * 切换渠道启停状态（`POST /api/channel/:id/status`）。
- * 状态取值见 `CHANNEL_STATUS_ENABLED`(1) / `CHANNEL_STATUS_MANUALLY_DISABLED`(2)。
- * 用于「失效渠道批量禁用」—— 把测不通的渠道标记为手动禁用，避免它们继续抢占
- * 正常渠道的流量（NewAPI 轮询到坏渠道时会拖慢整体响应）。
- */
-export async function setChannelStatus(
-  env: Env,
-  channelId: number,
-  status: number
-): Promise<void> {
-  const res = await newApiFetch(env, `/api/channel/${Math.trunc(channelId)}/status`, {
-    method: "POST",
-    body: JSON.stringify({ status }),
-  })
-  await unwrap(res, `更新渠道 #${channelId} 状态`)
 }
 
 // ---- 管理员凭据（管理面板可在线更新）----
@@ -1533,12 +878,6 @@ export function resetAdminCredentialCache(): void {
   invalidateAdminCredentialCache()
 }
 
-/** 掩码展示：<前4>****<后4>，不足以掩码时全星号 */
-export function maskToken(token: string): string {
-  if (token.length <= 8) return "*".repeat(Math.max(token.length, 4))
-  return `${token.slice(0, 4)}${"*".repeat(8)}${token.slice(-4)}`
-}
-
 export interface AdminCredentialInfo {
   source: AdminCredentialSource
   /** 掩码后的令牌；未配置时为 null。明文绝不下发 */
@@ -1546,139 +885,6 @@ export interface AdminCredentialInfo {
   adminUserId: string
   /** 库内凭据的更新时间（source=db 时才有） */
   updatedAt: string | null
-}
-
-/** 读取当前生效的管理员凭据信息（不含明文） */
-export async function getAdminCredentialInfo(
-  env: Env
-): Promise<AdminCredentialInfo> {
-  const { token, userId, source } = await resolveAdminCredentials(env)
-  let updatedAt: string | null = null
-  if (source === "db") {
-    try {
-      const row = await env.DB.prepare(
-        "SELECT updated_at FROM newapi_admin_credentials WHERE id = 1"
-      ).first<{ updated_at: string }>()
-      updatedAt = row?.updated_at ?? null
-    } catch {
-      updatedAt = null
-    }
-  }
-  return {
-    source,
-    maskedToken: token ? maskToken(token) : null,
-    adminUserId: userId,
-    updatedAt,
-  }
-}
-
-/**
- * 用「当前生效的凭据」做一次管理员级连通性探测。
- * 供管理面板显示「令牌是否还有效」——NewAPI 的令牌会被后台轮换，
- * 不主动探测就只能等用户建 Key 时才发现已经 401。
- * 不抛错：未配置或失败都返回 { ok: false, message }。
- */
-export async function probeAdminCredential(
-  env: Env
-): Promise<{ ok: boolean; message: string }> {
-  const { token, userId } = await resolveAdminCredentials(env)
-  if (!token) return { ok: false, message: "未配置管理员令牌" }
-  return verifyAdminCredential(env, token, userId)
-}
-
-/**
- * 更新管理员凭据（写 D1，加密存储），并立即使缓存失效。
- * 写入前不校验令牌有效性 —— 由调用方（admin 端点）先做一次真实调用来验证，
- * 此处只负责落库，避免「验证逻辑」与「存储逻辑」纠缠。
- *
- * ⚠️ 顺带自愈 root 自己的账号绑定：
- * NewAPI 里「系统访问令牌」与 root 用户自己的 `users.access_token` 是**同一个字段**
- * （见 rc.15 的 GenerateAccessToken → user.SetAccessToken + Update）。因此在后台
- * 重新生成系统访问令牌，会同时把 root 自己那份用户级令牌顶掉 —— 表现为
- * newapi_accounts 里 root 那一行突然 401，而其他用户不受影响。
- * 既然管理员令牌就是 root 的用户令牌，这里把它同步写回该账号，
- * 让「更新管理员令牌」一步就把 root 的绑定一起修好。
- */
-export async function saveAdminCredential(
-  env: Env,
-  token: string,
-  adminUserId: string
-): Promise<{ healedAccounts: number }> {
-  if (!env.SESSION_SECRET) {
-    throw new ApiError(
-      503,
-      "未配置 SESSION_SECRET，无法安全保存管理员凭据",
-      "NOT_CONFIGURED"
-    )
-  }
-  const now = new Date().toISOString()
-  await env.DB.prepare(
-    `INSERT INTO newapi_admin_credentials (id, enc_token, admin_user_id, updated_at)
-     VALUES (1, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       enc_token = excluded.enc_token,
-       admin_user_id = excluded.admin_user_id,
-       updated_at = excluded.updated_at`
-  )
-    .bind(await encryptSecret(token, env.SESSION_SECRET), adminUserId, now)
-    .run()
-  invalidateAdminCredentialCache()
-
-  // 该管理员令牌所属用户若在本站也绑定过中转站账号，用同一把令牌把它刷新
-  // （两者在 NewAPI 侧是同一份凭据，不同步就会留下一个必然失效的旧值）
-  const uid = Number(adminUserId)
-  if (!Number.isFinite(uid) || uid <= 0) return { healedAccounts: 0 }
-  const healed = await env.DB.prepare(
-    "UPDATE newapi_accounts SET enc_token = ?, synced_at = ? WHERE newapi_user_id = ?"
-  )
-    .bind(await encryptSecret(token, env.SESSION_SECRET), now, uid)
-    .run()
-  return { healedAccounts: healed.meta?.changes ?? 0 }
-}
-
-/**
- * 用给定的令牌做一次管理员级调用，验证其有效性（不落库）。
- * 调 `/api/user/search`（ADMIN 权限）+ `New-Api-User` 头，与真实业务同一鉴权路径。
- */
-export async function verifyAdminCredential(
-  env: Env,
-  token: string,
-  adminUserId: string
-): Promise<{ ok: boolean; message: string }> {
-  const baseUrl = env.NEWAPI_BASE_URL
-  if (!baseUrl) {
-    return { ok: false, message: "未配置 NEWAPI_BASE_URL" }
-  }
-  try {
-    const res = await fetch(
-      `${baseUrl.replace(/\/+$/, "")}/api/user/search?keyword=${encodeURIComponent("doulor")}`,
-      {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "New-Api-User": adminUserId,
-        },
-      }
-    )
-    const text = await res.text()
-    let body: { success?: boolean; message?: string } | null = null
-    try {
-      body = JSON.parse(text) as { success?: boolean; message?: string }
-    } catch {
-      body = null
-    }
-    if (body?.success) return { ok: true, message: "令牌有效" }
-    return {
-      ok: false,
-      message: body?.message || `HTTP ${res.status}：${text.slice(0, 200)}`,
-    }
-  } catch (err) {
-    return {
-      ok: false,
-      message: err instanceof Error ? err.message : String(err),
-    }
-  }
 }
 
 /**
@@ -1846,19 +1052,6 @@ export async function fetchUserSubscriptions(
     }))
 }
 
-/** 管理员查询某用户的订阅列表（取 active 的一条） */
-export async function listUserSubscriptions(
-  env: Env,
-  newapiUserId: number
-): Promise<UserSubscriptionInfo | null> {
-  try {
-    const all = await fetchUserSubscriptions(env, newapiUserId)
-    return all.find((s) => s.status === "active") ?? null
-  } catch {
-    return null
-  }
-}
-
 /**
  * 管理员查询某用户的**全部** active 订阅。
  *
@@ -1866,40 +1059,6 @@ export async function listUserSubscriptions(
  * `end_time asc, id asc` 逐张接力，所以「总额度」= 各张之和。前端要按套餐类型
  * 分段展示这个总额，故这里必须把整份列表交出去，不能只取第一条。
  */
-/**
- * 管理员查询某用户的**全部** active 订阅。
- *
- * 一个用户可能同时持有多张订阅（免费套餐 + 各档邀请/奖励套餐），消费时按
- * `end_time asc, id asc` 逐张接力，所以「总额度」= 各张之和。前端要按套餐类型
- * 分段展示这个总额，故这里必须把整份列表交出去，不能只取第一条。
- *
- * 🔴 2026-10-12：加 20 秒 TTL 缓存（站长反馈页面卡）。
- * ⚠️ 2026-10-13：这里原本还有一个 `invalidateUserSubscriptions` 用于「兑换 / 领取订阅后
- * 主动失效」，已按站长要求删除 —— 它从来没有任何调用点，那套「订阅变动后即时失效」的做法
- * 已作废。因此这个缓存**只能靠 20 秒 TTL 自己过期**：订阅刚变动时，用户最多看到 20 秒的
- * 旧额度。这是已知且被接受的取舍（缓存就是为「页面卡」加的，去掉它反而更糟）。
- * 缓存里存的是**值**，调用方按约定不要改它。
- */
-const USER_SUBS_TTL_MS = 20_000
-
-export async function listAllUserSubscriptions(
-  env: Env,
-  newapiUserId: number
-): Promise<UserSubscriptionInfo[]> {
-  const key = `subs:${newapiUserId}`
-  const cached = cacheTake<UserSubscriptionInfo[]>(key, USER_SUBS_TTL_MS)
-  if (cached) return cached
-  try {
-    const all = await fetchUserSubscriptions(env, newapiUserId)
-    const active = all.filter((s) => s.status === "active")
-    cachePut(key, active)
-    return active
-  } catch (err) {
-    console.error("查询用户订阅列表失败:", err)
-    return []
-  }
-}
-
 /** 套餐定义（只取展示与限购预警需要的字段） */
 export interface SubscriptionPlanInfo {
   planId: number
@@ -1953,32 +1112,4 @@ export async function listSubscriptionPlans(
     console.error("读取订阅套餐失败:", err)
     return []
   }
-}
-
-/**
- * 读取中转站（NewAPI）的一个**系统设置项**，返回 null 表示该项不存在。
- *
- * 用途（2026-10-17）：用户 yuan 反馈「中转站设置重试次数」—— 那是 NewAPI 后台的
- * `RetryTimes`，本站原本没有任何入口，只能让站长去对方后台手点。有了这两个函数，
- * 管理面板就能直接读写它（写之前**必须先读**，确认该项存在，见 admin.ts）。
- */
-export async function readNewApiOption(env: Env, key: string): Promise<string | null> {
-  const res = await newApiFetch(env, "/api/option/", { method: "GET" })
-  const list = await unwrap<{ key?: string; value?: string }[]>(res, "读取中转站设置")
-  const hit = (Array.isArray(list) ? list : []).find((o) => o.key === key)
-  return hit ? (hit.value ?? "") : null
-}
-
-/**
- * 写入中转站的一个系统设置项。
- *
- * ⚠️ 调用方必须先 `readNewApiOption` 确认键存在再写 —— 拼错键名时 NewAPI 可能
- * 静默新建一条无意义配置，排查起来很费劲。
- */
-export async function writeNewApiOption(env: Env, key: string, value: string): Promise<void> {
-  const res = await newApiFetch(env, "/api/option/", {
-    method: "PUT",
-    body: JSON.stringify({ key, value }),
-  })
-  await unwrap(res, "更新中转站设置")
 }

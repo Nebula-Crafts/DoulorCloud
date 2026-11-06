@@ -19,16 +19,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { EmptyState } from "@/components/empty-state"
 import { LoadingBlock } from "@/components/loading-block"
 import { adminNoticeApi, errMsg } from "@/services/api"
-import type { AdminNotice, DonationChannel } from "@/types"
+import type { AdminNotice } from "@/types"
 import { fmtDateTime, relTime } from "@/lib/format"
 import { useT } from "@/i18n"
-
-/** 可作为门槛的捐献渠道（顺序即展示顺序） */
-const DONATION_OPTIONS: { value: DonationChannel; labelKey: string }[] = [
-  { value: "wb", labelKey: "adm.notice.ch.wb" },
-  { value: "frp", labelKey: "adm.notice.ch.frp" },
-  { value: "proxy", labelKey: "adm.notice.ch.proxy" },
-]
 
 export function AdminNoticesPanel() {
   const { t } = useT()
@@ -36,7 +29,6 @@ export function AdminNoticesPanel() {
   const [title, setTitle] = React.useState("")
   const [body, setBody] = React.useState("")
   const [restrictAi, setRestrictAi] = React.useState(false)
-  const [requireDonation, setRequireDonation] = React.useState<DonationChannel[]>([])
   const [sending, setSending] = React.useState(false)
   const [notices, setNotices] = React.useState<AdminNotice[] | null>(null)
 
@@ -59,19 +51,6 @@ export function AdminNoticesPanel() {
       .map((s) => s.trim())
       .filter(Boolean)
 
-  /**
-   * 勾选捐献渠道时**自动锁上** AI 中转站：
-   * 「确认后也不解锁」的前提是「确认前先锁住了」，否则用户本来就有权限，
-   * 门槛形同虚设。锁住之后把开关置灰，避免站长误取消。
-   */
-  const toggleDonation = (ch: DonationChannel) => {
-    setRequireDonation((prev) => {
-      const next = prev.includes(ch) ? prev.filter((x) => x !== ch) : [...prev, ch]
-      if (next.length > 0) setRestrictAi(true)
-      return next
-    })
-  }
-
   const send = async () => {
     const targets = parseUsernames()
     if (targets.length === 0) {
@@ -89,7 +68,6 @@ export function AdminNoticesPanel() {
         title: title.trim(),
         body: body.trim(),
         restrictFeatures: restrictAi ? ["ai"] : [],
-        requireDonation,
       })
       toast.success(t("adm.notice.sent", { n: r.sent.length }))
       if (r.missing.length > 0) {
@@ -98,14 +76,10 @@ export function AdminNoticesPanel() {
       if (r.whitelisted.length > 0) {
         toast.info(t("adm.notice.whitelisted", { n: r.whitelisted.length }))
       }
-      if (r.alreadyDonated.length > 0) {
-        toast.info(t("adm.notice.alreadyDonated", { n: r.alreadyDonated.length }))
-      }
       setUsernames("")
       setTitle("")
       setBody("")
       setRestrictAi(false)
-      setRequireDonation([])
       void load()
     } catch (err) {
       toast.error(errMsg(err, t("adm.notice.fail")))
@@ -160,34 +134,7 @@ export function AdminNoticesPanel() {
             <Switch
               checked={restrictAi}
               onCheckedChange={setRestrictAi}
-              disabled={requireDonation.length > 0}
             />
-          </div>
-
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">{t("adm.notice.requireDonation")}</p>
-              <p className="text-xs text-muted-foreground">{t("adm.notice.requireDonationHint")}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {DONATION_OPTIONS.map((o) => {
-                const on = requireDonation.includes(o.value)
-                return (
-                  <Button
-                    key={o.value}
-                    type="button"
-                    size="sm"
-                    variant={on ? "default" : "outline"}
-                    onClick={() => toggleDonation(o.value)}
-                  >
-                    {t(o.labelKey)}
-                  </Button>
-                )
-              })}
-            </div>
-            {requireDonation.length > 0 && (
-              <p className="text-xs text-muted-foreground">{t("adm.notice.requireDonationOr")}</p>
-            )}
           </div>
 
           <Button className="w-full" onClick={send} disabled={sending}>
@@ -219,15 +166,6 @@ export function AdminNoticesPanel() {
                       {n.restrictFeatures.length > 0 && (
                         <Badge variant="outline" className="text-[10px] text-destructive">
                           {t("adm.notice.restricted")}
-                        </Badge>
-                      )}
-                      {n.requireDonation.length > 0 && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {t("adm.notice.needDonationBadge", {
-                            ch: n.requireDonation
-                              .map((c) => t(DONATION_OPTIONS.find((o) => o.value === c)!.labelKey))
-                              .join("/"),
-                          })}
                         </Badge>
                       )}
                       {n.readAt && (

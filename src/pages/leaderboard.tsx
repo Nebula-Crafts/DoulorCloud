@@ -7,7 +7,6 @@ import {
   Loader2,
   MessageSquare,
   MessagesSquare,
-  Sparkles,
   TrendingUp,
   Trophy,
   Wallet,
@@ -37,7 +36,6 @@ const RANGES: LeaderboardRange[] = ["all", "today", "week", "month"]
  * 「42 次调用」和「42 个赞」看起来一样，榜就没有意义了。
  */
 const UNIT_KEY: Record<LeaderboardBoard, string> = {
-  newapi: "lb.unit.newapi",
   community: "lb.unit.community",
   feedback: "lb.unit.feedback",
   achievement: "lb.unit.achievement",
@@ -48,7 +46,7 @@ const UNIT_KEY: Record<LeaderboardBoard, string> = {
 /**
  * 排行榜。
  *
- * 四个榜 + 社区榜下的三个子项。左侧是二级导航（与「管理」「捐献」同一套交互：
+ * 各榜 + 社区榜下的三个子项。左侧是二级导航（与「管理」同一套交互：
  * 受控 state，不改 URL 路由 —— 刷新回到默认项是可接受的）。
  *
  * ⚠️ 数据都是**实时**统计的，没有缓存表。成就点由全站计数现场推算
@@ -58,13 +56,13 @@ const UNIT_KEY: Record<LeaderboardBoard, string> = {
 export default function LeaderboardPage() {
   const { t } = useT()
 
-  const [board, setBoard] = React.useState<LeaderboardBoard>("newapi")
+  const [board, setBoard] = React.useState<LeaderboardBoard>("points_balance")
   const [metric, setMetric] = React.useState<CommunityMetric>("posts")
   const [range, setRange] = React.useState<LeaderboardRange>("all")
   const [data, setData] = React.useState<LeaderboardResponse | null>(null)
   const [loading, setLoading] = React.useState(true)
 
-  /** 切榜：newapi / 成就点只有累计，切过去必须把范围重置回「历史」 */
+  /** 切榜：成就点 / 积分余额只有累计，切过去必须把范围重置回「历史」 */
   const switchBoard = (b: LeaderboardBoard) => {
     setBoard(b)
     setRange("all")
@@ -120,12 +118,6 @@ export default function LeaderboardPage() {
           </Link>
           <nav className="flex flex-col gap-0.5">
             <NavItem
-              active={board === "newapi"}
-              icon={Sparkles}
-              label={t("lb.board.newapi")}
-              onClick={() => switchBoard("newapi")}
-            />
-            <NavItem
               active={board === "achievement"}
               icon={Trophy}
               label={t("lb.board.achievement")}
@@ -173,7 +165,7 @@ export default function LeaderboardPage() {
 
         {/* 右侧内容 */}
         <div className="min-w-0 flex-1">
-          {/* 时间范围切换：只有当前榜支持的按钮才可用（newapi/成就点只有「历史」） */}
+          {/* 时间范围切换：只有当前榜支持的按钮才可用（成就点 / 积分余额只有「历史」） */}
           <div className="mb-3 flex flex-wrap items-center gap-1">
             {RANGES.map((r) => {
               const supported = data?.ranges?.includes(r)

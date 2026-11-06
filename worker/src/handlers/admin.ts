@@ -18,20 +18,10 @@ import {
   audit as recordAudit,
   type SettingKey,
 } from "../settings"
-import { isStorageConfigured } from "../r2"
 import {
   isNewApiConfigured,
   getCurrencyInfo,
-  findUserByUsername,
-  getAdminCredentialInfo,
-  saveAdminCredential,
-  verifyAdminCredential,
-  probeAdminCredential,
-  listPricing,
-  maskToken,
   adminSetUserStatus,
-  readNewApiOption,
-  writeNewApiOption,
 } from "../newapi-client"
 import { sendMail, renderMail, parseBrevoKeys } from "../mailer"
 import { fetchWithTimeout } from "../async-utils"
@@ -40,7 +30,6 @@ import { likeContains } from "../sql-like"
 import { normalizePermissions, parsePermissions, FEATURES, type Permissions } from "../permissions"
 import { normalizeEmailDomains } from "../email-domains"
 import { normalizeCheckinMilestones } from "../checkin-config"
-import { normalizeUrlBlocklist } from "../donation-url-blocklist"
 import {
   validateNicknameFormat,
   isReservedNickname,
@@ -59,8 +48,6 @@ import {
   refundQuotaForInvite,
   quotaFeaturesFromStored,
 } from "../quotas"
-import { purgeUserStorage, recalculateUsage } from "./storage"
-import { normalizeBaseUrl } from "../donation-provision"
 import { purgeUserExternalResources } from "../user-cleanup"
 
 /**
@@ -93,6 +80,8 @@ interface AdminUserRow {
   avatar_key?: string | null
   /** 展示用编号（按注册顺序，迁移 0070；老数据可能为 NULL） */
   uid?: number | null
+  /** 会员等级（迁移 0169；0=普通 1=黄金 2=白金 3=黑金，老数据可能为 NULL） */
+  member_level?: number | null
   /** 邀请码额度（捐献累计获得 / 已消耗） */
   invite_quota_bonus?: number | null
   invite_quota_used?: number | null
@@ -213,8 +202,7 @@ async function targetUser(env: Env, username: string): Promise<AdminUserRow> {
  *
  * 列表页只看「各模块是否开通」，明细全部收敛到这里：
  *   * 账号：昵称/邮箱验证/通知开关/头像，以及角色与状态
- *   * 模块：网盘（用量配额桶）、AI 中转站（额度与请求数）、
- *           内网穿透（启用状态 + 申请/端口）、代理节点（启用与协议同意）
+ *   * 模块：网盘（用量配额桶）、AI 中转站（额度与请求数）
  *   * 名片：published / slug / 自定义域名 / 访问次数
  *   * 额度：邀请码额度 + 各模块转授额度
  *   * 活动：最近 20 条审计日志
@@ -233,7 +221,6 @@ async function userDetail(env: Env, user: AdminUserRow) {
     sessions,
     storage,
     newapi,
-    proxy,
     profile,
     activity,
     inviteBase,
@@ -289,17 +276,6 @@ async function userDetail(env: Env, user: AdminUserRow) {
         created_at: string
       }>(),
     env.DB.prepare(
-      "SELECT enabled, consent_version, consented_at, created_at, updated_at FROM proxy_activation WHERE user_id = ?"
-    )
-      .bind(user.id)
-      .first<{
-        enabled: number
-        consent_version: number
-        consented_at: string | null
-        created_at: string
-        updated_at: string
-      }>(),
-    env.DB.prepare(
       `SELECT slug, published, fqdn, view_count, display_name, created_at, updated_at
          FROM profiles WHERE user_id = ?`
     )
@@ -340,6 +316,8 @@ async function userDetail(env: Env, user: AdminUserRow) {
       nickname: user.nickname ?? null,
       role: user.role,
       status: user.status,
+      /** 会员等级（0=普通 1=黄金 2=白金 3=黑金） */
+      memberLevel: user.member_level ?? 0,
       emailVerified: (user.email_verified ?? 0) === 1,
       notifyEnabled: (user.notify_enabled ?? 1) === 1,
       hasAvatar: Boolean(user.avatar_key),
@@ -376,15 +354,6 @@ async function userDetail(env: Env, user: AdminUserRow) {
           requestCount: newapi.request_count,
           syncedAt: newapi.synced_at,
           createdAt: newapi.created_at,
-        }
-      : null,
-    proxy: proxy
-      ? {
-          enabled: proxy.enabled === 1,
-          consentVersion: proxy.consent_version,
-          consentedAt: proxy.consented_at,
-          createdAt: proxy.created_at,
-          updatedAt: proxy.updated_at,
         }
       : null,
     profile: profile
@@ -455,13 +424,13 @@ export async function listUsers(env: Env, request: Request): Promise<Response> {
       // 邮箱/邮件的计数 —— 那些明细在用户详情里看。四个模块的判定与各 handler
       // 里的 isActivated / loadAccount 完全一致（有记录 **且** enabled=1）。
       `SELECT u.id, u.uid, u.username, u.email, u.namespace, u.role, u.status, u.permissions, u.created_at,
+              u.member_level,
               u.invite_code_id,
               ic.code AS invite_code,
               ic.created_at AS invite_created_at,
               creator.username AS invite_created_by,
               EXISTS(SELECT 1 FROM storage_accounts sa WHERE sa.user_id = u.id AND sa.enabled = 1) AS storage_on,
               EXISTS(SELECT 1 FROM newapi_accounts na WHERE na.user_id = u.id) AS ai_on,
-              EXISTS(SELECT 1 FROM proxy_activation pa WHERE pa.user_id = u.id AND pa.enabled = 1) AS proxy_on,
               p.published AS profile_published,
               p.slug AS profile_slug,
               p.fqdn AS profile_fqdn,
@@ -512,6 +481,8 @@ export async function listUsers(env: Env, request: Request): Promise<Response> {
     namespace: r.namespace,
     role: r.role,
     status: r.status,
+    // 会员等级（0=普通 1=黄金 2=白金 3=黑金；老数据 NULL → 0）
+    memberLevel: Number(r.member_level ?? 0),
     permissions: parsePermissions(r.permissions as string | null),
     createdAt: r.created_at,
     // 邀请码溯源：老用户没有 invite_code_id（或码已删除），回退为 null
@@ -521,7 +492,6 @@ export async function listUsers(env: Env, request: Request): Promise<Response> {
     // 各模块的实际开通状态（有记录且 enabled=1）
     storageEnabled: Number(r.storage_on) === 1,
     aiEnabled: Number(r.ai_on) === 1,
-    proxyEnabled: Number(r.proxy_on) === 1,
     // 个人名片：未建记录时 published 为 NULL → 视为未启用
     profileEnabled: Number(r.profile_published) === 1,
     profileSlug: (r.profile_slug as string | null) ?? null,
@@ -558,6 +528,7 @@ export async function listUsers(env: Env, request: Request): Promise<Response> {
     namespace: t.namespace ?? "",
     role: t.role ?? "user",
     status: "deleted",
+    memberLevel: 0,
     // 留痕行不参与鉴权，权限一律视为无（避免误导）
     permissions: { r2: false, ai: false, proxy: false },
     createdAt: t.created_at ?? t.deleted_at,
@@ -811,6 +782,8 @@ export async function updateUser(env: Env, request: Request, username: string): 
     emailVerified?: boolean
     /** 是否接收平台通知邮件 */
     notifyEnabled?: boolean
+    /** 会员等级（0=普通 1=黄金 2=白金 3=黑金；管理员的运营兜底调整，2026-11-06） */
+    memberLevel?: number
     /**
      * 封禁原因（2026-10-02 加）。
      *
@@ -1018,6 +991,33 @@ export async function updateUser(env: Env, request: Request, username: string): 
       .run()
   }
 
+  /**
+   * 会员等级：管理员的运营兜底调整（2026-11-06）。
+   *
+   * 常规路径是用户自己花积分升级（见 handlers/member-level.ts），管理员这里
+   * 只处理补偿 / 纠错（比如活动发放、用户升级时积分扣了等级没加上）。
+   * 允许下调（用户侧不可降，管理员可纠错），但必须留审计痕。
+   */
+  if (body.memberLevel !== undefined) {
+    const lv = Math.floor(Number(body.memberLevel))
+    if (!Number.isFinite(lv) || lv < 0 || lv > 3) {
+      throw new ApiError(400, "会员等级只能是 0-3", "INVALID_INPUT")
+    }
+    if (lv !== (user.member_level ?? 0)) {
+      await env.DB.prepare("UPDATE users SET member_level = ?, updated_at = ? WHERE id = ?")
+        .bind(lv, new Date().toISOString(), user.id)
+        .run()
+      await recordAudit(
+        env,
+        // 与 permissions 同一口径：记在**被改的用户**名下，操作人写进 detail
+        user.id,
+        "admin.user.member_level",
+        `管理员 ${operator.username} 将会员等级从 ${user.member_level ?? 0} 调整为 ${lv}（0=普通 1=黄金 2=白金 3=黑金）`,
+        request.headers.get("CF-Connecting-IP")
+      )
+    }
+  }
+
   const updated = await targetUser(env, username)
   return json(await userDetail(env, updated))
 }
@@ -1126,9 +1126,7 @@ export async function deleteUser(env: Env, request: Request, username: string): 
     admin.id,
     "admin.user.delete",
     `删除用户 ${user.username}。清理：邮箱规则 ${cleanup.emailRules}、R2 对象 ${cleanup.storageObjects}、` +
-      `捐献渠道 ${cleanup.releasedChannels}、订阅源 ${cleanup.releasedSubscriptions}、` +
-      `反代账号 ${cleanup.wb2Removed}、` +
-      `Qoder2API 账号 ${cleanup.qoder2Removed}、积分商店商品 ${cleanup.shopProducts}` +
+      `积分商店商品 ${cleanup.shopProducts}` +
       `${cleanup.newapiDisabled ? "、已禁用 NewAPI 账号" : ""}` +
       `${cleanup.errors.length > 0 ? `。⚠️ ${cleanup.errors.length} 项未清理成功：${cleanup.errors.join("；")}` : ""}`
   )
@@ -1511,27 +1509,6 @@ export async function testMail(env: Env, request: Request): Promise<Response> {
  * GET /api/admin/newapi-test —— 诊断 NewAPI 管理员令牌是否有效。
  * 调 /api/user/search（需 admin 权限），返回连通状态与具体错误，便于排查。
  */
-export async function testNewApi(env: Env, request: Request): Promise<Response> {
-  await requireAdminScope(env, request, "newapi.channels")
-  if (!(await isNewApiConfigured(env))) {
-    return json({ ok: false, configured: false, error: "NewAPI 未配置（缺少 BASE_URL 或管理员令牌）" })
-  }
-  try {
-    // 用 admin token 调一个最轻量的管理接口
-    const user = await findUserByUsername(env, "doulor")
-    return json({
-      ok: true,
-      configured: true,
-      message: user ? `令牌有效，查询到账号 #${user.id}` : "令牌有效，查询接口正常（无匹配账号）",
-    })
-  } catch (err) {
-    if (err instanceof ApiError) {
-      return json({ ok: false, configured: true, code: err.code, error: err.message })
-    }
-    return json({ ok: false, configured: true, error: String(err) })
-  }
-}
-
 /**
  * GET /api/admin/newapi/config —— 中转站管理员凭据现状。
  *
@@ -1541,168 +1518,6 @@ export async function testNewApi(env: Env, request: Request): Promise<Response> 
  *
  * 只回掩码，明文绝不下发。
  */
-export async function getNewApiAdminConfig(env: Env, request: Request): Promise<Response> {
-  await requireAdminScope(env, request, "newapi.channels")
-  const info = await getAdminCredentialInfo(env)
-
-  // 顺带做一次真实的连通性探测（管理面板打开即知令牌是否还有效，
-  // 不必等用户去建 Key 才发现失效）。失败不影响本响应。
-  const health = await probeAdminCredential(env)
-
-  return json({
-    baseUrl: env.NEWAPI_BASE_URL ?? null,
-    source: info.source,
-    maskedToken: info.maskedToken,
-    adminUserId: info.adminUserId,
-    updatedAt: info.updatedAt,
-    configured: await isNewApiConfigured(env),
-    health,
-  })
-}
-
-/**
- * 中转站的「请求失败重试次数」设置项键名。
- *
- * 对应 NewAPI（one-api 系）后台「运营设置 → 重试次数」。用户在反馈里提到的就是它：
- * 一次请求内部会自动重试，重试次数越高单次请求越慢，但成功率越高。
- * ⚠️ 写之前一定先读：键不存在（不同版本可能改名）就报 409 让站长去对方后台改，
- * 绝不硬写一个猜出来的键名 —— 那样会在对方配置里留下垃圾项。
- */
-const RELAY_RETRY_TIMES_KEY = "RetryTimes"
-
-/**
- * GET /api/admin/newapi/retry-times —— 读中转站的失败重试次数。
- *
- * 读失败不抛错（管理面板只是展示，不该因为对方掉线就整页报错）：
- * 返回 { available:false, reason } 让前端显示"读不到"。
- */
-export async function getRelayRetryTimes(env: Env, request: Request): Promise<Response> {
-  await requireAdminScope(env, request, "newapi.channels")
-  if (!(await isNewApiConfigured(env))) {
-    return json({ available: false, retryTimes: null, reason: "newapi_not_configured" })
-  }
-  try {
-    const raw = await readNewApiOption(env, RELAY_RETRY_TIMES_KEY)
-    if (raw === null) return json({ available: false, retryTimes: null, reason: "option_not_found" })
-    const n = Number(raw)
-    return json({ available: true, retryTimes: Number.isFinite(n) ? n : null })
-  } catch (err) {
-    return json({
-      available: false,
-      retryTimes: null,
-      reason: err instanceof ApiError ? err.message : String(err),
-    })
-  }
-}
-
-/**
- * PUT /api/admin/newapi/retry-times —— 改中转站的失败重试次数。
- * body: { retryTimes: number }，只接受 0~10 的整数（再多只会让每次请求更慢）。
- */
-export async function setRelayRetryTimes(env: Env, request: Request): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "newapi.channels")
-  const body = (await request.json().catch(() => ({}))) as { retryTimes?: number }
-  const n = Number(body.retryTimes)
-  if (!Number.isInteger(n) || n < 0 || n > 10) {
-    throw new ApiError(400, "重试次数需为 0~10 的整数", "INVALID_INPUT")
-  }
-  if (!(await isNewApiConfigured(env))) {
-    throw new ApiError(409, "中转站未配置，无法修改", "NEWAPI_NOT_CONFIGURED")
-  }
-  const current = await readNewApiOption(env, RELAY_RETRY_TIMES_KEY)
-  if (current === null) {
-    throw new ApiError(
-      409,
-      "中转站没有 RetryTimes 这个设置项（版本可能不同），请直接去中转站后台修改",
-      "OPTION_NOT_FOUND"
-    )
-  }
-  await writeNewApiOption(env, RELAY_RETRY_TIMES_KEY, String(n))
-  await recordAudit(
-    env,
-    admin.id,
-    "admin.relay_retry_times",
-    `中转站失败重试次数：${current || "?"} → ${n}`
-  )
-  return json({ retryTimes: n })
-}
-
-/**
- * GET /api/admin/newapi/models —— 中转站当前的全部模型名（供推荐模型编辑器下拉选择）。
- *
- * 走公开的 /api/pricing，不需要管理员令牌；失败返回空数组而非报错 ——
- * 下拉是辅助功能，拿不到时管理员仍可手动输入模型名。
- */
-export async function listNewApiModels(env: Env, request: Request): Promise<Response> {
-  await requireAdminScope(env, request, "newapi.channels")
-  const pricing = await listPricing(env)
-  const models = [...new Set(pricing.map((p) => p.model))].sort((a, b) =>
-    a.localeCompare(b)
-  )
-  return json({ models })
-}
-
-/**
- * PUT /api/admin/newapi/config —— 更新中转站管理员凭据。
- *
- * body: { token?: string; adminUserId?: string }
- *
- * 先做一次真实的 ADMIN 级调用验证令牌，通过后才加密落库（避免把错令牌写进去，
- * 那样会把原本可用的环境变量凭据也一起顶掉）。验证失败直接 400 且不落库。
- */
-export async function updateNewApiAdminConfig(env: Env, request: Request): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "newapi.channels")
-  const body = (await request.json().catch(() => ({}))) as {
-    token?: string
-    adminUserId?: string
-  }
-
-  const token = (body.token ?? "").trim()
-  if (!token) throw new ApiError(400, "请填写新的访问令牌", "INVALID_INPUT")
-  if (token.length > 256) throw new ApiError(400, "令牌长度异常", "INVALID_INPUT")
-
-  const adminUserId = (body.adminUserId ?? "").trim() || "1"
-  if (!/^\d{1,10}$/.test(adminUserId)) {
-    throw new ApiError(400, "用户 id 需为数字", "INVALID_INPUT")
-  }
-
-  // 先验证：用这份令牌真的调一次管理员接口
-  const check = await verifyAdminCredential(env, token, adminUserId)
-  if (!check.ok) {
-    return json(
-      {
-        ok: false,
-        code: "NEWAPI_TOKEN_INVALID",
-        error: `令牌验证失败：${check.message}`,
-      },
-      400
-    )
-  }
-
-  const { healedAccounts } = await saveAdminCredential(env, token, adminUserId)
-  await recordAudit(
-    env,
-    admin.id,
-    "admin.newapi.credential.update",
-    `更新中转站管理员凭据（user id ${adminUserId}，令牌 ${maskToken(token)}，同步修复绑定 ${healedAccounts} 条）`,
-    request.headers.get("CF-Connecting-IP")
-  )
-
-  const info = await getAdminCredentialInfo(env)
-  return json({
-    ok: true,
-    source: info.source,
-    maskedToken: info.maskedToken,
-    adminUserId: info.adminUserId,
-    updatedAt: info.updatedAt,
-    healedAccounts,
-    message:
-      healedAccounts > 0
-        ? "令牌已验证并保存；同时修复了该账号在本站的绑定（NewAPI 里管理员令牌与 root 用户的令牌是同一份）"
-        : "令牌已验证并保存，立即生效",
-  })
-}
-
 /**
  * GET /api/admin/mail-status —— 邮件发送能力现状。
  * 供管理面板与前端判断「哪些邮件功能当前可用」。
@@ -1912,25 +1727,6 @@ export async function updateSettingsHandler(env: Env, request: Request): Promise
       continue
     }
 
-    // 以下两个「逗号分隔模块名」的设置必须排在 `str === "" continue` 之前：
-    // 前端在「全部关掉」时正好发送空串，若被当成空值跳过，就永远清不掉
-    // （表现为：把开关全关掉、点保存，刷新后开关又自己弹回来了）。
-
-    // open_features：免权限访问的模块，空串 = 全部按权限卡
-    if (key === "open_features") {
-      const parts = String(raw).split(",").map((s) => s.trim()).filter(Boolean)
-      for (const p of parts) {
-        if (!(FEATURES as readonly string[]).includes(p)) {
-          throw new ApiError(
-            400,
-            `免权限模块只支持：${FEATURES.join("、")}`,
-            "INVALID_INPUT"
-          )
-        }
-      }
-      values[key] = parts.join(",")
-      continue
-    }
 
     // invite_basic_features：建码时人人可勾（不消耗额度）的模块，空串 = 全部受限
     if (key === "invite_basic_features") {
@@ -2044,7 +1840,6 @@ export async function updateSettingsHandler(env: Env, request: Request): Promise
     // 归一化（拆条 / 剥协议 / 小写 / 去重 / 退掉末尾 /v1）统一放在 donation-url-blocklist.ts，
     // 与捐献提交侧的读取用**同一份实现** —— 两边分家就会出现「存进去的一个都匹配不上」。
     if (key === "donation_url_blocklist") {
-      values[key] = normalizeUrlBlocklist(String(raw))
       continue
     }
 
@@ -2166,13 +1961,11 @@ export async function updateSettingsHandler(env: Env, request: Request): Promise
     }
 
     // sensenova_base_url：商汤上游地址。必须是 http(s) 绝对地址。
-    // 复用 normalizeBaseUrl 的规则（去尾斜杠 + 剥一层 /v1）—— 管理员很可能
     // 把 `https://token.sensenova.cn/v1` 整段粘进来，不退掉就会拼成 `.../v1/v1/models`。
     if (key === "sensenova_base_url") {
       if (!/^https?:\/\//i.test(str)) {
         throw new ApiError(400, "商汤地址需以 http(s):// 开头", "INVALID_INPUT")
       }
-      values[key] = normalizeBaseUrl(str).slice(0, 200)
       continue
     }
 
@@ -2235,61 +2028,6 @@ export async function updateSettingsHandler(env: Env, request: Request): Promise
   return json({ settings: maskSecrets(fresh), mailSecrets: mailSecretsOf(fresh) })
 }
 
-// POST /api/admin/storage/recalculate —— 以 R2 实际内容重算所有用户用量
-export async function recalculateStorage(env: Env, request: Request): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "r2.quota")
-  if (!(await isStorageConfigured(env))) {
-    throw new ApiError(503, "网盘存储未配置", "R2_NOT_CONFIGURED")
-  }
-
-  const rows = await env.DB.prepare("SELECT * FROM storage_accounts")
-    .bind()
-    .all<{
-      user_id: string
-      prefix: string
-      quota_bytes: number
-      used_bytes: number
-      file_count: number
-      enabled: number
-      bucket_id?: string | null
-      created_at: string
-      updated_at: string
-    }>()
-
-  let total = 0
-  for (const account of rows.results ?? []) {
-    const result = await recalculateUsage(env, account)
-    total += result.usedBytes
-  }
-
-  await recordAudit(
-    env,
-    admin.id,
-    "admin.storage.recalculate",
-    `重算 ${rows.results?.length ?? 0} 个网盘账户，合计 ${total} 字节`,
-    request.headers.get("CF-Connecting-IP")
-  )
-
-  return json({ accounts: rows.results?.length ?? 0, totalBytes: total })
-}
-
-// POST /api/admin/storage/purge/:username —— 清空某用户网盘文件
-export async function purgeStorage(env: Env, request: Request, username: string): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "r2.quota")
-  const user = await targetUser(env, username)
-
-  const deleted = await purgeUserStorage(env, user.id)
-  await recordAudit(
-    env,
-    admin.id,
-    "admin.storage.purge",
-    `清空 ${username} 的网盘（删除 ${deleted} 个对象）`,
-    request.headers.get("CF-Connecting-IP")
-  )
-
-  return json({ deleted })
-}
-
 // ---- 网盘配额（存量用户）----
 //
 // `storage_accounts.quota_bytes` 是**开通那一刻写死的快照**：改桶的「每人配额」只影响
@@ -2297,123 +2035,6 @@ export async function purgeStorage(env: Env, request: Request, username: string)
 //   · 单个用户 —— 成员详情里直接改；
 //   · 批量 —— 把所有存量用户的配额刷成「所属桶的每人配额」（没桶归属则回落全局默认）。
 
-/** PUT /api/admin/storage/quota/:username —— 改单个用户的网盘配额（字节） */
-export async function updateStorageQuota(
-  env: Env,
-  request: Request,
-  username: string
-): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "r2.quota")
-  const user = await targetUser(env, username)
-
-  const body = (await request.json().catch(() => ({}))) as { quotaBytes?: unknown }
-  const quotaBytes = Math.trunc(Number(body.quotaBytes))
-  if (!Number.isFinite(quotaBytes) || quotaBytes < 0) {
-    throw new ApiError(400, "配额必须是不小于 0 的整数（字节）", "INVALID_INPUT")
-  }
-
-  const account = await env.DB.prepare(
-    "SELECT quota_bytes, used_bytes FROM storage_accounts WHERE user_id = ?"
-  )
-    .bind(user.id)
-    .first<{ quota_bytes: number; used_bytes: number }>()
-  if (!account) throw new ApiError(404, "该用户还没开通网盘", "NOT_FOUND")
-
-  await env.DB.prepare(
-    "UPDATE storage_accounts SET quota_bytes = ?, updated_at = ? WHERE user_id = ?"
-  )
-    .bind(quotaBytes, new Date().toISOString(), user.id)
-    .run()
-
-  await recordAudit(
-    env,
-    admin.id,
-    "admin.storage.quota",
-    `把 ${username} 的网盘配额从 ${account.quota_bytes} 改为 ${quotaBytes} 字节`,
-    request.headers.get("CF-Connecting-IP")
-  )
-
-  // 配额低于已用量不阻止操作（不删文件），但要让前端能提示「该用户已超额、传不了新东西」
-  return json({
-    quotaBytes,
-    usedBytes: account.used_bytes,
-    overQuota: account.used_bytes > quotaBytes,
-  })
-}
-
-/**
- * POST /api/admin/storage/sync-quota —— 把存量用户的配额刷成「所属桶的每人配额」。
- *
- * 只动普通用户：admin/root 开通时写的是「不限量」哨兵值，不该被刷成 512 MB。
- * 桶被删/停用或用户没有桶归属时，回落全局 `storage_quota_bytes`。
- */
-export async function syncStorageQuotas(env: Env, request: Request): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "r2.quota")
-
-  const bucketRows = await env.DB.prepare(
-    "SELECT id, quota_per_user FROM r2_buckets WHERE kind = 'user' AND enabled = 1"
-  ).all<{ id: string; quota_per_user: number }>()
-  const byBucket = new Map((bucketRows.results ?? []).map((b) => [b.id, b.quota_per_user]))
-  const fallback = await getSettingNumber(env, "storage_quota_bytes")
-
-  const rows = await env.DB.prepare(
-    `SELECT sa.user_id, sa.quota_bytes, sa.used_bytes, sa.bucket_id, u.username, u.role
-       FROM storage_accounts sa JOIN users u ON u.id = sa.user_id`
-  ).all<{
-    user_id: string
-    quota_bytes: number
-    used_bytes: number
-    bucket_id: string | null
-    username: string
-    role: string
-  }>()
-
-  const now = new Date().toISOString()
-  const changed: { username: string; from: number; to: number; overQuota: boolean }[] = []
-  let skippedAdmins = 0
-  let failed = 0
-
-  for (const r of rows.results ?? []) {
-    if (isPrivileged(r.role)) {
-      skippedAdmins++
-      continue
-    }
-    const target = (r.bucket_id ? byBucket.get(r.bucket_id) : undefined) ?? fallback
-    if (!target || target === r.quota_bytes) continue
-    try {
-      await env.DB.prepare(
-        "UPDATE storage_accounts SET quota_bytes = ?, updated_at = ? WHERE user_id = ?"
-      )
-        .bind(target, now, r.user_id)
-        .run()
-      changed.push({
-        username: r.username,
-        from: r.quota_bytes,
-        to: target,
-        overQuota: r.used_bytes > target,
-      })
-    } catch {
-      failed++
-    }
-  }
-
-  await recordAudit(
-    env,
-    admin.id,
-    "admin.storage.sync_quota",
-    `同步存量网盘配额：更新 ${changed.length} 个（跳过管理员 ${skippedAdmins}、失败 ${failed}）`,
-    request.headers.get("CF-Connecting-IP")
-  )
-
-  return json({
-    updated: changed.length,
-    skippedAdmins,
-    failed,
-    overQuota: changed.filter((c) => c.overQuota).length,
-    // 回执只带前 200 条，避免极端情况下响应过大
-    changed: changed.slice(0, 200),
-  })
-}
 // ---- 邀请码权限编辑 ----
 
 /**

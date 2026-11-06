@@ -146,6 +146,8 @@ export interface OAuthClientRow {
   review_note: string | null
   reviewed_at: string | null
   reviewed_by: string | null
+  /** 授权门槛：0=所有人；1/2/3 = 须黄金/白金/黑金会员及以上（迁移 0169，老数据为 NULL） */
+  min_level?: number | null
   created_at: string
   updated_at: string
 }
@@ -177,6 +179,8 @@ export interface PublicClient {
   reviewStatus: string
   /** 审核意见（驳回原因等），无则不返回 */
   reviewNote: string | null
+  /** 授权门槛：0=所有人可授权；1/2/3 = 黄金/白金/黑金会员及以上 */
+  minLevel: number
   createdAt: string
   updatedAt: string
 }
@@ -193,6 +197,8 @@ export function toPublicClient(row: OAuthClientRow): PublicClient {
     // 老数据 / 未迁移时兜底为 approved，避免把既有客户端判成待审核
     reviewStatus: row.review_status ?? REVIEW_APPROVED,
     reviewNote: row.review_note ?? null,
+    // 未迁移 / 老数据兜底为 0（不设门槛）
+    minLevel: row.min_level ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -292,6 +298,8 @@ export async function createClient(
      * 用户自助创建时由调用方按设置项决定 approved / pending。
      */
     reviewStatus?: string
+    /** 授权门槛（0=所有人；1/2/3=黄金/白金/黑金及以上），缺省 0 */
+    minLevel?: number
   }
 ): Promise<{ client: PublicClient; clientSecret: string }> {
   const name = assertClientNameAllowed(input.name)
@@ -304,6 +312,7 @@ export async function createClient(
 
   const scopes = normalizeScopes(input.scopes)
   assertScopesAllowed(scopes)
+  const minLevel = normalizeMinLevel(input.minLevel)
 
   const reviewStatus = input.reviewStatus ?? REVIEW_APPROVED
   const clientId = newClientId()
@@ -314,8 +323,8 @@ export async function createClient(
   await env.DB.prepare(
     `INSERT INTO oauth_clients
        (id, client_id, client_secret_hash, name, redirect_uris, scopes, owner_user_id, disabled,
-        review_status, reviewed_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+        review_status, reviewed_at, min_level, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
   )
     .bind(
       id,
@@ -328,6 +337,7 @@ export async function createClient(
       reviewStatus,
       // 免审直接建出来的相当于「已审核」，否则留空等站长处理
       reviewStatus === REVIEW_APPROVED ? now : null,
+      minLevel,
       now,
       now
     )
@@ -344,12 +354,25 @@ export async function createClient(
       ownerUserId: input.ownerUserId ?? null,
       reviewStatus,
       reviewNote: null,
+      minLevel,
       createdAt: now,
       updatedAt: now,
     },
     // ⚠️ 明文只在此刻返回一次，之后库中只有哈希，无法再取回
     clientSecret,
   }
+}
+
+/**
+ * 归一化授权门槛：只接受 0-3 的整数（0=不限，1/2/3=黄金/白金/黑金及以上）。
+ * 越界一律报错而不是悄悄钳制 —— 门槛写错比建不出来更糟（用户被莫名拦在门外）。
+ */
+export function normalizeMinLevel(v: unknown): number {
+  const n = Math.floor(Number(v ?? 0))
+  if (!Number.isFinite(n) || n < 0 || n > 3) {
+    throw new ApiError(400, "用户等级门槛只能是 0-3", "INVALID_INPUT")
+  }
+  return n
 }
 
 /**
@@ -424,6 +447,8 @@ export async function updateClient(
     reviewNote?: string | null
     /** 审核人（用户名或 id，仅记录用） */
     reviewedBy?: string | null
+    /** 授权门槛（0=所有人；1/2/3=黄金/白金/黑金及以上） */
+    minLevel?: number
   }
 ): Promise<void> {
   const row = await getClientByInternalId(env, id)
@@ -451,6 +476,10 @@ export async function updateClient(
     assertScopesAllowed(scopes)
     sets.push("scopes = ?")
     binds.push(scopes)
+  }
+  if (patch.minLevel !== undefined) {
+    sets.push("min_level = ?")
+    binds.push(normalizeMinLevel(patch.minLevel))
   }
   if (patch.disabled !== undefined) {
     sets.push("disabled = ?")

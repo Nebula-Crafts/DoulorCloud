@@ -36,7 +36,6 @@ interface NoticeRow {
   restrict_features: string | null
   restore_permissions: string | null
   newapi_disabled: number
-  require_donation: string | null
   created_by: string | null
   created_at: string
   read_at: string | null
@@ -61,75 +60,6 @@ function normalizeFeatures(input: unknown): string[] {
     if (typeof x === "string" && (FEATURES as readonly string[]).includes(x)) out.add(x)
   }
   return [...out]
-}
-
-/**
- * 可要求的捐献渠道。
- *
- * · `wb`    —— 绑定 WorkBuddy 反代账号（`wb2api_bindings.status = 'active'`）
- * · `frp`   —— 捐献内网穿透（`donations.type = 'frp'` 且已批准）
- * · `proxy` —— 捐献代理节点（`donations.type = 'proxy'` 且已批准）
- *
- * ⚠️ `ai` / `sensenova`（捐献 AI 渠道）**刻意不在列表里** —— 那种捐献
- * 映射到的正是它们要解锁的 `ai` 权限，做成门槛会自相矛盾（捐了才解锁、
- * 而捐了就已经解锁了）。门槛只用来要求「用户实际贡献资源」。
- */
-export const DONATION_CHANNELS = ["wb", "frp", "proxy"] as const
-export type DonationChannel = (typeof DONATION_CHANNELS)[number]
-
-/** 取合法捐献渠道名（去重、保持 DONATION_CHANNELS 的顺序） */
-function normalizeDonationChannels(input: unknown): DonationChannel[] {
-  if (!Array.isArray(input)) return []
-  const wanted = new Set(input.filter((x): x is string => typeof x === "string"))
-  return DONATION_CHANNELS.filter((c) => wanted.has(c))
-}
-
-/** 解析库里存的 require_donation（JSON 数组；损坏则视为「无要求」，宁可放行） */
-function parseDonationChannels(raw: string | null | undefined): DonationChannel[] {
-  if (!raw) return []
-  try {
-    return normalizeDonationChannels(JSON.parse(raw))
-  } catch {
-    return []
-  }
-}
-
-/**
- * 检查用户是否已满足捐献门槛。
- *
- * ⚠️ 判定口径必须与「捐献生效」的既有逻辑一致，否则会出现
- * 「捐献明明批了但通知说没捐」。三个渠道各自的判据：
- *   · wb    查 `wb2api_bindings`（**不区分 realm**，国内版国际版都算，站长明确）
- *   · frp   / proxy 查 `donations.type + status = 'approved'`
- *
- * 语义是**任选其一**：`missing` 为空即满足。
- */
-async function checkDonation(
-  env: Env,
-  userId: string,
-  channels: DonationChannel[]
-): Promise<{ satisfied: boolean; missing: DonationChannel[] }> {
-  if (channels.length === 0) return { satisfied: true, missing: [] }
-
-  const missing: DonationChannel[] = []
-  for (const ch of channels) {
-    if (ch === "wb") {
-      const row = await env.DB.prepare(
-        "SELECT 1 AS x FROM wb2api_bindings WHERE user_id = ? AND status = 'active' LIMIT 1"
-      )
-        .bind(userId)
-        .first<{ x: number }>()
-      if (!row) missing.push(ch)
-    } else {
-      const row = await env.DB.prepare(
-        "SELECT 1 AS x FROM donations WHERE user_id = ? AND type = ? AND status = 'approved' LIMIT 1"
-      )
-        .bind(userId, ch)
-        .first<{ x: number }>()
-      if (!row) missing.push(ch)
-    }
-  }
-  return { satisfied: missing.length === 0, missing }
 }
 
 /**
@@ -272,7 +202,7 @@ export async function restoreUserFeatures(env: Env, notice: NoticeRow): Promise<
 export async function pendingNotices(env: Env, request: Request): Promise<Response> {
   const user = await requireUser(env, request)
   const rows = await env.DB.prepare(
-    `SELECT id, title, body, created_at, require_donation
+    `SELECT id, title, body, created_at
        FROM admin_notices
       WHERE user_id = ? AND require_ack = 1 AND read_at IS NULL AND revoked_at IS NULL
       ORDER BY created_at ASC`
@@ -283,22 +213,14 @@ export async function pendingNotices(env: Env, request: Request): Promise<Respon
       title: string
       body: string
       created_at: string
-      require_donation: string | null
     }>()
 
-  const notices = []
-  for (const r of rows.results ?? []) {
-    const required = parseDonationChannels(r.require_donation)
-    const { missing } = await checkDonation(env, user.id, required)
-    notices.push({
-      id: r.id,
-      title: r.title,
-      body: r.body,
-      createdAt: r.created_at,
-      donationRequired: required,
-      donationMissing: missing,
-    })
-  }
+  const notices = (rows.results ?? []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    body: r.body,
+    createdAt: r.created_at,
+  }))
   return json({ notices })
 }
 
@@ -321,21 +243,6 @@ export async function ackNotice(env: Env, request: Request): Promise<Response> {
     .first<NoticeRow>()
   if (!notice) throw new ApiError(404, "通知不存在", "NOT_FOUND")
   if (notice.read_at) return json({ ok: true, unlocked: true }) // 幂等
-
-  // 捐献门槛：未满足则原地阻塞
-  const required = parseDonationChannels(notice.require_donation)
-  if (required.length > 0) {
-    const { satisfied, missing } = await checkDonation(env, user.id, required)
-    if (!satisfied) {
-      await recordAudit(
-        env,
-        user.id,
-        "notice.ack_blocked",
-        `确认通知「${notice.title}」被捐献门槛拦住，还缺：${missing.join("、")}`
-      )
-      return json({ ok: false, donationRequired: { required, missing } })
-    }
-  }
 
   await restoreUserFeatures(env, notice)
   await env.DB.prepare("UPDATE admin_notices SET read_at = ? WHERE id = ?")
@@ -360,24 +267,12 @@ export async function sendNotice(env: Env, request: Request): Promise<Response> 
   if (!title || !text) throw new ApiError(400, "标题和正文不能为空", "INVALID_INPUT")
 
   const restrictFeatures = normalizeFeatures(body.restrictFeatures)
-  const requireDonation = normalizeDonationChannels(body.requireDonation)
-
-  /**
-   * 要求捐献时**必须**同时禁用 ai 权限 —— 否则「解锁」无从谈起：
-   * 没有锁过任何东西，弹窗却关不掉，用户凭空被罚。
-   * 前端已做联动禁用，这里是后端兜底（配置错误不能落库）。
-   */
-  if (requireDonation.length > 0 && !restrictFeatures.includes("ai")) {
-    restrictFeatures.push("ai")
-  }
 
   const now = new Date().toISOString()
   const sent: string[] = []
   const missing: string[] = []
   /** 白名单用户：通知照发，但不动权限（见下方注释） */
   const whitelisted: string[] = []
-  /** 已满足捐献门槛的用户：整条跳过（见下方注释） */
-  const alreadyDonated: string[] = []
   let restricted = 0
 
   for (const username of usernames) {
@@ -389,27 +284,6 @@ export async function sendNotice(env: Env, request: Request): Promise<Response> 
     if (!target) {
       missing.push(username)
       continue
-    }
-
-    /**
-     * 名单可能过时 —— 已满足捐献门槛的用户**整条跳过**
-     * （2026-10-04 站长要求：「防止因为名单过时导致的误封」）。
-     *
-     * 场景：站长拿一份「没捐 wb」的名单去发通知，但名单生成之后有人已经捐了。
-     * 若照发照锁：① 会给他发一条「请去捐献 wb」的通知 —— 但他已经捐了，
-     * 这是**错误指控**；② 还会把明明有资格的人的中转站锁掉。
-     * 所以这里在写库**之前**实时复查一遍：已满足就直接跳过，
-     * 既不发通知也不动权限，并把他单独列进 `alreadyDonated` 让站长知道名单过时了。
-     *
-     * ⚠️ 判据与 `ackNotice` 完全一致（同一个 `checkDonation`）：
-     *    勾了多个渠道时是「任选其一」—— 只要满足其中之一就跳过。
-     */
-    if (requireDonation.length > 0) {
-      const { satisfied } = await checkDonation(env, target.id, requireDonation)
-      if (satisfied) {
-        alreadyDonated.push(username)
-        continue
-      }
     }
 
     /**
@@ -435,8 +309,8 @@ export async function sendNotice(env: Env, request: Request): Promise<Response> 
 
     await env.DB.prepare(
       `INSERT INTO admin_notices
-         (id, user_id, title, body, require_ack, restrict_features, restore_permissions, newapi_disabled, require_donation, created_by, created_at)
-       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`
+         (id, user_id, title, body, require_ack, restrict_features, restore_permissions, newapi_disabled, created_by, created_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`
     )
       .bind(
         uuid(),
@@ -446,7 +320,6 @@ export async function sendNotice(env: Env, request: Request): Promise<Response> 
         restrictFeatures.length ? JSON.stringify(restrictFeatures) : null,
         restore,
         newapiDisabled ? 1 : 0,
-        requireDonation.length ? JSON.stringify(requireDonation) : null,
         admin.id,
         now
       )
@@ -459,8 +332,6 @@ export async function sendNotice(env: Env, request: Request): Promise<Response> 
     admin.id,
     "notice.send",
     `给 ${sent.length} 人发通知「${title}」，限制权限 ${restricted} 人` +
-      `${requireDonation.length ? `，要求捐献 ${requireDonation.join("/")}` : ""}` +
-      `${alreadyDonated.length ? `，已捐献跳过 ${alreadyDonated.length} 人` : ""}` +
       `${whitelisted.length ? `，白名单跳过限权 ${whitelisted.length} 人` : ""}` +
       `${missing.length ? `，未找到 ${missing.length} 人` : ""}`
   )
@@ -470,8 +341,6 @@ export async function sendNotice(env: Env, request: Request): Promise<Response> 
     missing,
     restricted,
     whitelisted,
-    alreadyDonated,
-    requireDonation,
   })
 }
 
@@ -493,7 +362,6 @@ export async function listNotices(env: Env, request: Request): Promise<Response>
       title: r.title,
       body: r.body,
       restrictFeatures: r.restrict_features ? JSON.parse(r.restrict_features) : [],
-      requireDonation: parseDonationChannels(r.require_donation),
       newapiDisabled: r.newapi_disabled === 1,
       creator: r.creator,
       createdAt: r.created_at,

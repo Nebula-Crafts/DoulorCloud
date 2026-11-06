@@ -27,6 +27,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { confirmDialog, promptDialog } from "@/components/confirm-dialog"
 import { OAuthEndpointsCard, copyText } from "@/components/oauth-endpoints"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -61,7 +68,16 @@ const SCOPE_OPTIONS = [
   { value: "openid", label: "openid", hint: "ao.scope.openidHint" },
   { value: "profile", label: "profile", hint: "ao.scope.profileHint" },
   { value: "email", label: "email", hint: "ao.scope.emailHint" },
+  { value: "points", label: "points", hint: "ao.scope.pointsHint" },
 ]
+
+/** 等级门槛选项（0=所有人；1/2/3=黄金/白金/黑金及以上），值与 users.member_level 对应 */
+const MIN_LEVEL_OPTIONS = [
+  { value: "0", labelKey: "oapp.levelAny" },
+  { value: "1", labelKey: "lvl.1" },
+  { value: "2", labelKey: "lvl.2" },
+  { value: "3", labelKey: "lvl.3" },
+] as const
 
 /**
  * 「接入信息」（端点地址 + 复制按钮）与用户端设置页**共用同一个组件** ——
@@ -81,6 +97,8 @@ export function OAuthAdminPanel() {
   const [name, setName] = React.useState("")
   const [urisText, setUrisText] = React.useState("")
   const [scopes, setScopes] = React.useState<string[]>(["openid", "profile", "email"])
+  /** 用户等级门槛（字符串走 Select；提交时转数字，0=不限） */
+  const [minLevel, setMinLevel] = React.useState("0")
 
   // 一次性密钥展示
   const [secretDialog, setSecretDialog] = React.useState<{
@@ -149,6 +167,7 @@ export function OAuthAdminPanel() {
     setName("")
     setUrisText("")
     setScopes(["openid", "profile", "email"])
+    setMinLevel("0")
   }
 
   const submitCreate = async () => {
@@ -175,6 +194,7 @@ export function OAuthAdminPanel() {
         name: name.trim(),
         redirectUris,
         scopes: scopes.join(" "),
+        minLevel: Number(minLevel) || 0,
       })
       setCreateOpen(false)
       resetForm()
@@ -302,6 +322,12 @@ export function OAuthAdminPanel() {
                       </Badge>
                     )}
                     {c.disabled && <Badge variant="secondary">{t("common.disabled")}</Badge>}
+                    {(c.minLevel ?? 0) > 0 && (
+                      <Badge variant="outline" className="border-amber-500 text-amber-600">
+                        {t("lvl." + (c.minLevel ?? 0))}
+                        {t("oapp.levelAboveSuffix")}
+                      </Badge>
+                    )}
                     {/* 谁创建的：放开用户自建后，站长要顺着这个 + 回调域名去审查 */}
                     {c.ownerName && (
                       <span className="text-xs text-muted-foreground">
@@ -464,6 +490,23 @@ export function OAuthAdminPanel() {
                   <span className="text-muted-foreground">{t(s.hint)}</span>
                 </label>
               ))}
+            </div>
+
+            <div className="space-y-2">
+              <Label>{t("oapp.dlg.minLevel")}</Label>
+              <Select value={minLevel} onValueChange={setMinLevel}>
+                <SelectTrigger className="w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MIN_LEVEL_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {t(o.labelKey)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{t("oapp.dlg.minLevelHint")}</p>
             </div>
           </div>
 

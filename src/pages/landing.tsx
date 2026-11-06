@@ -3,12 +3,13 @@ import { Link } from "react-router-dom"
 import {
   ArrowRight,
   Mail,
-  Inbox,
-  HardDrive,
-  Sparkles,
-  Contact,
   Zap,
-  Wifi,
+  Coins,
+  KeyRound,
+  Trophy,
+  MessagesSquare,
+  MessageSquare,
+  ShoppingBag,
   ShieldCheck,
   Server,
   Lock,
@@ -51,26 +52,19 @@ import { QQ_GROUP_URL, REPO_URL, TELEGRAM_URL } from "@/lib/site-links"
  * 四个模块过 `requireFeatureUser`（见 worker/src/permissions.ts 的 FEATURES）。
  * 改动这里之前先确认服务端，否则落地页会再次出现「承诺了却用不了」的落差。
  */
-type FeatureTier = "free" | "contribute"
-
-const TIER_META: Record<FeatureTier, { labelKey: string; variant: "success" | "secondary" }> = {
-  free: { labelKey: "landing.tierFree", variant: "success" },
-  contribute: { labelKey: "landing.tierContribute", variant: "secondary" },
-}
-
-/** 功能模块卡（文案在词典里；子域名 / DNS / 内网穿透三块已随功能裁撤下架）。 */
-const features: {
-  icon: typeof Mail
-  keyBase: string
-  tier: FeatureTier
-  points: number
-}[] = [
-  { icon: Mail, keyBase: "landing.f2", tier: "free", points: 3 },
-  { icon: Inbox, keyBase: "landing.f3", tier: "free", points: 3 },
-  { icon: Contact, keyBase: "landing.f6", tier: "free", points: 3 },
-  { icon: HardDrive, keyBase: "landing.f7", tier: "contribute", points: 3 },
-  { icon: Sparkles, keyBase: "landing.f8", tier: "contribute", points: 3 },
-  { icon: Wifi, keyBase: "landing.f10", tier: "contribute", points: 3 },
+/**
+ * 功能模块卡（文案在词典里）。
+ * 2026-11-06 站点聚焦「社区 + 积分商城 + OAuth」后整体换血：原先的邮箱 / 网盘 /
+ * 名片 / AI 中转站 / 代理节点卡片（landing.f2/f3/f6/f7/f8/f10）随模块一起下架，
+ * 换成保留的六块能力。
+ */
+const features: { icon: typeof Mail; keyBase: string; points: number }[] = [
+  { icon: MessagesSquare, keyBase: "landing.k1", points: 3 },
+  { icon: ShoppingBag, keyBase: "landing.k2", points: 3 },
+  { icon: Coins, keyBase: "landing.k3", points: 3 },
+  { icon: KeyRound, keyBase: "landing.k4", points: 3 },
+  { icon: Trophy, keyBase: "landing.k5", points: 3 },
+  { icon: MessageSquare, keyBase: "landing.k6", points: 3 },
 ]
 
 /** 「如何开始」三步 —— 也修掉了导航里 /#how 的死链。 */
@@ -295,13 +289,10 @@ export default function LandingPage() {
               key={f.keyBase}
               className="rounded-2xl border bg-card/70 p-6 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-foreground/20 hover:shadow-xl"
             >
-              <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="mb-4">
                 <div className="inline-flex rounded-md border bg-background p-2">
                   <f.icon className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <Badge variant={TIER_META[f.tier].variant}>
-                  {t(TIER_META[f.tier].labelKey)}
-                </Badge>
               </div>
               <h3 className="mb-2 font-medium">{t(`${f.keyBase}.title`)}</h3>
               <ul className="space-y-1.5">

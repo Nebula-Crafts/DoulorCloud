@@ -15,11 +15,23 @@ import type { Env } from "../env"
 /** 等级名（0-based，与前端展示对应） */
 export const LEVEL_NAMES = ["普通会员", "黄金会员", "白金会员", "黑金会员"] as const
 
+/** settings 里各等级价格的键（下标即等级值；0 号位占位） */
+const LEVEL_PRICE_KEYS = ["", "level_price_gold", "level_price_platinum", "level_price_black"] as const
+
 /** 各等级升级所需的积分（从 settings 读取，0 = 不可升到该级） */
 async function levelPrice(env: Env, level: number): Promise<number> {
-  const keys = ["", "level_price_gold", "level_price_platinum", "level_price_black"] as const
   if (level < 1 || level > 3) return 0
-  return Math.max(0, await getSettingNumber(env, keys[level] as Parameters<typeof getSettingNumber>[1]))
+  return Math.max(0, await getSettingNumber(env, LEVEL_PRICE_KEYS[level] as Parameters<typeof getSettingNumber>[1]))
+}
+
+/** 一次读全三级价格（积分页展示 + 升级校验共用），键为等级值 */
+export async function levelPriceMap(env: Env): Promise<Record<number, number>> {
+  const [gold, platinum, black] = await Promise.all([
+    levelPrice(env, 1),
+    levelPrice(env, 2),
+    levelPrice(env, 3),
+  ])
+  return { 1: gold, 2: platinum, 3: black }
 }
 
 /** POST /api/points/upgrade-level —— 消耗积分升到下一级 */

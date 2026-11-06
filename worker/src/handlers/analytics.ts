@@ -311,7 +311,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
       `SELECT
          (SELECT COUNT(*) FROM newapi_accounts) AS ai,
          (SELECT COUNT(*) FROM storage_accounts WHERE enabled = 1) AS r2,
-         (SELECT COUNT(*) FROM proxy_activation WHERE enabled = 1) AS proxy,
          (SELECT COUNT(*) FROM profiles WHERE published = 1) AS profile`
     ),
     // 资源占用
@@ -397,8 +396,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
          (SELECT COALESCE(SUM(used_quota), 0) FROM newapi_accounts) AS aiQuota,
          (SELECT COUNT(*) FROM newapi_keys) AS aiKeys,
          (SELECT COUNT(DISTINCT user_id) FROM newapi_keys) AS aiKeyUsers,
-         (SELECT COUNT(*) FROM wb2api_bindings WHERE status = 'active') AS wb2apiActive,
-         (SELECT COUNT(*) FROM qoder2api_bindings WHERE status = 'active') AS qoder2apiActive,
          -- 积分与商城
          (SELECT COALESCE(SUM(balance), 0) FROM user_points) AS pointsBalance,
          (SELECT COUNT(*) FROM user_points WHERE balance > 0) AS pointsHolders,
@@ -464,7 +461,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
          (SELECT COUNT(*) FROM fun_links) AS funLinks,
          (SELECT COUNT(*) FROM oauth_clients) AS oauthClients,
          (SELECT COUNT(*) FROM oauth_grants) AS oauthGrants,
-         (SELECT COUNT(*) FROM tempbox_batches) AS tempboxes,
          (SELECT COUNT(*) FROM user_stickers) AS stickers`
     ),
   ])
@@ -487,7 +483,7 @@ export async function userOverview(env: Env, request: Request): Promise<Response
     results?: { verified: number; nickname: number; avatar: number; invited: number }[]
   }).results?.[0]
   const f = (featureRes as {
-    results?: { ai: number; r2: number; proxy: number; profile: number }[]
+    results?: { ai: number; r2: number; profile: number }[]
   }).results?.[0]
   const r = (resourceRes as {
     results?: {
@@ -537,8 +533,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
         { label: "已消耗额度 (quota)", value: n(ex.aiQuota) },
         { label: "API Key 数", value: n(ex.aiKeys) },
         { label: "创建过 Key 的人数", value: n(ex.aiKeyUsers) },
-        { label: "wb2api 有效绑定", value: n(ex.wb2apiActive) },
-        { label: "qoder2api 有效绑定", value: n(ex.qoder2apiActive) },
       ],
     },
     {
@@ -654,9 +648,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
         { label: "工具箱链接数", value: n(ex.funLinks) },
         { label: "OAuth 客户端", value: n(ex.oauthClients) },
         { label: "OAuth 授权数", value: n(ex.oauthGrants) },
-        { label: "临时分享箱", value: n(ex.tempboxes) },
-        { label: "wb2api 绑定（有效）", value: n(ex.wb2apiActive) },
-        { label: "qoder2api 绑定（有效）", value: n(ex.qoder2apiActive) },
         { label: "AI Key 用户数", value: n(ex.aiKeyUsers) },
       ],
     },
@@ -666,7 +657,6 @@ export async function userOverview(env: Env, request: Request): Promise<Response
   const featureRows = [
     { key: "ai", count: f?.ai ?? 0 },
     { key: "r2", count: f?.r2 ?? 0 },
-    { key: "proxy", count: f?.proxy ?? 0 },
     { key: "profile", count: f?.profile ?? 0 },
   ]
     .sort((a, b) => b.count - a.count)

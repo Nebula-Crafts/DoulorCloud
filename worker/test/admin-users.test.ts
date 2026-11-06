@@ -59,7 +59,6 @@ describe("GET /api/admin/users —— 列表只回模块开通状态", () => {
     const row = (await listUsers(admin)).find((x) => x.username === u.username)!
     expect(row.storageEnabled).toBe(false)
     expect(row.aiEnabled).toBe(false)
-    expect(row.proxyEnabled).toBe(false)
     expect(row.profileEnabled).toBe(false)
     expect(row.profileSlug).toBeNull()
   })
@@ -91,21 +90,8 @@ describe("GET /api/admin/users —— 列表只回模块开通状态", () => {
     expect(row.aiEnabled).toBe(true)
   })
 
-  it("内网穿透 / 代理节点：区分「有记录但关着」与「已启用」", async () => {
-    const admin = await makeUser({ role: "admin" })
-    const u = await makeUser()
-    const now = new Date().toISOString()
-    await env.DB.prepare(
-      "INSERT INTO frp_accounts (user_id, enabled, created_at, updated_at) VALUES (?, 0, ?, ?)"
-    ).bind(u.id, now, now).run()
-    await env.DB.prepare(
-      `INSERT INTO proxy_activation (user_id, enabled, consent_version, created_at, updated_at)
-       VALUES (?, 1, 1, ?, ?)`
-    ).bind(u.id, now, now).run()
-
-    const row = (await listUsers(admin)).find((x) => x.username === u.username)!
-    expect(row.proxyEnabled).toBe(true)
-  })
+  // 代理节点模块已删除（2026-11-06 大裁撤，迁移 0170 drop 了 proxy_activation），
+  // proxyEnabled 列与对应测试一并移除。
 
   it("名片：回 published 与公开地址所需的 slug/fqdn", async () => {
     const admin = await makeUser({ role: "admin" })
@@ -148,7 +134,6 @@ describe("GET /api/admin/users/:username —— 详情带模块用量与额度",
     const body = await detail(admin, u.username)
     expect(body.storage).toBeNull()
     expect(body.newapi).toBeNull()
-    expect(body.proxy).toBeNull()
     expect(body.profile).toBeNull()
     expect(body.activity).toEqual([])
   })

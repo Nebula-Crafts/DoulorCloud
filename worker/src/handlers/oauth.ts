@@ -21,6 +21,7 @@ import { requireUser } from "../auth"
 import { guardRateLimit, clientIp } from "../ratelimit"
 import { requireAdminScope } from "./admin"
 import { getSettingBool, audit, updateSettings } from "../settings"
+import { LEVEL_NAMES } from "./member-level"
 import {
   createClient,
   deleteClient,
@@ -300,12 +301,29 @@ export async function authorize(env: Env, request: Request): Promise<Response> {
 
   // ④ 必须已登录本站。未登录则先去登录，登录后自动回到本页面继续授权
   let userId: string
+  let userLevel = 0
   try {
     const user = await requireUser(env, request)
     userId = user.id
+    userLevel = user.member_level ?? 0
   } catch {
     const back = encodeURIComponent(url.pathname + url.search)
     return Response.redirect(`${origin}/login?next=${back}`, 302)
+  }
+
+  // ④.5 授权门槛（2026-11-06 会员等级体系）：应用设了 min_level 时，
+  //     等级不够的用户拿不到授权码。此刻 redirect_uri 已通过精确匹配校验，
+  //     可以安全地按规范带 error 回跳给对方。
+  const minLevel = client.min_level ?? 0
+  if (minLevel > 0 && userLevel < minLevel) {
+    return Response.redirect(
+      appendQuery(redirectUri, {
+        error: "access_denied",
+        error_description: `该应用仅限${LEVEL_NAMES[minLevel]}及以上等级授权`,
+        state,
+      }),
+      302
+    )
   }
 
   // ⑤ 已经同意过且 scope 未扩大 → 直接发码，不再打扰用户
@@ -443,6 +461,10 @@ export async function authorizeContext(
      */
     redirectHosts: redirectHosts(toPublicClient(client).redirectUris),
     alreadyGranted: granted,
+    /** 授权门槛（0=不限）；>0 时同意页要展示等级要求（2026-11-06） */
+    minLevel: client.min_level ?? 0,
+    /** 当前用户的会员等级（0=普通 1=黄金 2=白金 3=黑金） */
+    userLevel: user.member_level ?? 0,
   })
 }
 
@@ -480,6 +502,19 @@ export async function authorizeDecision(
   if (body.approve !== true) {
     return json({
       redirectTo: appendQuery(redirectUri, { error: "access_denied", state }),
+    })
+  }
+
+  // 授权门槛兜底（2026-11-06）：authorize 主入口已拦过，这里再校一次 ——
+  // 同意页是唯一能发码的第二入口，两条路径必须同一口径。
+  const minLevel = client.min_level ?? 0
+  if (minLevel > 0 && (user.member_level ?? 0) < minLevel) {
+    return json({
+      redirectTo: appendQuery(redirectUri, {
+        error: "access_denied",
+        error_description: `该应用仅限${LEVEL_NAMES[minLevel]}及以上等级授权`,
+        state,
+      }),
     })
   }
 
@@ -687,6 +722,7 @@ export async function adminCreateClient(env: Env, request: Request): Promise<Res
     redirectUris?: string[]
     scopes?: string
     allowHttp?: boolean
+    minLevel?: number
   }
 
   const result = await createClient(env, {
@@ -697,6 +733,7 @@ export async function adminCreateClient(env: Env, request: Request): Promise<Res
     scopes: body.scopes,
     ownerUserId: admin.id,
     allowHttp: body.allowHttp === true,
+    minLevel: body.minLevel,
   })
 
   // ⚠️ clientSecret 明文只在这里返回一次
@@ -715,6 +752,7 @@ export async function adminUpdateClient(
     scopes?: string
     disabled?: boolean
     allowHttp?: boolean
+    minLevel?: number
   }
 
   await updateClient(env, decodeURIComponent(id), {
@@ -725,6 +763,7 @@ export async function adminUpdateClient(
     scopes: body.scopes,
     disabled: typeof body.disabled === "boolean" ? body.disabled : undefined,
     allowHttp: body.allowHttp === true,
+    minLevel: body.minLevel,
   })
 
   const row = await getClientByInternalId(env, decodeURIComponent(id))
@@ -805,6 +844,7 @@ export async function createMyClient(env: Env, request: Request): Promise<Respon
     redirectUris?: unknown
     scopes?: string
     allowHttp?: boolean
+    minLevel?: number
   }
   const redirectUris = parseUris(body.redirectUris)
   const autoApprove = await getSettingBool(env, "oauth_user_clients_open")
@@ -817,6 +857,7 @@ export async function createMyClient(env: Env, request: Request): Promise<Respon
     ownerUserId: user.id,
     allowHttp: body.allowHttp === true,
     reviewStatus: autoApprove ? REVIEW_APPROVED : REVIEW_PENDING,
+    minLevel: body.minLevel,
   })
 
   await audit(
@@ -846,6 +887,7 @@ export async function updateMyClient(
     redirectUris?: unknown
     scopes?: string
     allowHttp?: boolean
+    minLevel?: number
   }
 
   const patch: Parameters<typeof updateClient>[2] = {}
@@ -855,6 +897,7 @@ export async function updateMyClient(
     patch.allowHttp = body.allowHttp === true
   }
   if (body.scopes !== undefined) patch.scopes = body.scopes
+  if (body.minLevel !== undefined) patch.minLevel = body.minLevel
 
   // 名字 / 回调地址变了 → 重新排队审核（见文件头注释），并清掉上次的驳回原因
   const sensitive = body.name !== undefined || body.redirectUris !== undefined

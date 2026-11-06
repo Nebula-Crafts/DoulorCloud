@@ -18,11 +18,6 @@
  */
 import { cfDeleteEmailRule } from "./cloudflare"
 import { deleteObject, deletePrefix, getPlatformBucketId } from "./r2"
-import { purgeUserStorage } from "./handlers/storage"
-import { releaseDonationChannel } from "./donation-provision"
-import { releaseSenseNovaKey } from "./sensenova"
-import { wb2RemoveAccount } from "./wb2api-client"
-import { q2DeleteAccount } from "./qoder2api-client"
 import { adminSetUserStatus } from "./newapi-client"
 import { AVATAR_TYPES, avatarKey } from "./identity"
 import type { Env } from "./env"
@@ -31,11 +26,6 @@ import type { Env } from "./env"
 export interface UserCleanupReport {
   emailRules: number
   storageObjects: number
-  releasedChannels: number
-  releasedSubscriptions: number
-  releasedFrpNodes: number
-  wb2Removed: number
-  qoder2Removed: number
   newapiDisabled: boolean
   /** 清掉的「用户自营商品」条数（积分商店 owner_id 没有 FK，必须显式清） */
   shopProducts: number
@@ -57,11 +47,6 @@ export async function purgeUserExternalResources(
   const report: UserCleanupReport = {
     emailRules: 0,
     storageObjects: 0,
-    releasedChannels: 0,
-    releasedSubscriptions: 0,
-    releasedFrpNodes: 0,
-    wb2Removed: 0,
-    qoder2Removed: 0,
     newapiDisabled: false,
     shopProducts: 0,
     errors: [],
@@ -87,13 +72,6 @@ export async function purgeUserExternalResources(
   // ---------- 2. R2：网盘 / 头像 / 社区图 / 临时箱 ----------
   const platformBucket = await getPlatformBucketId(env)
 
-  // 网盘：走现成的 purgeUserStorage（内部按 storage_accounts.prefix 删整个目录）
-  try {
-    report.storageObjects += await purgeUserStorage(env, userId)
-  } catch (err) {
-    report.errors.push(`网盘文件：${errText(err)}`)
-  }
-
   // 头像：avatars/<username>.<ext>，四种扩展名都试（不存在时 R2 也返回成功）
   for (const ext of Object.values(AVATAR_TYPES)) {
     try {
@@ -116,76 +94,6 @@ export async function purgeUserExternalResources(
     }
   }
 
-  // 临时分享箱：temporary/<code>/
-  const batches = await env.DB.prepare(
-    "SELECT code FROM tempbox_batches WHERE creator_user_id = ?"
-  )
-    .bind(userId)
-    .all<{ code: string }>()
-  for (const b of batches.results ?? []) {
-    try {
-      report.storageObjects += await deletePrefix(env, `temporary/${b.code}/`, 20, platformBucket)
-    } catch (err) {
-      report.errors.push(`分享箱 ${b.code}：${errText(err)}`)
-    }
-  }
-
-  // ---------- 4. 捐献产出的资源：渠道 / 商汤 Key / 订阅源 / frp 节点 ----------
-  const donations = await env.DB.prepare(
-    "SELECT id, type, status, newapi_channel_id, payload FROM donations WHERE user_id = ?"
-  )
-    .bind(userId)
-    .all<{
-      id: string
-      type: string
-      status: string
-      newapi_channel_id: number | null
-      payload: string
-    }>()
-
-  for (const d of donations.results ?? []) {
-    // 只有「已批准」的单据才真的产出过资源
-    if (d.status !== "approved") continue
-    try {
-      if (d.type === "ai" && d.newapi_channel_id) {
-        // AI 渠道是本单专属的，直接删
-        if (await releaseDonationChannel(env, d.newapi_channel_id)) report.releasedChannels++
-      } else if (d.type === "sensenova" && d.newapi_channel_id) {
-        // ⚠️ 商汤的 channel_id 指向**管理员自己的共享多密钥渠道**，
-        // 只能摘掉这一把 Key，绝不能按 id 删渠道（见 revokeDonation 的说明）。
-        let apiKey = ""
-        try {
-          apiKey = String((JSON.parse(d.payload) as { apiKey?: unknown }).apiKey ?? "").trim()
-        } catch {
-          apiKey = ""
-        }
-        const r = await releaseSenseNovaKey(env, { channelId: d.newapi_channel_id, apiKey })
-        if (!r.ok) report.errors.push(`商汤 Key：${r.message}`)
-      } else if (d.type === "proxy") {
-        // 只删本单导入的订阅源，不碰管理员手工添加的
-        const del = await env.DB.prepare(
-          "DELETE FROM proxy_subscriptions WHERE source_donation_id = ?"
-        )
-          .bind(d.id)
-          .run()
-        report.releasedSubscriptions += del.meta?.changes ?? 0
-      } else if (d.type === "frp") {
-        // 停用而不删除：删节点会级联清掉已分配的端口与申请单
-        const upd = await env.DB.prepare(
-          `UPDATE frp_nodes
-              SET enabled = 0, status = 'offline',
-                  status_note = '捐献人账号已删除', status_updated_at = ?
-            WHERE source_donation_id = ? AND enabled = 1`
-        )
-          .bind(new Date().toISOString(), d.id)
-          .run()
-        if ((upd.meta?.changes ?? 0) > 0) report.releasedFrpNodes++
-      }
-    } catch (err) {
-      report.errors.push(`捐献资源 ${d.type}/${d.id}：${errText(err)}`)
-    }
-  }
-
   // ---------- 5. NewAPI 账号 ----------
   const napi = await env.DB.prepare(
     "SELECT newapi_user_id FROM newapi_accounts WHERE user_id = ?"
@@ -203,44 +111,7 @@ export async function purgeUserExternalResources(
     }
   }
 
-  // ---------- 6. WorkBuddy 反代网关 ----------
-  const bindings = await env.DB.prepare(
-    "SELECT uid FROM wb2api_bindings WHERE user_id = ? AND status = 'active'"
-  )
-    .bind(userId)
-    .all<{ uid: string }>()
-  for (const b of bindings.results ?? []) {
-    try {
-      await wb2RemoveAccount(env, b.uid)
-      report.wb2Removed++
-    } catch (err) {
-      report.errors.push(`反代账号 ${b.uid}：${errText(err)}`)
-    }
-  }
-
-  // ---------- 6b. Qoder2API 反代网关（第二条通道） ----------
-  const qoder2Bindings = await env.DB.prepare(
-    "SELECT account_id FROM qoder2api_bindings WHERE user_id = ? AND status = 'active'"
-  )
-    .bind(userId)
-    .all<{ account_id: string }>()
-  for (const b of qoder2Bindings.results ?? []) {
-    try {
-      await q2DeleteAccount(env, b.account_id)
-      report.qoder2Removed++
-    } catch (err) {
-      report.errors.push(`Qoder2API 账号 ${b.account_id}：${errText(err)}`)
-    }
-  }
-
   // ---------- 7. 无外键、不会随 CASCADE 消失的表 ----------
-  try {
-    await env.DB.prepare("DELETE FROM tempbox_batches WHERE creator_user_id = ?")
-      .bind(userId)
-      .run()
-  } catch (err) {
-    report.errors.push(`分享箱记录：${errText(err)}`)
-  }
   // 自定义称号授予关系（user_titles 有 FK CASCADE，但 D1 的 FK 执行不保证，显式清掉防孤儿）
   try {
     await env.DB.prepare("DELETE FROM user_titles WHERE user_id = ?")

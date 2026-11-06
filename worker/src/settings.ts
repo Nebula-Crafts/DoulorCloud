@@ -6,58 +6,14 @@
  */
 import { uuid } from "./crypto"
 import type { Env } from "./env"
-import { DEFAULT_DONATION_URL_BLOCKLIST } from "./donation-url-blocklist"
 
 export const SETTING_DEFAULTS = {
-  /** 新开通网盘的默认配额（字节） */
-  storage_quota_bytes: "1073741824", // 1 GiB
-  /** 网盘功能总开关 */
-  storage_enabled: "1",
-  /** 单文件大小上限（字节） */
-  storage_max_file_bytes: "104857600", // 100 MiB
-  /** AI 中转站总开关 */
-  newapi_enabled: "1",
-  /** 新开通 AI 账号的试用额度（NewAPI quota 单位，500000 = $1） */
-  newapi_trial_quota: "500000",
-  /** 新账号所属分组（也是站点自动创建的 Key 所属分组） */
-  newapi_group: "default",
-  /**
-   * **捐献模型**（AI 渠道捐献）所属的 NewAPI 分组，默认 `donation`。
-   *
-   * 为什么要单独一个分组：捐献来的渠道来源杂、稳定性参差，跟站点自有的
-   * `default` 渠道混在一个分组里，既看不清谁是谁，也没法单独控制谁能用。
-   * 分出去之后：
-   *   - 捐献渠道只进这个分组 ⇒ 用 `default` 分组的旧 Key **调不到捐献模型**；
-   *   - 用户要调捐献模型，得**另建一个 Key 并选这个分组**（站点建 Key 的对话框已放开选择）；
-   *   - 为此开通账号时会把本分组一并加进用户的 groups（否则用户在面板里选不到它）。
-   *
-   * ⚠️ 前端「全部可用模型」里的「捐献」分组**不是**按本设置项归类的，
-   * 而是按模型名前缀 `donation-`（见 `donation-provision.ts` 的 `DONATION_MODEL_PREFIX`）。
-   * 改这里不影响那个展示口径。
-   */
-  newapi_donation_group: "donation",
-  /** 是否给予不限额度（1/0），开启后忽略试用额度 */
-  newapi_unlimited_quota: "0",
-  /** 免费订阅套餐 id（绑定后自动/手动开通；0 = 不自动开通） */
-  newapi_free_plan_id: "1",
-  /** 邀请奖励总开关（1/0）。被邀请人解锁 AI 权限时给邀请人发邀请订阅 */
-  invite_reward_enabled: "1",
-  /** workbuddy 反代账号邀请的奖励套餐 id（被邀请人绑定 wb 账号时发放） */
-  invite_reward_plan_id: "2",
-  /** 其他 AI 渠道捐献（自定义渠道 / 商汤 Key）的奖励套餐 id */
-  invite_reward_ai_plan_id: "3",
-  /** 成就奖励总开关（1/0）。用户成就点每满 N 点发一份 AI 订阅 */
+    /** 成就奖励总开关（1/0）。用户成就点每满 N 点发一份 AI 订阅 */
   achievement_reward_enabled: "0",
   /** 成就奖励的订阅套餐 id（NewAPI 里的「成就奖励」套餐） */
   achievement_reward_plan_id: "4",
   /** 每满多少成就点发一份订阅（默认 10） */
   achievement_reward_points: "10",
-  /**
-   * 前端「全部可用模型」卡片要展示的分组（逗号分隔）。
-   * donation（捐献）分组始终动态追加，无需写在这里。
-   * 空串 = 只显示 donation；缺省 = default（管理员可改成 default,付费 等）。
-   */
-  newapi_visible_groups: "default",
   /** NewAPI quota 与美元换算：quota_per_unit */
   newapi_quota_per_unit: "500000",
   /**
@@ -132,35 +88,7 @@ export const SETTING_DEFAULTS = {
    * 已经在手上的额度也不会被回收，只影响之后新批的捐献。
    */
   donation_transfer_features: "r2,ai,proxy",
-  /**
-   * 自定义 AI 渠道捐献的 **baseUrl 黑名单**（换行/逗号分隔，前缀匹配）。
-   *
-   * 命中即**不允许捐献** —— 提交时直接 400，早于建渠道、早于自动审核；
-   * 已有单据走自动/人工复核时也会被同一条规则挡住。
-   * 语义与归一化细节见 `donation-url-blocklist.ts`（保存侧与读取侧共用那一份）。
-   *
-   * 语义（与 `first_donation_voucher_features` 同一套，别把空串当「没配」）：
-   *   · 缺省（键不存在）→ 用代码里的默认名单（`DEFAULT_DONATION_URL_BLOCKLIST`）；
-   *   · 空串（管理端清空后保存）→ **不启用黑名单**，任何地址都能捐。
-   * ⚠️ 空串必须能存进去（`updateSettingsHandler` 里为它单开了分支），
-   * 否则「清空名单」在后台点了没反应 —— 通用分支会把空串当「不修改」跳过。
-   *
-   * ⚠️ 只管**自定义渠道捐献**这条入口；内置的商汤（sensenova）捐献通道走自己的
-   * `sensenova_channel_id` 与既有渠道，不受本名单影响。
-   */
-  donation_url_blocklist: DEFAULT_DONATION_URL_BLOCKLIST,
-  /**
-   * 免权限访问的模块（逗号分隔的模块名列表）。
-   *
-   * 设置后该模块**不再要求用户权限**，没有权限的人也能访问/启用 ——
-   * 用于把某个模块对所有人开放，而不必逐个改用户的 permissions。
-   *
-   * 空串 = 全部按权限卡（默认）。它只旁路「访问时的权限校验」这一层，
-   * 不改 users.permissions，也不影响各模块自己的全局总开关（*_enabled），
-   * 与 invite_basic_features（管「建码时能否勾选」）是两件事。
-   */
-  open_features: "",
-  /**
+    /**
    * 限时开放注册总开关（1/0）。
    *
    * 打开后注册**不再需要邀请码**（见 handlers/auth.ts 的 register）——
@@ -211,21 +139,6 @@ export const SETTING_DEFAULTS = {
    */
   risk_peak_per_minute_threshold: "20",
   /**
-   * 哪些模块的捐献走「自动审核」（逗号分隔的模块名列表）。
-   *
-   *   - ai：自动探测上游 + 逐个测模型，只留可用的；全不可用则自动拒绝。
-   *   - proxy：逐个真实拉取订阅链接，能解析出节点的才导入；全无效则自动拒绝。
-   *   - frp：仅做 config.yml 的语法/必填字段校验（**不验证连通性**，见下）。
-   *
-   * 不在列表里的模块一律转人工审核。默认只对 ai、proxy 自动 —— 因为这两者
-   * 能「真的调一次」验证可用性；frp 的 config.yml 虽指向公网 frps，但 frpc↔frps
-   * 是私有 TCP 协议（非 HTTP），Cloudflare Worker 出站只能发 HTTP/HTTPS、
-   * 建不了任意 TCP 连接，无法握手验证，故只能静态校验、判定不可靠。
-   *
-   * 空串 = 全部转人工。若要关闭全部自动审核，存空串即可。
-   */
-  auto_review_features: "ai,proxy",
-  /**
    * ── 捐献是否授予对应权限（1/0，默认全开）────────────────────────────
    *
    * 每项控制一条「捐献/绑定通道」在**通过后是否自动授予对应功能权限**。
@@ -239,12 +152,6 @@ export const SETTING_DEFAULTS = {
    *
    * 关掉后**不会回收**已授予的权限，只影响之后的捐献。
    */
-  /** 自定义 AI 渠道捐献 → ai 权限 */
-  donation_grant_ai: "1",
-  /** 商汤 Key 捐献 → ai 权限 */
-  donation_grant_sensenova: "1",
-  /** 代理节点捐献 → proxy 权限 */
-  donation_grant_proxy: "1",
   // 捐献节点的**防火墙 / 安全组**要放行的端口段。
   //
   // 为什么和上面那个「套餐端口段」分开：两者不是一回事 ——
@@ -253,10 +160,6 @@ export const SETTING_DEFAULTS = {
   // 放行范围通常是套餐范围的**超集**：以后想把套餐放宽到 11000，
   // 光改套餐那边，防火墙不用动（因为早就放行了）。反过来如果只有一套值，
   // 每次调整套餐都要重新去每台捐献服务器上改防火墙。
-  /** WorkBuddy 反代账号绑定 → ai 权限 */
-  donation_grant_wb2api: "1",
-  /** Qoder2API 账号绑定 → ai 权限 */
-  donation_grant_qoder2api: "1",
   /**
    * 昵称附加保留词（逗号分隔，大小写不敏感）。
    * 与「保留域名」同在管理面板「保留名」标签管理。
@@ -264,29 +167,12 @@ export const SETTING_DEFAULTS = {
    * 管理员自己设昵称时跳过这些检查，不会被自己的名单挡住。
    */
   reserved_nicknames: "",
-  /** 代理节点功能总开关 */
-  proxy_enabled: "1",
-  /** 临时分享箱总开关 */
-  tempbox_enabled: "1",
-  /** 临时分享箱默认保存时长（分钟） */
-  tempbox_default_minutes: "30",
-  /** 临时分享箱单文件上限（字节，默认 256 MiB） */
-  tempbox_max_file_bytes: "268435456",
-  /** 临时分享箱每批次文件数上限 */
-  tempbox_max_files: "20",
-  /** 临时分享箱上传是否必须登录（1=默认，访客只可查看/下载） */
-  tempbox_upload_requires_login: "1",
   /**
    * 临时邮箱（收件邮箱，非上面的「分享箱」）每天最多刷新次数。
    * 刷新 = 换一个新地址（旧地址作废）。0 = 不限制。
    * 默认 20：够正常用，又把「刷一堆一次性地址去注册第三方账号」压住。
    */
   temp_mailbox_refresh_daily_limit: "20",
-  /**
-   * 管理员接收「新捐献待审」通知的邮箱；为空则不发通知。
-   * （原 frp_admin_notify_email 随内网穿透功能移除而退役，捐献通知改用本键。）
-   */
-  donation_admin_notify_email: "",
   /**
    * 管理员接收「新反馈」通知的邮箱；为空则不发通知。
    *
@@ -391,13 +277,6 @@ export const SETTING_DEFAULTS = {
    * 默认让站长过一眼更稳妥。信任的用户群可以自己打开。
    */
   oauth_user_clients_open: "0",
-  /**
-   * WorkBuddy 反代网关捐献通道总开关。
-   *
-   * 打开后捐献页会出现「反代账号」卡：捐献者登录自己的 WorkBuddy 国际版账号，
-   * 登录成功即把账号加入网关共享池、并自动解锁本站「AI 中转站」权限（免审核）。
-   */
-  wb2api_enabled: "1",
   /** 反代网关站点地址（网关自身的 api_key 见 wb2api_credentials 表 / env Secret） */
   wb2api_base_url: "https://wb2api.doulor.cn",
   /**
@@ -409,14 +288,6 @@ export const SETTING_DEFAULTS = {
    */
   wb2api_realm: "cn",
   /**
-   * 反代账号「国内版 / 国际版」可用开关（2026-10-03 站长要求）。
-   *
-   * 捐献/邀请里用户本可自选国内版或国际版；关掉其中一项，那一项就在捐献页
-   * 隐藏、且接口拒绝绑定（见 wb2api.ts 的 availableRealms）。两个都关 = 通道实际不可用。
-   */
-  wb2api_realm_cn: "1",
-  wb2api_realm_global: "1",
-  /**
    * 每个用户最多可绑定的 WorkBuddy 账号数。
    *
    * 为什么要有上限：绑定成功即自动解锁 ai 权限且免审核，不限量就等于
@@ -424,82 +295,11 @@ export const SETTING_DEFAULTS = {
    */
   wb2api_max_bindings: "10",
   /**
-   * 是否在捐献页显示「反代账号」捐献入口（1/0，默认 1 = 显示）。
-   *
-   * 与 `wb2api_enabled` 的区别（两项都会隐藏卡片，但语义不同）：
-   *   - `wb2api_enabled` = **通道总开关**：关掉后不仅隐藏入口，接口也会拒绝新的绑定；
-   *   - 本项 = **纯展示开关**：通道照常工作（已绑定的账号继续留在网关池里、
-   *     接口仍接受登录），只是**不再向还没绑定过的用户展示这个入口**。
-   *     已经绑定过的用户仍看得到卡片，以便管理 / 撤销自己的绑定。
-   *
-   * 用途：上游临时不可用时先把入口撤下，不必动通道本身（也不会影响到存量绑定）。
-   */
-  wb2api_donation_visible: "1",
-  /**
-   * 商汤日日新 Key 捐献通道总开关。
-   *
-   * 打开后捐献页的「AI 模型」里会出现「贡献商汤 Key」卡：捐献者提交自己的
-   * 商汤 API Key，系统验证有效后直接建渠道并入中转站，同时解锁本站
-   * 「AI 中转站」权限（免审核，与反代账号通道同一语义）。
-   */
-  sensenova_enabled: "1",
-  /**
-   * 是否在捐献页显示「贡献商汤 Key」入口（1/0，默认 1 = 显示）。
-   *
-   * 语义与 `wb2api_donation_visible` / `qoder2api_donation_visible` 一致：
-   *   - `sensenova_enabled` = **通道总开关**：关掉后不仅隐藏卡片，提交也会被拒（403）；
-   *   - 本项 = **纯展示开关**：只是不在捐献页展示这个入口，提交接口照常可用
-   *     （已通过审核的 Key 继续留在中转站渠道里）。
-   *
-   * 用途：暂时不想收新 Key（例如目标渠道要维护）时先把入口撤下。
-   */
-  sensenova_donation_visible: "1",
-  /**
    * 商汤上游地址。做成可配置是为了「以后商汤用不了了好换其他服务」——
    * 换地址即可，不用改代码。Key 只能通过该地址鉴权，所以这同时也保证了
    * 「提交的 Key 确实属于这个上游」。
    */
   sensenova_base_url: "https://token.sensenova.cn",
-  /**
-   * 捐献来的商汤 Key 要**并入哪个渠道**（NewAPI 的渠道 ID，必须是多密钥渠道）。
-   *
-   * 为什么要有这一项：商汤不是一个渠道一个 Key，而是**一个多密钥渠道**里挂多把
-   * Key（NewAPI 原生支持，轮询使用、坏了单独跳过）。所以捐献来的 Key 该做的是
-   * 「追加进那个已有渠道」，而不是新建渠道 —— 新建会凭空多出一堆条目，且与
-   * 管理员手工维护的模型列表对不上。
-   *
-   * 留空 = 通道处于「未配置」状态：捐献会转人工（不自动放行，也不碰任何渠道）。
-   * 目标渠道不是多密钥渠道时同样拒绝自动加 Key —— 那会把原有 Key 覆盖掉。
-   *
-   * 默认值 17 是**本部署**的渠道（站长自建的商汤多密钥渠道「日日新」）；
-   * 和 `frp_core_url` / `wb2api_base_url` 一样属于「部署相关默认值」。
-   * 管理员清空后不会回落成 17（库里存了空串就按空串走），不会「关不掉」。
-   */
-  sensenova_channel_id: "17",
-
-  /* ---- Qoder2API 反代绑定通道（第二条，与 wb2api 并列）--------------------
-   * 用户登录自己的 Qoder / WorkBuddy / Trae 账号 → 账号进入 qoder2api 共享池
-   * → 自动解锁本站「AI 中转站」权限。接口形态与 wb2api 不同，故独立一套。
-   */
-  /** 通道总开关 */
-  qoder2api_enabled: "1",
-  /** 网关地址（末尾斜杠会被去掉） */
-  qoder2api_base_url: "https://qoder2api.doulor.cn",
-  /** 上游区域：cn（国内版）/ intl（国际版）。该通道只对接 Qoder，没有 provider 可切 */
-  qoder2api_realm: "cn",
-  // 用户可自选的版本（2026-10-10 站长要求，与 wb2api 的 *_realm_cn/global 同款）：
-  // 关掉的那一项在捐献页隐藏、接口拒绝用它发起绑定
-  qoder2api_realm_cn: "1",
-  qoder2api_realm_intl: "1",
-  /** 每人可绑定的账号数上限 */
-  qoder2api_max_bindings: "10",
-  /**
-   * 是否在捐献页显示 Qoder2API 捐献入口（1/0，默认 1 = 显示）。
-   * 语义与 `wb2api_donation_visible` 完全一致：纯展示开关，
-   * 关掉后只对「还没绑定过的用户」隐藏卡片，通道本身照常工作
-   * （与 `qoder2api_enabled` 那个通道总开关不是一回事）。
-   */
-  qoder2api_donation_visible: "1",
 
   /* ---- 出站邮件发送通道（多通道 + 路由）------------------------------
    * 三种发送方式：CF Email Routing（自带 send_email 绑定）、自建 Posta 网关、
@@ -610,7 +410,6 @@ export const SETTING_DEFAULTS = {
    * 默认 **0 = 不计入**：API 是程序化调用，容易脚本刷成就点（成就点能换真金白银的
    * 订阅），所以默认不让 API 调用刷成就。站长可在管理面板「API」板块打开。
    */
-  api_count_achievements: "0",
   /**
    * 兑换比例：**每 1 积分值多少元**（默认 1，支持小数，如 0.5 / 10）。
    * 兑换 X 积分 ⇒ X * points_yuan_per_point 元。填 10 就是「1 积分 = 10 元」。
@@ -757,94 +556,6 @@ export const SETTING_DEFAULTS = {
    * ⚠️ 这个游戏用**真站内积分**结算。它不增发积分（守恒等式见 game-market.ts），
    *    但玩家之间会真实地互相赢输，风险提示由前端在杠杆 ≥ 10 倍时显式给出。
    */
-  /**
-   * 游戏总开关（1/0）。关掉后行情不再推进、开仓被拒，**已有的持仓仍可平仓**
-   * （不能把用户锁死在里面）。
-   *
-   * 默认 **1（开）**：它不是风险点 —— 做市池余额为 0 时开仓本来就被硬拦
-   * （见 game-market.ts 的 assertPoolCanQuote），所以「还没划拨垫本」时游戏是惰性的。
-   * 真正让游戏能玩起来的那一步是站长在典藏设置里划拨垫本。
-   */
-  game_enabled: "1",
-  /**
-   * 一个 tick 多少秒。行情的最小推进粒度，也是「下单立即冲击价格」之外
-   * 随机噪声的演化步长。默认 5 秒。
-   *
-   * ⚠️ 调小会增加 D1 写入量：每次请求/cron 推进都会 UPDATE 一行 market_state。
-   *    1 秒 → 每分钟那次 cron 要补 60 步（写入量不变，但单次 CPU 变多）。
-   */
-  game_tick_seconds: "5",
-  /** 一根 K 线多少秒（默认 60 = 1 分钟）。只有跨过这个边界时才往 game_candles 落一行 */
-  game_candle_seconds: "60",
-  /** 最大杠杆（1~100）。爆仓价 = 开仓价 × (1 ∓ 1/杠杆 × (1 − 维持保证金率)) */
-  game_max_leverage: "20",
-  /** 单笔最小保证金（积分）。防粉尘刷量：手续费有 1 积分下限，太小的单会被手续费吃光 */
-  game_min_margin: "10",
-  /** 开仓手续费（bps，5 = 0.05%），按名义规模计，进做市池 */
-  game_fee_open_bps: "5",
-  /** 平仓手续费（bps），同上 */
-  game_fee_close_bps: "5",
-  /**
-   * 维持保证金率（bps，50 = 0.5%）。
-   * 逐仓下亏损吃掉「保证金 − 维持保证金」时触发强平，剩下的那点维持保证金也归池
-   * （逐仓的惯例：强平即保证金全损）。
-   */
-  game_maintenance_bps: "50",
-  /**
-   * 每 tick 的随机噪声标准差（bps，0 = 完全不随机、K 线是一条直线）。
-   *
-   * **默认 0（2026-10-11 站长要求改）**：行情**只由玩家下单推动**。
-   * 没有噪声时，没人交易价格就纹丝不动 ⇒ 图表上是一条真正的直线，
-   * 而且**选手不会因为掷骰子而赚钱或亏钱** —— 「我判断对了方向」这件事才有意义。
-   *
-   * ⚠️ 代价（想清楚再调大）：休眠市场里开仓等于必输 —— 价格不会自己动，
-   *    只能等别人来推。站点冷启动期（还没什么玩家）建议保持 0，
-   *    等玩家多起来、订单流足够活跃了，再考虑加一点噪声制造波动。
-   *    参考量级：4 bps/tick ≈ 每分钟 0.14% 波动。
-   */
-  game_noise_bps: "0",
-  /**
-   * 订单流冲击系数（bps）：**净主动成交额等于池子余额时，价格变动多少 bps**。
-   * 默认 500 ⇒ 吃掉整个池子规模的单子推动价格 5%（再被 game_max_impact_bps 封顶到 3%）。
-   *
-   * 这是「玩家推动 K 线」的核心旋钮：调大 = 一句话就能拉盘，调小 = 大资金也推不动。
-   */
-  game_impact_bps: "500",
-  /**
-   * 均值回复强度（bps/tick）：每个 tick 把 (price − anchor) 的多少 bps 收回去。
-   * 默认 **50** ⇒ 约 11 分钟走完一半偏离。
-   *
-   * ⚠️ 它**不会**让初始的平线自己动起来（price === anchor 时回复量为 0），
-   *    但**只按偏离比例全额收**会让「一笔单推上去之后的价格」自己慢慢爬回来 ——
-   *    那看起来就是「没人交易也在跌」（站长 2026-10-11 反馈）。
-   *    所以真正决定「静默期是否平直」的是下面那条**死区**，
-   *    这里的强度只决定「超出死区之后回收得多快」。
-   */
-  game_mean_reversion_bps: "50",
-  /**
-   * 均值回复**死区**（bps，150 = 1.5%）。
-   *
-   * 偏离锚在这个范围内时**完全不回收** ⇒ 没人交易就是一条直线。
-   * 超出死区才按上面那个强度把价格慢慢拉回边缘。
-   *
-   * 为什么需要死区（站长反馈）：原来的实现是全额按比例收的，一笔单把价格推到
-   * 105、锚在 104 时，30 秒一个 tick、50 bps 的强度会让价格以约 −0.01%/分钟
-   * 自己往下爬 —— 在 1% 高度的图上肉眼可见，用户会以为「有看不见的手在砸盘」。
-   *
-   * 为什么死区外还要收：池子是对手盘，价格被推到极值还永久不回的话，
-   * 停在极值上越久越有人能慢慢把差价从池子里兑走。**正常波动永久有效、极端偏离会被拉回**。
-   */
-  game_reversion_deadband_bps: "150",
-  /**
-   * 锚（anchor）跟随价格的速度（bps/tick）。锚是均值回复的目标价：
-   * 太快 = 回复失效（锚跟着价格跑，等于没有回复力），太慢 = 价格被死死按在初始价上。
-   * 默认 5（比回复速度慢一个量级，保证「偏离会被收回」这条性质成立）。
-   */
-  game_anchor_follow_bps: "5",
-  /** 单笔下单/平仓能造成的**最大瞬时价格冲击**（bps，300 = 3%）。防止一笔巨单把价格打穿 */
-  game_max_impact_bps: "300",
-  /** 初始价格（仅在 ensureMarket 首次创建行情时使用）。默认 100 */
-  game_base_price: "100",
   /** 用户等级升级价格（积分）：黄金 / 白金 / 黑金（0 = 不可升级到该级） */
   level_price_gold: "500",
   level_price_platinum: "2000",
@@ -984,19 +695,6 @@ export async function updateSettings(
   if (statements.length > 0) {
     await env.DB.batch(statements)
   }
-}
-
-/** 人类的字节数格式化（供前端复用同一套逻辑时参考） */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ["KB", "MB", "GB", "TB"]
-  let value = bytes / 1024
-  let i = 0
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024
-    i++
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[i]}`
 }
 
 /** 记录审计日志（失败不影响主流程） */

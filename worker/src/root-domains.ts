@@ -25,8 +25,8 @@
  * 2. 表**为空**时要能正常服务：回落成「就用 `env.ROOT_DOMAIN`、无权限要求」，
  *    这样新部署 / 迁移漏跑都不会把注册打挂。只有表里真有行时才以表为准。
  */
-import { ApiError } from "./http"
-import { hasFeature, type Permissions } from "./permissions"
+
+
 import type { Env } from "./env"
 
 export interface RootDomainRow {
@@ -58,11 +58,6 @@ export interface RootDomainRow {
  */
 let cache: { at: number; rows: RootDomainRow[] } | null = null
 const CACHE_MS = 10_000
-
-/** 写路径改完表后调用；其它 isolate 最多等 CACHE_MS */
-export function resetRootDomainCache(): void {
-  cache = null
-}
 
 /**
  * 表为空时的兜底：退化成「只有站点主域、且人人可用」。
@@ -108,11 +103,6 @@ export async function listRootDomains(env: Env): Promise<RootDomainRow[]> {
   return rows
 }
 
-/** 当前生效的根域（`enabled = 1`） */
-export async function listEnabledRootDomains(env: Env): Promise<RootDomainRow[]> {
-  return (await listRootDomains(env)).filter((r) => r.enabled === 1)
-}
-
 /**
  * 新用户注册 / 新建时要用的默认根域。
  *
@@ -136,15 +126,6 @@ export async function getDefaultRootDomain(env: Env): Promise<RootDomainRow> {
   // 连一个免权限的启用域都没有：极端兜底。此时宁可用站点主域（历史行为，人人可用），
   // 也不要挑一个带权限的域白送出去。
   return fallbackRow(env)
-}
-
-export async function getRootDomainByName(
-  env: Env,
-  name: string
-): Promise<RootDomainRow | null> {
-  const target = name.trim().toLowerCase()
-  if (!target) return null
-  return (await listRootDomains(env)).find((r) => r.name === target) ?? null
 }
 
 /**
@@ -177,47 +158,6 @@ export async function rootDomainFor(
   return matchRootDomain(await listRootDomains(env), hostOrAddress)
 }
 
-/** 当前用户能否使用该根域（无 `requires_feature` 即人人可用） */
-export function canUseRootDomain(
-  permissions: Permissions,
-  row: RootDomainRow
-): boolean {
-  if (row.enabled !== 1) return false
-  if (!row.requires_feature) return true
-  return hasFeature(permissions, row.requires_feature as never)
-}
-
-/**
- * 选根域：`requested` 为空时用默认域；非空时必须是**已启用**的域，
- * 且调用者有使用它的权限，否则 403。
- *
- * 不信任前端传来的域名字符串 —— 所有「把资源建在哪个域下」的入口都要过这里。
- */
-export async function pickRootDomain(
-  env: Env,
-  requested: string | undefined,
-  permissions: Permissions
-): Promise<RootDomainRow> {
-  const raw = (requested ?? "").trim().toLowerCase()
-  if (!raw) return getDefaultRootDomain(env)
-
-  const row = await getRootDomainByName(env, raw)
-  if (!row) {
-    throw new ApiError(400, `不支持把资源创建在 ${raw} 下`, "ROOT_DOMAIN_UNKNOWN")
-  }
-  if (row.enabled !== 1) {
-    throw new ApiError(400, `${raw} 当前不可用`, "ROOT_DOMAIN_DISABLED")
-  }
-  if (!canUseRootDomain(permissions, row)) {
-    throw new ApiError(
-      403,
-      `${raw} 需要先解锁对应权限，请联系管理员`,
-      "ROOT_DOMAIN_NOT_PERMITTED"
-    )
-  }
-  return row
-}
-
 /**
  * 该 fqdn / 邮箱地址是否属于**本站任一已登记的根域**。
  *
@@ -226,27 +166,4 @@ export async function pickRootDomain(
  */
 export async function isOwnDomain(env: Env, hostOrAddress: string): Promise<boolean> {
   return (await rootDomainFor(env, hostOrAddress)) !== null
-}
-
-/**
- * 某个用户的**主邮箱地址** = 注册时分配的那一个。
- *
- * 判据：该用户**最早创建**的非临时邮箱（注册流程只会创建一个，天然就是它）。
- * 找不到时（历史数据缺行）回落为 `<用户名>@<默认根域>`。
- *
- * ⚠️ 不能直接用 `user.username` 拼 —— **改名不迁移主邮箱**（见 settings.ts
- * 的警告文案），改名后主邮箱仍是旧前缀，用它去拼会得到一个不存在的地址。
- */
-export async function primaryAddressFor(
-  env: Env,
-  userId: string,
-  username: string
-): Promise<string> {
-  const row = await env.DB.prepare(
-    "SELECT address FROM mailboxes WHERE user_id = ? AND is_temp = 0 ORDER BY created_at ASC, rowid ASC LIMIT 1"
-  )
-    .bind(userId)
-    .first<{ address: string }>()
-  if (row?.address) return row.address.toLowerCase()
-  return `${username.toLowerCase()}@${(await getDefaultRootDomain(env)).name.toLowerCase()}`
 }

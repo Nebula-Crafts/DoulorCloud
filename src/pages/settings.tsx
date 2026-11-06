@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/card"
 import { MessageNotifyCard } from "@/components/message-notify-card"
 import { TwoFactorCard } from "@/components/two-factor-card"
-import { ApiSettingsCard } from "@/components/api-settings-card"
 import { OAuthAppsCard } from "@/components/oauth-apps-card"
 import { OAuthEndpointsCard } from "@/components/oauth-endpoints"
 import { Badge } from "@/components/ui/badge"
@@ -336,7 +335,7 @@ export default function SettingsPage() {
     { key: "general", label: t("settings.group.general") },
     { key: "security", label: t("settings.group.security") },
     { key: "notify", label: t("settings.group.notify") },
-    { key: "api", label: t("settings.group.api") },
+    { key: "api", label: t("settings.group.integration") },
     { key: "danger", label: t("settings.group.danger") },
   ]
   /** 某分组是否可见（"all" 显示全部） */
@@ -747,11 +746,6 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
-        )}
-
-        {/* 公开 API：Key 管理 + 层级额度 + 接口文档 */}
-        {show("api") && (
-        <ApiSettingsCard />
         )}
 
         {/* OAuth 接入信息：对方站点（如 NewAPI）要填的端点地址 —— 与用户建应用在同一处，

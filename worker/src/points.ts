@@ -359,19 +359,6 @@ export const DONATION_REWARD_SETTING_KEYS: Record<DonationRewardKind, SettingKey
   trae: "donation_points_trae",
 }
 
-/**
- * 上游 provider 是**外部输入**（qoder2api 会话里带回来的），不能直接当键用 ——
- * 管理员配了个没见过的 provider 时，落到这里应当是「不发奖励」，而不是崩。
- */
-export function isDonationRewardKind(v: string): v is DonationRewardKind {
-  return Object.prototype.hasOwnProperty.call(DONATION_REWARD_SETTING_KEYS, v)
-}
-
-/** 档位 → 展示名（流水文案、管理端表单共用一处，避免三处各写一份） */
-export function donationRewardLabel(kind: DonationRewardKind): string {
-  return DONATION_REWARD_KINDS.find((k) => k.key === kind)?.label ?? kind
-}
-
 /** 各档位的积分数（管理端展示与发放共用同一套清洗规则） */
 export async function getDonationRewardPoints(
   env: Env
@@ -398,76 +385,6 @@ export async function getDonationDailyLimit(env: Env): Promise<number> {
   return Number.isFinite(n) && n > 0 ? Math.min(Math.trunc(n), 1000) : 0
 }
 
-/**
- * 今天（站点时区日界，与 countTodayRedeems 同口径）该用户已发的捐献奖励笔数。
- *
- * ⚠️ 口径是「**已发出的流水条数**」，所以历史补发的流水也会占当天额度 ——
- * 这是刻意的保守口径（宁可少发不可多发），且补发是一次性的、次日即无影响。
- */
-async function countTodayDonationGrants(env: Env, userId: string): Promise<number> {
-  const dayStart = siteDayStartUtc(new Date(), await siteOffsetHours(env))
-  const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS c FROM point_transactions
-      WHERE user_id = ? AND reason = 'donation' AND delta > 0 AND created_at >= ?`
-  )
-    .bind(userId, dayStart.toISOString())
-    .first<{ c: number }>()
-  return Number(row?.c ?? 0)
-}
-
-/**
- * 发放一笔捐献奖励积分。
- *
- * **刻意不抛错**：积分是附加收益，不能因为它失败就把「捐献审核通过」或
- * 「反代账号绑定成功」本身回滚 —— 那两件事已经做完了，回滚反而更糟。失败只记日志。
- *
- * 返回实际落账的积分数（0 = 该档位关闭，或幂等命中已发过）。
- * 幂等由调用方给的 `dedupKey` 保证（同一笔捐献重复审核只发一次）。
- */
-export async function grantDonationReward(
-  env: Env,
-  opts: {
-    userId: string
-    kind: DonationRewardKind
-    /** 幂等键，如 `donation:<单据id>` / `qoder2api:<绑定id>` */
-    dedupKey: string
-    /** 流水里给用户看的那一行 */
-    detail: string
-  }
-): Promise<number> {
-  try {
-    const points = (await getDonationRewardPoints(env))[opts.kind]
-    if (points <= 0) return 0
-
-    // 每人每日次数闸：捐献分是「可重复赚」的通道，给刷分加一个硬顶。
-    // 超限就**不发** —— 捐献本身早已通过审核 / 绑定成功、权限也给了，这里只管分。
-    // （并发下可能略微超出上限几笔：两个请求同时读到 used=limit-1。属可接受的宽松，
-    //   要更严得做成条件更新，代价不值。）
-    const dailyLimit = await getDonationDailyLimit(env)
-    if (dailyLimit > 0) {
-      const used = await countTodayDonationGrants(env, opts.userId)
-      if (used >= dailyLimit) {
-        console.warn(
-          `捐献奖励已达每日上限（${used}/${dailyLimit}），本次不发：` +
-            `${opts.userId} ${opts.kind} ${opts.dedupKey}`
-        )
-        return 0
-      }
-    }
-
-    const res = await applyPoints(env, {
-      userId: opts.userId,
-      delta: points,
-      reason: "donation",
-      detail: opts.detail,
-      dedupKey: opts.dedupKey,
-    })
-    return res.applied ? points : 0
-  } catch (err) {
-    console.error("发放捐献奖励积分失败:", opts.userId, opts.kind, err)
-    return 0
-  }
-}
 
 // ---------------------------------------------------------------------------
 // 邀请奖励 / 邀请返佣（2026-09-30）

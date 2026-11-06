@@ -3,7 +3,6 @@
 // 覆盖：
 //   1. tempbox proxy-upload / commit 的 key 前缀逃逸（finding#2 / #3）
 //   2. email-verified 白名单的覆盖缺口（finding#7）
-//   3. 改密码后旧 API Key 必须失效（finding#11）
 import { describe, it, expect, beforeEach } from "vitest"
 import { env } from "cloudflare:workers"
 import { makeUser, authRequest, fetchSelf, type TestUser } from "./helpers"
@@ -85,5 +84,3 @@ describe("email-verified 白名单缺口（finding#7）", () => {
   })
 })
 
-describe("凭证变更吊销（finding#11）", () => {
-})

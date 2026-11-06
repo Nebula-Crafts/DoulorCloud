@@ -29,6 +29,7 @@ import { ScrollToTop } from "@/components/scroll-to-top"
 import { PageEnter } from "@/components/page-enter"
 import { AutoCheckin } from "@/components/auto-checkin"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { UserAvatar } from "@/components/user-avatar"
 import {
   DropdownMenu,
@@ -108,11 +109,9 @@ const feedbackNav = { to: "/dashboard/feedback", labelKey: "nav.feedback", icon:
  * 游客可公开浏览的侧边栏入口（其余入口在游客态引导去登录）。
  * 社区广场的开放与否还受后台开关约束。
  *
- * ⚠️ 临时分享箱已从侧边栏撤下（改由「工具箱」进入），这里保留它是因为
- * 分享链接 `/t?code=...` 会收敛到 `/dashboard/tempbox`，收件人（含访客）
- * 必须能直接打开，不能被这条 guestBlocked 规则挡去登录页。
+ * （临时分享箱已随模块移除，不再有公开短链入口。）
  */
-const GUEST_PUBLIC_PATHS = ["/dashboard/community", "/dashboard/tempbox"]
+const GUEST_PUBLIC_PATHS = ["/dashboard/community"]
 
 export function DashboardLayout({
   allowGuest = false,
@@ -546,7 +545,18 @@ export function DashboardLayout({
               />
             </button>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{user.username}</p>
+              <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                {user.username}
+                {/* 会员等级徽章（2026-11-06）：普通会员不显示，避免噪音 */}
+                {(user.memberLevel ?? 0) > 0 && (
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 border-amber-500/60 px-1.5 py-0 text-[10px] font-normal text-amber-600"
+                  >
+                    {t(`lvl.${user.memberLevel}`)}
+                  </Badge>
+                )}
+              </p>
               <p className="truncate text-xs text-muted-foreground">
                 {/* 根域由后端下发（root_domains 的默认行，管理员可改），
                     2026-10-02 起是 tyu.me —— 写死 doulor.cn 会在换域后显示错地址 */}

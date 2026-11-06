@@ -49,30 +49,6 @@ export function json(data: unknown, status = 200): Response {
 }
 
 /**
- * 安全解码 URL 中的百分号编码。
- *
- * 背景（2026-09-25 审计，中）：`new URL()` 与路由匹配**不会**拒绝 `%zz`、
- * 孤立 `%`、`%E0%A4%A` 这类非法编码，但 `decodeURIComponent` 会抛 `URIError`。
- * 全仓有 78 处裸调用且**一处都没捕获**，于是 `GET /api/dns/%` 会一路冒泡到
- * 最外层 500（并写入错误日志），语义上它只是「请求格式错误」= 400。
- *
- * 顺带把 NUL 与路径穿越段挡在这里 —— 解码后的字符串才是真正参与
- * R2 key / SQL 拼接的那个，早一步失败比晚一步安全。
- */
-export function safeDecode(value: string): string {
-  let decoded: string
-  try {
-    decoded = decodeURIComponent(value)
-  } catch {
-    throw new ApiError(400, "请求路径包含非法编码", "INVALID_ENCODING")
-  }
-  if (decoded.includes("\u0000")) {
-    throw new ApiError(400, "请求路径包含非法字符", "INVALID_PATH")
-  }
-  return decoded
-}
-
-/**
  * 请求体体积上限的统一入口（2026-09-25 审计 L29 / L30）。
  *
  * 背景：全仓多处是「**先整体读进内存、再校验大小**」——

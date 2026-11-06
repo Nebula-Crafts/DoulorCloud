@@ -38,6 +38,7 @@ import { requireUser } from "../auth"
 import { requireAdminScope } from "./admin"
 import { guardRateLimit } from "../ratelimit"
 import { uuid } from "../crypto"
+import { levelPriceMap } from "./member-level"
 import {
   isStorageConfigured,
   putObject,
@@ -61,7 +62,6 @@ import {
   redeemPoints,
   transferPoints,
 } from "../points"
-import { backfillDonationRewards, topUpDonationRewards } from "../donation-backfill"
 import {
   addProductCodes,
   adminCancelOrder,
@@ -148,6 +148,10 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
     sellerOrders,
     /** 是否已绑定中转站账号（未绑定时「兑换」与自动充值商品置灰并提示先去开通） */
     bound: Boolean(boundRow),
+    /** 当前会员等级（0=普通 1=黄金 2=白金 3=黑金） */
+    memberLevel: user.member_level ?? 0,
+    /** 各级升级价格（0 = 该等级未开放升级；键与 users.member_level 对应） */
+    levelPrices: await levelPriceMap(env),
   })
 }
 
@@ -988,68 +992,6 @@ export async function savePointsConfig(env: Env, request: Request): Promise<Resp
     donationDailyLimit: await getDonationDailyLimit(env),
     inviteConfig: await getInvitePointsConfig(env),
   })
-}
-
-/**
- * POST /api/admin/points/backfill-donations —— 一次性补发历史捐献积分。
- *
- * body: `{ dryRun?: boolean }`。**默认 dryRun = true（只统计不写库）** ——
- * 这个接口一次能给全站发几千分，必须先预演确认数字，再显式传 `false` 落账。
- *
- * 幂等：复用正常发放的 dedupKey，已发过的不会再发，可重复运行。
- */
-export async function backfillDonations(env: Env, request: Request): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "points.adjust")
-  assertContentLengthWithin(request, MAX_JSON_BODY_BYTES, "请求内容过大")
-  const body = (await request.json().catch(() => ({}))) as { dryRun?: unknown }
-  const dryRun = body.dryRun !== false
-
-  const report = await backfillDonationRewards(env, dryRun)
-
-  if (!dryRun) {
-    await audit(
-      env,
-      admin.id,
-      "points.backfill",
-      `补发历史捐献积分：${report.applied} 笔 / 共 ${report.totalPoints} 分 / 涉及 ${report.distinctUsers} 人`
-    )
-  }
-  return json(report)
-}
-
-/**
- * POST /api/admin/points/backfill-donations/topup —— 把历史补发的积分按倍数补足差额。
- *
- * body: `{ dryRun?: boolean, multiplier?: number }`。**默认 dryRun = true**，
- * `multiplier` 默认 2（即「再发等额」= 翻倍）。
- *
- * 用于「档位值调高之后，把之前按旧值发出去的那批补齐」。只作用于首次历史补发那批，
- * 幂等（同一笔同一倍数只补一次），可重复运行。
- */
-export async function topUpDonations(env: Env, request: Request): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "points.adjust")
-  assertContentLengthWithin(request, MAX_JSON_BODY_BYTES, "请求内容过大")
-  const body = (await request.json().catch(() => ({}))) as {
-    dryRun?: unknown
-    multiplier?: unknown
-  }
-  const dryRun = body.dryRun !== false
-  const multiplier = body.multiplier === undefined ? 2 : Math.trunc(Number(body.multiplier))
-  if (!Number.isFinite(multiplier) || multiplier < 2 || multiplier > 100) {
-    throw new ApiError(400, "倍数需在 2 ~ 100 之间", "INVALID_INPUT")
-  }
-
-  const report = await topUpDonationRewards(env, dryRun, multiplier)
-
-  if (!dryRun) {
-    await audit(
-      env,
-      admin.id,
-      "points.backfill.topup",
-      `捐献积分翻倍补差（×${report.multiplier}）：${report.applied} 笔 / 共 ${report.totalPoints} 分 / 涉及 ${report.distinctUsers} 人`
-    )
-  }
-  return json(report)
 }
 
 /** POST /api/admin/points/products —— 新建官方商品 */

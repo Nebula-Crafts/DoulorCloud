@@ -35,9 +35,7 @@ import * as chatUploadHandlers from "./handlers/chat-upload"
 import * as twoFactorHandlers from "./handlers/two-factor"
 import * as login2faHandlers from "./handlers/login-2fa"
 import * as checkinHandlers from "./handlers/checkin"
-import * as publicApiHandlers from "./handlers/public-api"
 import { stripInternalHeaders } from "./api-source"
-import * as adminApiHandlers from "./handlers/admin-api"
 import * as eventHandlers from "./handlers/events"
 import * as moderationHandlers from "./handlers/moderation"
 import * as moderationListHandlers from "./handlers/moderation-lists"
@@ -1077,30 +1075,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
       adminHandlers.adminDeletePost(env, request, decodeURIComponent(adminCommunityPostMatch[1])),
   },
 
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/storage\/purge\/([^/]+)$/),
-    methods: ["POST"],
-    handle: (adminPurgeMatch: RegExpMatchArray) =>
-      adminHandlers.purgeStorage(
-      env,
-      request,
-      decodeURIComponent(adminPurgeMatch[1])
-      ),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/storage\/quota\/([^/]+)$/),
-    methods: ["PUT"],
-    handle: (adminStorageQuotaMatch: RegExpMatchArray) =>
-      adminHandlers.updateStorageQuota(
-        env,
-        request,
-        decodeURIComponent(adminStorageQuotaMatch[1])
-      ),
-  },
-
   // ---- 用户反馈（私有工单）----
   // /feedback/read 必须排在下面 /feedback 的 POST 之前：两者路径不同（前者多一段），
   // 但保持「更具体的在前」这条约定，免得以后加 /feedback/:id 时顺序被搞混。
@@ -1840,86 +1814,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     handle: () => oauthPointsHandlers.pointsSpend(env, request),
   },
 
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/mailbox\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiDeleteMailbox(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/mailbox\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiDeleteMailbox(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/mailbox\/([^/]+)\/messages$/),
-    methods: ["GET"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiListMessages(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/mailbox\/([^/]+)\/messages\/([^/]+)$/),
-    methods: ["GET"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiGetMessage(env, request, decodeURIComponent(m[1]), decodeURIComponent(m[2])),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/temp-mailbox\/([^/]+)\/refresh$/),
-    methods: ["POST"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiRefreshTempMailbox(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/temp-mailbox\/([^/]+)\/messages$/),
-    methods: ["GET"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiListTempMessages(env, request, decodeURIComponent(m[1])),
-  },
-  {
-    kind: "regex",
-    match: (p: string) => p.match(/^\/v1\/temp-mailbox\/([^/]+)\/messages\/([^/]+)$/),
-    methods: ["GET"],
-    handle: (m: RegExpMatchArray) => publicApiHandlers.apiGetTempMessage(env, request, decodeURIComponent(m[1]), decodeURIComponent(m[2])),
-  },
-  // Key 管理 + 文档（走 session，供设置页用）
-  {
-    kind: "exact",
-    path: "/api-key",
-    method: "GET",
-    handle: () => publicApiHandlers.getApiKeyStatus(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/api-key",
-    method: "POST",
-    handle: () => publicApiHandlers.generateApiKey(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/api-key",
-    method: "DELETE",
-    handle: () => publicApiHandlers.deleteApiKey(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/api-doc",
-    method: "GET",
-    handle: () => publicApiHandlers.getApiDoc(env, request),
-  },
-  // 管理面板「API」板块配置
-  {
-    kind: "exact",
-    path: "/admin/api-config",
-    method: "GET",
-    handle: () => adminApiHandlers.getApiConfig(env, request),
-  },
-  {
-    kind: "exact",
-    path: "/admin/api-config",
-    method: "POST",
-    handle: () => adminApiHandlers.saveApiConfig(env, request),
-  },
   // 用户间转账（只需转出方确认，凭用户名转给对方）
   {
     kind: "exact",

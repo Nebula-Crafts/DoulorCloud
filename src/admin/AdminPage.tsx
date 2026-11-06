@@ -2,7 +2,6 @@ import * as React from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import {
   Ban,
-  AlertTriangle,
   Compass,
   ChevronLeft,
   ChevronRight,
@@ -13,7 +12,6 @@ import {
   Plus,
   ImagePlus,
   Megaphone,
-  Database,
   RefreshCw,
   Search,
   ShieldBan,
@@ -22,37 +20,26 @@ import {
   Medal,
   SlidersHorizontal,
   Network,
-  Zap,
-  CheckCircle2,
   Check,
   Link2,
-  XCircle,
   Trash2,
   UserCheck,
   Users,
-  Heart,
   MessagesSquare,
   MessageSquare,
   RotateCcw,
-  PlugZap,
   X,
-  Sparkles,
-  Unplug,
-  AlertCircle,
   BarChart3,
   Gauge,
   ArrowLeft,
   ExternalLink,
-  Mail,
   PartyPopper,
   Clock,
   ScrollText,
   Coins,
   Eye,
   EyeOff,
-  Webhook,
   Activity,
-  Gamepad2,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -61,7 +48,6 @@ import { toast } from "sonner"
 import { OAuthAdminPanel } from "@/pages/admin-oauth"
 import { AnalyticsPanel } from "@/pages/admin-analytics"
 import { CfQuotaPanel } from "@/pages/admin-cf-quota"
-import { BrevoQuotaPanel } from "@/pages/admin-brevo-quota"
 // 反馈面板同理单独成文件（本文件太大，新增内容尽量外置）
 import { FeedbackPanel } from "@/pages/admin-feedback"
 // 性能监控（2026-10-10 新工具）：UI 本体单独成文件
@@ -78,9 +64,7 @@ import { PageHeader } from "@/components/page-header"
 import { EmptyState } from "@/components/empty-state"
 import { NavItem, NavGroup } from "@/components/sub-nav"
 import { SectionedCards } from "@/components/sectioned-cards"
-import GamesTab from "@/admin/games-tab"
 import { SlidingPill } from "@/components/motion/sliding-pill"
-import { AdminApiTab } from "@/components/admin-api-tab"
 import { AdminPermissionsPanel } from "@/components/admin-permissions"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -101,7 +85,6 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Separator } from "@/components/ui/separator"
 import {
   Select,
   SelectContent,
@@ -141,70 +124,27 @@ import {
   twoFactorApi,
   announcementApi,
   adminEventApi,
-  donationApi,
-  r2AdminApi,
-  wb2apiApi,
-  qoder2apiApi,
   attentionApi,
   HttpError,
 } from "@/services/api"
-import { useT, tStatic } from "@/i18n"
+import { useT } from "@/i18n"
 import { useAuth } from "@/hooks/use-auth"
-/**
- * 可授权的功能（与后端 permissions.ts 的 FEATURES 保持一致）。
- * ⚠️ 不含「个人名片」：名片不消耗资源，已从权限体系移出、全量开放，
- * 因此创建/编辑邀请码与成员详情里都不再出现名片开关。
- */
-const FEATURES: { key: FeatureKey; label: string; desc: string }[] = [
-  { key: "r2", label: "feat.r2", desc: "adm.feat.r2Desc" },
-  { key: "ai", label: "feat.ai", desc: "adm.feat.aiDesc" },
-  { key: "proxy", label: "feat.proxy", desc: "adm.feat.proxyDesc" },
-  // doulor.cn 专属域：**默认关闭**，只能在这里显式打开（后端 allPermissions()
-  // 不含它，见 worker/src/permissions.ts 的 DEFAULT_ALLOWED）。
-  { key: "doulor", label: "feat.doulor", desc: "adm.feat.doulorDesc" },
-  // 中转站免审入驻：**默认关闭**（后端 DEFAULT_ALLOWED 不含它）。它不是功能模块而是
-  // 「信任」—— 勾上的人在登记中转站时直接 approved，绕过的正是审核制那道闸，
-  // 所以只能在这里逐个用户显式授权（见 worker/src/handlers/relay-providers.ts）。
-  { key: "relay_auto", label: "feat.relay_auto", desc: "adm.feat.relay_autoDesc" },
-]
 
 /**
- * 「首捐奖励券可兑换模块」（设置项 first_donation_voucher_features）的候选清单：
- * **刻意排除 `relay_auto`**。
+ * 可授权的功能模块。
  *
- * 理由：首捐券是**使用者自选**换哪个模块的 —— 让它能换「中转站免审」等于给每个
- * 持券用户开一条自助取得免审资格的路，而站长这次的口径是「管理员在管理端逐个
- * 用户勾选」。后端 `vouchers.parseFirstDonationFeatures` 把同一个键做了结构性排除
- * （见那边的注释）；两处必须一致，否则这里会多出一个「点了也没用」的开关。
+ * 2026-11-06 大裁撤后站点只剩「社区 + 积分商城 + OAuth」，没有任何模块再按用户授权，
+ * 所以这张表**刻意留空** —— 邀请码权限、成员详情里的模块权限开关都不再渲染。
+ * 后端的 `FEATURES` 与 `users.permissions` 列保留，将来加新模块时在这里补一行即可。
  */
-const FIRST_DONATION_FEATURES = FEATURES.filter((f) => f.key !== "relay_auto")
+const FEATURES: { key: FeatureKey; label: string; desc: string }[] = []
 
-/** 「捐献是否授予对应权限」的开关项（与后端 settings.ts 的 donation_grant_* 一一对应） */
-const DONATION_GRANT_ITEMS: { key: string; label: string; desc: string }[] = [
-  { key: "ai", label: "adm.1271", desc: "adm.1272" },
-  { key: "sensenova", label: "adm.1273", desc: "adm.1274" },
-  { key: "proxy", label: "adm.1277", desc: "adm.1278" },
-  { key: "wb2api", label: "adm.1279", desc: "adm.1280" },
-  { key: "qoder2api", label: "adm.1281", desc: "adm.1282" },
-]
 
-/**
- * 「捐献发放可转授额度」的开关项（与后端 settings.ts 的
- * donation_transfer_features 一一对应，三个模块各自一个开关）。
- *
- * 顺序与 QUOTA_FEATURES 一致（r2/ai/proxy）；label 复用 feat.* 的模块名。
- */
-const DONATION_QUOTA_ITEMS: { key: string; label: string; desc: string }[] = [
-  { key: "ai", label: "feat.ai", desc: "adm.1304" },
-  { key: "proxy", label: "feat.proxy", desc: "adm.1307" },
-  { key: "r2", label: "feat.r2", desc: "adm.1308" },
-]
 
 import type {
   AdminInviteQuotasResponse,
   AdminUserInviteQuotaResponse,
   FeatureCounts,
-  Donation,
   Announcement,
   AnnouncementStatus,
   EventItem,
@@ -214,25 +154,13 @@ import type {
   EventRewardType,
   EventConditionType,
   EventVoteRewardRule,
-  R2Bucket,
-  R2BucketsResponse,
-  R2Operations,
   AdminInvite,
-  AdminProxySubscription,
-  AdminSettings,
   AdminUser,
   AdminUserDetail,
   FeatureKey,
   MailMessage,
   Permissions,
   AdminCommunityPost,
-  AdminNewApiConfig,
-  AdminWb2ApiConfig,
-  AdminWb2ApiBinding,
-  AdminWb2ApiPool,
-  AdminQoder2ApiConfig,
-  AdminQoder2ApiBinding,
-  AdminQoder2ApiPool,
   RecommendedTier,
   AttentionCounts,
   AdminPermCategory,
@@ -308,19 +236,6 @@ function serializeCategories(list: PostCategoryDef[]): string {
   }
   return JSON.stringify(out)
 }
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ["KB", "MB", "GB", "TB"]
-  let value = bytes / 1024
-  let i = 0
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024
-    i++
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[i]}`
-}
-
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleString("zh-CN", {
     month: "numeric",
@@ -330,37 +245,6 @@ function fmtTime(iso: string) {
   })
 }
 
-/** 管理面板左侧导航的单个项（实现见 components/sub-nav.tsx，与捐献页共用） */
-
-/** realm（cn/global）→ 中文标签 */
-function realmLabel(realm: string | null | undefined): string {
-  if (realm === "intl" || realm === "global") return tStatic("don.realm.global")
-  if (realm === "cn") return tStatic("don.realm.cn")
-  return tStatic("common.unknown")
-}
-
-/** 用户列表里的布尔列：开通打勾，未开通画叉（居中对齐，无多余留白） */
-function BoolMark({ on, title }: { on: boolean; title?: string }) {
-  return (
-    <span
-      className="inline-flex items-center justify-center"
-      title={title ?? (on ? tStatic("common.on") : tStatic("common.off"))}
-    >
-      {on ? (
-        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-      ) : (
-        <XCircle className="h-4 w-4 text-muted-foreground/40" />
-      )}
-    </span>
-  )
-}
-
-/** 名片的公开访问地址：绑了自定义域名优先，否则回落到 /profile/<slug> */
-function profilePublicUrl(slug: string | null, fqdn: string | null): string | null {
-  if (fqdn) return `https://${fqdn}`
-  if (slug) return `${window.location.origin}/profile/${encodeURIComponent(slug)}`
-  return null
-}
 
 // ---- 活动表单 ----
 
@@ -772,25 +656,18 @@ const TAB_GROUP: Record<string, string> = {
   titles: "adm.215",
   moderation: "adm.215",
   notices: "adm.215",
-  newapi: "adm.220",
-  wb2api: "adm.220",
-  r2: "adm.220",
-  proxy: "adm.220",
   announcements: "adm.226",
   funLinks: "adm.226",
   events: "adm.226",
   points: "adm.226",
   community: "adm.226",
-  donations: "adm.226",
   feedback: "adm.226",
   oauth: "adm.234",
   analytics: "adm.234",
   cfQuota: "adm.234",
   perf: "adm.234",
   audit: "adm.234",
-  mail: "adm.234",
   settings: "adm.234",
-  api: "adm.234",
   permissions: "adm.234",
 }
 
@@ -800,9 +677,9 @@ const NAV_OPEN_KEY = "admin-nav-open"
 /** 管理面板全部子 tab（与路由 /admin/:tab 一一对应） */
 const ADMIN_TAB_KEYS = new Set([
   "users", "invites", "inviteQuotas", "reserved", "titles", "points",
-  "donations", "feedback", "announcements", "events", "community", "moderation", "notices",
-  "newapi", "r2", "proxy", "mail", "analytics", "cfQuota", "audit", "games",
-  "oauth", "settings", "funLinks", "wb2api", "api", "permissions", "perf",
+  "feedback", "announcements", "events", "community", "moderation", "notices",
+  "analytics", "cfQuota", "audit",
+  "oauth", "settings", "funLinks", "permissions", "perf",
 ])
 
 export default function AdminPage() {
@@ -876,7 +753,6 @@ export default function AdminPage() {
   const [detailUser, setDetailUser] = React.useState<string>("")
   const [openedMessage, setOpenedMessage] = React.useState<MailMessage | null>(null)
   /** 成员详情里「对齐中转站状态」按钮的忙碌态 */
-  const [newapiSyncBusy, setNewapiSyncBusy] = React.useState(false)
 
   /** 封禁原因输入框（正式对话框，替代浏览器原生 prompt，支持多行备注） */
   const [suspendTarget, setSuspendTarget] = React.useState<{
@@ -936,17 +812,11 @@ export default function AdminPage() {
   // 用户详情里的昵称编辑（与配额一样先存草稿，点保存才提交）
   const [nickDraft, setNickDraft] = React.useState("")
 
-  // 用户详情里的网盘配额编辑（单位 MB，与「单文件上限」同口径，避免站长手算字节）
-  const [storageQuotaMbDraft, setStorageQuotaMbDraft] = React.useState("")
-  const [storageQuotaBusy, setStorageQuotaBusy] = React.useState(false)
-
   // 「重置密码」弹窗（rootOnly）：输入新密码 → 提交
   const [pwOpen, setPwOpen] = React.useState(false)
   const [pwValue, setPwValue] = React.useState("")
   const [pwShow, setPwShow] = React.useState(false)
   const [pwBusy, setPwBusy] = React.useState(false)
-  /** 「把存量用户配额刷成所属桶配额」的进行中标记 */
-  const [syncQuotaBusy, setSyncQuotaBusy] = React.useState(false)
 
   // 编辑邀请码权限
   const [permInvite, setPermInvite] = React.useState<AdminInvite | null>(null)
@@ -1050,84 +920,27 @@ export default function AdminPage() {
     }
   }
 
-  // R2 多桶管理
-  const [r2Data, setR2Data] = React.useState<R2BucketsResponse | null>(null)
-  const [r2Loading, setR2Loading] = React.useState(false)
-  const [r2Ops, setR2Ops] = React.useState<Record<string, R2Operations>>({})
-  const [r2BucketOpen, setR2BucketOpen] = React.useState(false)
-  const [r2Busy, setR2Busy] = React.useState(false)
-  /** 正在编辑的桶 id；null = 新建 */
-  const [r2EditId, setR2EditId] = React.useState<string | null>(null)
-  const [r2Draft, setR2Draft] = React.useState({
-    id: "",
-    name: "",
-    accountId: "",
-    endpoint: "",
-    bucketName: "",
-    accessKeyId: "",
-    secretAccessKey: "",
-    analyticsToken: "",
-    /** 单位 MB（界面按 MB 填，提交时 ×1024×1024 换算成字节） */
-    quotaPerUser: "1024",
-    /** 单位 GB（提交时 ×1024³ 换算成字节） */
-    capacityBytes: "10",
-    sortOrder: "0",
-    kind: "user",
-  })
-  /** 用户改派：{ 用户名: 目标桶 id } 的临时选择 */
-  const [assignTarget, setAssignTarget] = React.useState<Record<string, string>>({})
-  /** 自动发现的账户与桶（用全局 token 拉取） */
-  const [r2Discovered, setR2Discovered] = React.useState<{
-    available: boolean
-    reason?: string
-    accounts: {
-      id: string
-      name: string
-      buckets: { name: string; createdAt: string | null; imported: boolean }[]
-    }[]
-  } | null>(null)
-  const [r2DiscoverLoading, setR2DiscoverLoading] = React.useState(false)
-  /** 选中的「账户|桶名」组合 */
-  const [r2Pick, setR2Pick] = React.useState("")
-
   // 全局设置
-  const [settingsStats, setSettingsStats] =
-    React.useState<AdminSettings["stats"] | null>(null)
   const [settingsLoading, setSettingsLoading] = React.useState(false)
   const [settingsBusy, setSettingsBusy] = React.useState(false)
-  const [quotaMb, setQuotaMb] = React.useState("1024")
 
   // 每日签到配置（基础区间 + 连续里程碑，全部站长手填）
   const [checkinEnabled, setCheckinEnabled] = React.useState(true)
   const [checkinMin, setCheckinMin] = React.useState("1")
   const [checkinMax, setCheckinMax] = React.useState("5")
   const [checkinMilestones, setCheckinMilestones] = React.useState("7:50\n30:300\n100:1000")
-  const [maxFileMb, setMaxFileMb] = React.useState("100")
-  const [storageEnabled, setStorageEnabled] = React.useState(true)
-  const [trialQuotaUsd, setTrialQuotaUsd] = React.useState("1")
   /** NewAPI quota ↔ 金额换算率（由服务端 newapi_quota_per_unit 提供） */
   const [quotaPerUnit, setQuotaPerUnit] = React.useState(500000)
   /** 展示币种符号，跟随 NewAPI 站点设置 */
-  const [currencySymbol, setCurrencySymbol] = React.useState("$")
-  const [newapiGroup, setNewapiGroup] = React.useState("default")
-  const [newapiUnlimited, setNewapiUnlimited] = React.useState(false)
-  const [newapiEnabled, setNewapiEnabled] = React.useState(true)
-  /** 前端「全部可用模型」要展示的分组（逗号分隔，donation 自动追加） */
-  const [newapiVisibleGroups, setNewapiVisibleGroups] = React.useState("default")
   /** 推荐模型分档（管理员维护，用户在 AI 页看到的就是这份） */
   const [recommendedTiers, setRecommendedTiers] = React.useState<RecommendedTier[]>([])
-  /** 候选模型名（来自中转站 pricing），用于「添加模型」下拉 */
-  const [modelOptions, setModelOptions] = React.useState<string[]>([])
 
   // ---- 2026-09-26 补齐：以下设置项后端一直有默认值，但面板从没有输入框 ----
   /** 免费订阅套餐 id（0 = 不自动开订阅） */
-  const [newapiFreePlanId, setNewapiFreePlanId] = React.useState("1")
   /** quota ↔ 金额换算率的可编辑值 */
   const [quotaPerUnitInput, setQuotaPerUnitInput] = React.useState("500000")
   /** 邀请奖励总开关 */
-  const [inviteRewardEnabled, setInviteRewardEnabled] = React.useState(true)
   /** 邀请奖励：反代绑定奖励套餐 id */
-  const [inviteRewardPlanId, setInviteRewardPlanId] = React.useState("2")
   /** 邀请奖励：AI 渠道捐献奖励套餐 id */
   const [inviteRewardAiPlanId, setInviteRewardAiPlanId] = React.useState("3")
   /** 成就奖励总开关 */
@@ -1139,134 +952,9 @@ export default function AdminPage() {
   /** 每个用户默认的邀请码额度 */
   const [inviteQuotaBase, setInviteQuotaBase] = React.useState("3")
   /** 代理节点功能总开关 */
-  const [proxyEnabled, setProxyEnabled] = React.useState(true)
   /** 新反馈通知邮箱（空 = 不通知） */
-  const [feedbackNotifyEmail, setFeedbackNotifyEmail] = React.useState("")
-
-  // ---- 中转站管理员凭据（令牌轮换后可在网页更新）----
-  const [newapiCred, setNewapiCred] = React.useState<AdminNewApiConfig | null>(null)
-  const [newapiCredLoading, setNewapiCredLoading] = React.useState(false)
-  const [newapiCredBusy, setNewapiCredBusy] = React.useState(false)
-  /**
-   * 中转站「失败重试次数」（2026-10-17，用户 yuan 的反馈）。
-   * 只在中转站配置了、且对方确实有 RetryTimes 这一项时可改（available）。
-   */
-  const [relayRetry, setRelayRetry] = React.useState<{
-    available: boolean
-    retryTimes: number | null
-    reason?: string
-  } | null>(null)
-  const [relayRetryInput, setRelayRetryInput] = React.useState("")
-  const [relayRetryBusy, setRelayRetryBusy] = React.useState(false)
-  /** 待更新的新令牌（明文只存在于当前输入框，提交后立即清空） */
-  const [newapiNewToken, setNewapiNewToken] = React.useState("")
-  const [newapiUserId, setNewapiUserId] = React.useState("1")
-  // ---- 手动发放订阅（按用户名批量，2026-10-10 站长要求）----
-  /** 用户名列表：换行分隔（也认逗号/空格），服务端会拆条去重 */
-  const [grantSubUsers, setGrantSubUsers] = React.useState("")
-  const [grantSubPlanId, setGrantSubPlanId] = React.useState("")
-  const [grantSubCount, setGrantSubCount] = React.useState("1")
-  const [grantSubBusy, setGrantSubBusy] = React.useState(false)
-  /** 逐人结果（发放后回显；服务端 4xx 时不填，错误直接走 toast） */
-  const [grantSubResults, setGrantSubResults] = React.useState<
-    { username: string; ok: boolean; granted: number; message: string }[]
-  >([])
-  /** 中转站的订阅套餐（只用于「点一下填 ID」；读不到就是空数组 = 手输） */
-  const [subPlans, setSubPlans] = React.useState<
-    { planId: number; title: string; maxPurchasePerUser: number }[]
-  >([])
-
-  // ---- 「付费」分组授权（2026-10-11 站长要求）----
-  //
-  // ⚠️ 与上面的「发放订阅」是两件事：这里只让该用户在**建 Key 时能选到「付费」分组**，
-  // 永久有效、**不发任何额度**。落库后由后端 group-sync 同步进 NewAPI（约 60 秒）。
-  /** 要授权的用户名（换行分隔，与发放订阅同一套解析口径） */
-  const [premUsers, setPremUsers] = React.useState("")
-  const [premBusy, setPremBusy] = React.useState(false)
-  const [premListBusy, setPremListBusy] = React.useState(false)
-  /** 名单是否已加载过（区分「还没拉」和「拉了但是空的」） */
-  const [premLoaded, setPremLoaded] = React.useState(false)
-  /** 当前有权限的名单 */
-  const [premGrants, setPremGrants] = React.useState<
-    {
-      userId: string
-      username: string
-      grantedBy: string | null
-      grantedAt: string
-      newapiUserId: number | null
-    }[]
-  >([])
 
   // ---- WorkBuddy 反代账号捐献（登录即解锁 AI 权限）----
-  const [wb2apiConfig, setWb2apiConfig] = React.useState<AdminWb2ApiConfig | null>(null)
-  const [wb2apiBindings, setWb2apiBindings] = React.useState<AdminWb2ApiBinding[]>([])
-  /** 失效账号（11140 等，需要捐献者重新登录）的操作态 —— 2026-10-10 */
-  const [wbInvalidBusy, setWbInvalidBusy] = React.useState(false)
-
-  /** 扫描：只统计，不改任何东西 */
-  const scanWbInvalid = async () => {
-    setWbInvalidBusy(true)
-    try {
-      const res = await wb2apiApi.listInvalid()
-      if (res.invalid.length === 0) {
-        toast.success(t("adm.wbInvalidNone"))
-      } else {
-        const names = res.invalid
-          .slice(0, 5)
-          .map((i) => i.username ?? i.uid.slice(0, 8))
-          .join("、")
-        toast.warning(
-          t("adm.wbInvalidFound", {
-            n: res.invalid.length,
-            names: names + (res.invalid.length > 5 ? " …" : ""),
-          })
-        )
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("adm.wbInvalidFailed"))
-    } finally {
-      setWbInvalidBusy(false)
-    }
-  }
-
-  /** 发通知 + 收回 ai 权限（破坏性，先让站长确认） */
-  const notifyWbInvalid = async () => {
-    setWbInvalidBusy(true)
-    try {
-      const preview = await wb2apiApi.notifyInvalid(true)
-      if (preview.candidates === 0) {
-        toast.success(t("adm.wbInvalidNone"))
-        return
-      }
-      const ok = await confirmDialog({
-        title: t("adm.wbInvalidConfirmTitle"),
-        desc: t("adm.wbInvalidConfirmDesc", {
-          n: preview.candidates,
-          u: preview.users,
-        }),
-        okText: t("adm.wbInvalidConfirmBtn"),
-        danger: true,
-      })
-      if (!ok) return
-      const res = await wb2apiApi.notifyInvalid(false)
-      toast.success(
-        t("adm.wbInvalidDone", { n: res.notified, s: res.skipped })
-      )
-      await load()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("adm.wbInvalidFailed"))
-    } finally {
-      setWbInvalidBusy(false)
-    }
-  }
-  const [wb2apiPool, setWb2apiPool] = React.useState<AdminWb2ApiPool | null>(null)
-  const [wb2apiLoading, setWb2apiLoading] = React.useState(false)
-  const [wb2apiBusy, setWb2apiBusy] = React.useState(false)
-  /** 待更新的网关访问密钥（明文只在输入框，提交后立即清空） */
-  const [wb2apiNewKey, setWb2apiNewKey] = React.useState("")
-  /** 移除确认弹窗：记录待摘的绑定 + 是否同时收回 ai 权限 */
-  const [wb2apiRemoving, setWb2apiRemoving] = React.useState<AdminWb2ApiBinding | null>(null)
-  const [wb2apiRevokeAi, setWb2apiRevokeAi] = React.useState(false)
   /** 通道开关与限额（走全局设置接口，与其它开关一起保存） */
   const [wb2apiEnabled, setWb2apiEnabled] = React.useState(true)
   /** 纯展示开关：是否在捐献页显示该入口（关掉不影响通道本身） */
@@ -1279,15 +967,6 @@ export default function AdminPage() {
   const [wb2apiRealmGlobal, setWb2apiRealmGlobal] = React.useState(true)
 
   // ---- Qoder2API 反代账号捐献（第二条通道）----
-  const [qoder2apiConfig, setQoder2apiConfig] = React.useState<AdminQoder2ApiConfig | null>(null)
-  const [qoder2apiBindings, setQoder2apiBindings] = React.useState<AdminQoder2ApiBinding[]>([])
-  const [qoder2apiPool, setQoder2apiPool] = React.useState<AdminQoder2ApiPool | null>(null)
-  const [qoder2apiLoading, setQoder2apiLoading] = React.useState(false)
-  const [qoder2apiBusy, setQoder2apiBusy] = React.useState(false)
-  /** 待更新的 console key（明文只在输入框，提交后立即清空） */
-  const [qoder2apiNewKey, setQoder2apiNewKey] = React.useState("")
-  const [qoder2apiRemoving, setQoder2apiRemoving] = React.useState<AdminQoder2ApiBinding | null>(null)
-  const [qoder2apiRevokeAi, setQoder2apiRevokeAi] = React.useState(false)
   /** 通道开关 / 上限 / 区域（走全局设置接口，与其它开关一起保存） */
   const [qoder2apiEnabled, setQoder2apiEnabled] = React.useState(true)
   /** 纯展示开关：是否在捐献页显示该入口（关掉不影响通道本身） */
@@ -1311,7 +990,6 @@ export default function AdminPage() {
   // 落地页「下载」区的安卓 / Windows 链接
   const [downloadAndroidUrl, setDownloadAndroidUrl] = React.useState("")
   const [downloadWindowsUrl, setDownloadWindowsUrl] = React.useState("")
-  const [notifyEmailOptions, setNotifyEmailOptions] = React.useState<string[]>([])
   // 出站邮件通道
   const [mailTransportOrder, setMailTransportOrder] = React.useState("posta,brevo,cf")
   const [announcementMailTransport, setAnnouncementMailTransport] = React.useState("posta")
@@ -1319,69 +997,24 @@ export default function AdminPage() {
   const [postaUrl, setPostaUrl] = React.useState("")
   const [postaKey, setPostaKey] = React.useState("")
   const [postaFrom, setPostaFrom] = React.useState("")
-  const [postaConfigured, setPostaConfigured] = React.useState(false)
-  // Brevo 多把 Key：明文永不回前端，这里存的是「中间打码」的列表（顺序 = 轮询顺序）
-  const [brevoKeys, setBrevoKeys] = React.useState<string[]>([])
-  const [brevoAddInput, setBrevoAddInput] = React.useState("")
-  const [brevoBusy, setBrevoBusy] = React.useState(false)
   const [brevoSenderEmail, setBrevoSenderEmail] = React.useState("")
   const [brevoSenderName, setBrevoSenderName] = React.useState("Doulor Cloud")
   // 临时分享箱
-  const [tempboxEnabled, setTempboxEnabled] = React.useState(true)
-  const [tempboxMinutes, setTempboxMinutes] = React.useState("30")
-  const [tempboxMaxFileMb, setTempboxMaxFileMb] = React.useState("256")
-  const [tempboxMaxFiles, setTempboxMaxFiles] = React.useState("20")
-  const [tempboxUploadLogin, setTempboxUploadLogin] = React.useState(true)
-  // 邀请码模块权限：基础权限（不消耗额度）vs 受限模式
-  const [inviteBasic, setInviteBasic] = React.useState<Record<string, boolean>>({
-    r2: true,
-    ai: false,
-    proxy: false,
-  })
-  // 免权限访问：打开后该模块不再要求用户权限（没有权限的人也能用）
-  const [openFeatures, setOpenFeatures] = React.useState<Record<string, boolean>>({
-    r2: false,
-    ai: false,
-    proxy: false,
-  })
+  /** 新反馈通知邮箱（空 = 不通知） */
+  const [feedbackNotifyEmail, setFeedbackNotifyEmail] = React.useState("")
   /**
    * 首捐奖励券可兑换的模块（默认全部可兑换）。
    * 用户第一次捐献成功后拿到的「自选权限」券只能换这里勾上的模块。
    * 后端读取口径见 worker/src/vouchers.ts 的 parseFirstDonationFeatures。
    */
-  const [firstDonationFeatures, setFirstDonationFeatures] = React.useState<
-    Record<string, boolean>
-  >(() => Object.fromEntries(FIRST_DONATION_FEATURES.map((f) => [f.key, true])))
   // 限时开放注册：打开后注册无需邀请码；可设截止时间（datetime-local 本地值）
   const [openRegistration, setOpenRegistration] = React.useState(false)
   const [openRegistrationUntil, setOpenRegistrationUntil] = React.useState("")
   // 注册准入（2026-10-02）：邮箱域名白名单 + 同 IP 累计注册上限
   const [registerEmailDomains, setRegisterEmailDomains] = React.useState("")
   const [registerIpDailyLimit, setRegisterIpDailyLimit] = React.useState("3")
-  /** 临时邮箱（收件邮箱）每天最多刷新次数（0 = 不限） */
-  const [tempMailboxRefreshLimit, setTempMailboxRefreshLimit] = React.useState("20")
   /** 风险账户判定阈值（单账号每分钟请求数） */
   const [riskPeakThreshold, setRiskPeakThreshold] = React.useState("20")
-  // 自动审核：打开后该模块的捐献提交即自动审核（r2 没有捐献，不在列表里）
-  const [autoReview, setAutoReview] = React.useState<Record<string, boolean>>({
-    ai: true,
-    proxy: true,
-  })
-  // 捐献是否授予对应权限（5 条通道各自独立，默认全开；见 settings.ts 注释）
-  const [donationGrants, setDonationGrants] = React.useState<Record<string, boolean>>({
-    ai: true,
-    sensenova: true,
-    proxy: true,
-    wb2api: true,
-    qoder2api: true,
-  })
-  // 自定义 AI 渠道捐献的 baseUrl 黑名单（换行/逗号分隔，**前缀匹配**；空 = 不启用）
-  // 归一化与匹配口径见 worker/src/donation-url-blocklist.ts（保存侧与读取侧共用那一份）
-  const [donationUrlBlocklist, setDonationUrlBlocklist] = React.useState("")
-  // 捐献可发放「可转授额度」的模块（四个独立开关，默认全开；见 settings.ts）
-  const [donationQuotaFeatures, setDonationQuotaFeatures] = React.useState<
-    Record<string, boolean>
-  >({ r2: true, ai: true, proxy: true })
 
   // ---- 社区管理 ----
   const [communityPosts, setCommunityPosts] = React.useState<AdminCommunityPost[]>([])
@@ -1579,258 +1212,6 @@ export default function AdminPage() {
     }
   }
 
-  // ---- 捐献审核 ----
-  const [donations, setDonations] = React.useState<Donation[]>([])
-  /** 捐献列表分类筛选："" 全部 / "pending" 未处理 / "approved" 已通过 /
-   *  "rejected" 已拒绝 / "autoApproved" 自动通过 / "autoRejected" 自动拒绝 */
-  const [donationFilter, setDonationFilter] = React.useState<string>("")
-  /** 捐献列表类别筛选："" 全部 / "ai" / "frp" / "proxy" / "sensenova" */
-  const [donationTypeFilter, setDonationTypeFilter] = React.useState<string>("")
-  const [donationLoading, setDonationLoading] = React.useState(false)
-  const [donationBusy, setDonationBusy] = React.useState(false)
-  /**
-   * 捐献列表服务端分页（2026-10-08 性能，与用户列表同批）：全量 853 条 = 559KB、
-   * 打开 2~8s，改每页 50 条 + 服务端筛选。两层筛选徽标的计数不再靠前端在全量
-   * 数据上数（分页后只有当前页，数不准），改用接口同批返回的 GROUP BY 计数。
-   */
-  const [donationPage, setDonationPage] = React.useState(0)
-  const [donationTotal, setDonationTotal] = React.useState<number | null>(null)
-  /** counts[type][status]，空串 = 合计；来自接口的 GROUP BY，分页模式才有 */
-  const [donationCounts, setDonationCounts] = React.useState<Record<string, Record<string, number>> | null>(null)
-  const DONATION_PAGE_SIZE = 50
-  // 待审核目标 + 理由弹窗
-  const [reviewTarget, setReviewTarget] = React.useState<{
-    donation: Donation
-    action: "approve" | "reject"
-  } | null>(null)
-  const [reviewNote, setReviewNote] = React.useState("")
-
-  /**
-   * 拉捐献列表（服务端分页 + 筛选）。筛选/页码显式传入：审核/撤销后的 5 处刷新
-   * 调用 `loadDonations()` 保留当前页与筛选；筛选按钮变化走下面的 effect（回第一页）。
-   */
-  const loadDonationPage = React.useCallback(
-    async (page: number, type: string, status: string) => {
-      setDonationLoading(true)
-      try {
-        const res = await donationApi.listAll({
-          limit: DONATION_PAGE_SIZE,
-          offset: page * DONATION_PAGE_SIZE,
-          type: type || undefined,
-          status: status || undefined,
-        })
-        setDonations(res.donations)
-        setDonationTotal(res.total ?? null)
-        setDonationCounts(res.counts ?? null)
-      } catch (err) {
-        toast.error(err instanceof HttpError ? err.message : t("adm.7"))
-      } finally {
-        setDonationLoading(false)
-      }
-    },
-    [t]
-  )
-
-  // 筛选或页码变化 → 重新拉。⚠️ 门卫：初次挂载不拉 —— 旧行为是**切到捐献 tab
-  // 才加载**（见 3493 行的 tab 切换 effect），无门卫的话打开管理页（哪怕看的是
-  // 用户 tab）也会多发一个捐献请求。首次加载由 loadDonations() 把 ref 置真。
-  const donationsLoadedRef = React.useRef(false)
-  React.useEffect(() => {
-    if (!donationsLoadedRef.current) return
-    void loadDonationPage(donationPage, donationTypeFilter, donationFilter)
-  }, [loadDonationPage, donationPage, donationTypeFilter, donationFilter])
-
-  const loadDonations = React.useCallback(async () => {
-    donationsLoadedRef.current = true
-    await loadDonationPage(donationPage, donationTypeFilter, donationFilter)
-  }, [loadDonationPage, donationPage, donationTypeFilter, donationFilter])
-
-  const handleReviewDonation = async (
-    d: Donation,
-    action: "approve" | "reject"
-  ) => {
-    // 打开理由弹窗，由用户在弹窗里填理由后确认
-    setReviewNote("")
-    setReviewTarget({ donation: d, action })
-  }
-
-  const confirmReview = async () => {
-    if (!reviewTarget) return
-    setDonationBusy(true)
-    try {
-      await donationApi.review(
-        reviewTarget.donation.id,
-        reviewTarget.action,
-        reviewNote.trim() || undefined
-      )
-      toast.success(
-        reviewTarget.action === "approve"
-          ? t("adm.923", { v0: reviewTarget.donation.username })
-          : t("adm.8")
-      )
-      setReviewTarget(null)
-      setReviewNote("")
-      await loadDonations()
-      notifyAttentionChanged() // 捐献角标当场减一，不用等 60 秒轮询
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.9"))
-    } finally {
-      setDonationBusy(false)
-    }
-  }
-
-  /** 撤销已审核的捐献：回到待审核，若权限因此捐献获得则自动收回 */
-  const handleRevokeDonation = async (d: Donation) => {
-    // 商汤的 Key 是并进「你自己的那个多密钥渠道」的，撤销时只能摘掉这一把 Key，
-    // 渠道本身必须保留（里面还有别处来的 Key）—— 所以文案要和 AI 区分开。
-    const extra =
-      d.type === "ai"
-        ? t("adm.10")
-        : d.type === "sensenova"
-          ? t("adm.11")
-          : d.type === "proxy"
-            ? t("adm.12")
-            : ""
-    if (!confirm(t("adm.924", { v0: d.username, v1: extra }))) return
-    setDonationBusy(true)
-    try {
-      const res = await donationApi.revoke(d.id)
-      const parts = [res.revokedPermission ? t("adm.925") : t("adm.926")]
-      // 商汤通道返回的是一句话说明（已移除 / 没找到那把 Key，请手工处理），
-      // 不能笼统地说「渠道已删除」—— 那个渠道是共享的，根本没删。
-      if (res.releaseMessage) parts.push(res.releaseMessage.replace(/^（|）$/g, ""))
-      else if (res.releasedChannel) parts.push(t("adm.13"))
-      if (res.releasedSubscriptions) parts.push(t("adm.927", { v0: res.releasedSubscriptions }))
-      toast.success(parts.join("，"))
-      await loadDonations()
-      notifyAttentionChanged() // 撤销后回到待审核，捐献角标当场 +1
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.14"))
-    } finally {
-      setDonationBusy(false)
-    }
-  }
-
-  /**
-   * 人工复核：用原始 payload 重试接入中转站。
-   *
-   * 不改单据状态 —— 接入成功后管理员再点「复核通过」放行，
-   * 那时审核会复用刚建好的渠道，不会重复创建。
-   */
-  const handleProvisionDonation = async (d: Donation) => {
-    setDonationBusy(true)
-    try {
-      const res = await donationApi.provision(d.id)
-      if (res.ok) {
-        toast.success(res.detail ? t("adm.928", { v0: res.detail }) : t("adm.15"))
-      } else {
-        toast.error(res.detail || res.message || t("adm.16"))
-      }
-      await loadDonations()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.17"))
-    } finally {
-      setDonationBusy(false)
-    }
-  }
-
-  /** 补全模型：重新拉上游列表，把渠道里缺的补上（救历史单） */
-  const handleRefetchModels = async (d: Donation) => {
-    setDonationBusy(true)
-    try {
-      const res = await donationApi.refetchModels(d.id)
-      if (res.ok) toast.success(res.message)
-      else toast.error(res.message)
-      await loadDonations()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.18"))
-    } finally {
-      setDonationBusy(false)
-    }
-  }
-
-  /** 重试失败模型：只试已落库的那些（限流/超时的可能已恢复） */
-  const handleRetryModels = async (d: Donation) => {
-    setDonationBusy(true)
-    try {
-      const res = await donationApi.retryModels(d.id)
-      if (res.ok) toast.success(res.message)
-      else toast.error(res.detail || res.message || t("adm.19"))
-      await loadDonations()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.20"))
-    } finally {
-      setDonationBusy(false)
-    }
-  }
-
-  // ---- 代理节点订阅源 ----
-
-  const [proxySubs, setProxySubs] = React.useState<AdminProxySubscription[]>([])
-  const [proxyLoading, setProxyLoading] = React.useState(false)
-  const [proxyBusy, setProxyBusy] = React.useState(false)
-  const [proxyOpen, setProxyOpen] = React.useState(false)
-  const [proxyForm, setProxyForm] = React.useState({
-    id: "",
-    name: "",
-    region: "",
-    url: "",
-    protocol: "mixed",
-    status: "unknown",
-    statusNote: "",
-    enabled: true,
-    sortOrder: "0",
-    note: "",
-  })
-
-  const loadProxy = React.useCallback(async () => {
-    setProxyLoading(true)
-    try {
-      const res = await adminApi.listProxySubscriptions()
-      setProxySubs(res.subscriptions)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.29"))
-    } finally {
-      setProxyLoading(false)
-    }
-  }, [])
-
-  const handleSaveProxy = async () => {
-    setProxyBusy(true)
-    try {
-      await adminApi.upsertProxySubscription({
-        id: proxyForm.id || undefined,
-        name: proxyForm.name,
-        region: proxyForm.region,
-        url: proxyForm.url,
-        // 协议/状态留空时交给服务端自动识别
-        protocol: proxyForm.protocol.trim() || undefined,
-        status: proxyForm.status === "unknown" ? undefined : proxyForm.status,
-        statusNote: proxyForm.statusNote,
-        enabled: proxyForm.enabled,
-        sortOrder: Number(proxyForm.sortOrder),
-        note: proxyForm.note,
-      })
-      toast.success(t("adm.30"))
-      setProxyOpen(false)
-      await loadProxy()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.31"))
-    } finally {
-      setProxyBusy(false)
-    }
-  }
-
-  const handleDeleteProxy = async (id: string) => {
-    try {
-      await adminApi.deleteProxySubscription(id)
-      toast.success(t("adm.32"))
-      await loadProxy()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.33"))
-    }
-  }
-
   // ---- 社区管理 ----
 
   const loadCommunity = React.useCallback(async () => {
@@ -1871,35 +1252,16 @@ export default function AdminPage() {
     setSettingsLoading(true)
     try {
       const res = await adminApi.getSettings()
-      setSettingsStats(res.stats)
-      if (res.currency?.symbol) setCurrencySymbol(res.currency.symbol)
       const s = res.settings
       // 每日签到配置
       setCheckinEnabled(isSettingOn(s.checkin_enabled, true))
       setCheckinMin(String(Number(s.checkin_points_min ?? 1) || 1))
       setCheckinMax(String(Number(s.checkin_points_max ?? 5) || 5))
       setCheckinMilestones(s.checkin_milestones ?? "7:50\n30:300\n100:1000")
-      const quotaBytes = Number(s.storage_quota_bytes ?? 1073741824)
-      // 字节 → MB（界面统一按 MB 填，避免 512 MB 这种非整 GB 的值没法表达）
-      setQuotaMb(String(Math.round((quotaBytes / 1024 / 1024) * 100) / 100))
-      setMaxFileMb(
-        String(Math.round(Number(s.storage_max_file_bytes ?? 104857600) / 1024 / 1024))
-      )
-      setStorageEnabled(isSettingOn(s.storage_enabled, true))
       const perUnit = Number(s.newapi_quota_per_unit ?? 500000)
       // 记下服务端的换算率：保存时要按同一比率换算回去，
       // 否则改了 quota_per_unit 后「显示 $X」再保存会写成另一个额度
       setQuotaPerUnit(perUnit)
-      setTrialQuotaUsd(
-        String(
-          Math.round((Number(s.newapi_trial_quota ?? 500000) / perUnit) * 10000) /
-            10000
-        )
-      )
-      setNewapiGroup(s.newapi_group ?? "default")
-      setNewapiUnlimited(isSettingOn(s.newapi_unlimited_quota))
-      setNewapiEnabled(isSettingOn(s.newapi_enabled, true))
-      setNewapiVisibleGroups(s.newapi_visible_groups ?? "default")
       // 反代账号捐献通道
       setWb2apiEnabled(isSettingOn(s.wb2api_enabled, true))
       setWb2apiDonationVisible(isSettingOn(s.wb2api_donation_visible, true))
@@ -1930,14 +1292,6 @@ export default function AdminPage() {
       }
       setDownloadAndroidUrl(s.download_android_url ?? "")
       setDownloadWindowsUrl(s.download_windows_url ?? "")
-      setNotifyEmailOptions(res.notifyEmailOptions ?? [])
-      setTempboxEnabled(isSettingOn(s.tempbox_enabled, true))
-      setTempboxMinutes(s.tempbox_default_minutes ?? "30")
-      setTempboxMaxFileMb(
-        String(Math.round(Number(s.tempbox_max_file_bytes ?? 268435456) / 1024 / 1024))
-      )
-      setTempboxMaxFiles(s.tempbox_max_files ?? "20")
-      setTempboxUploadLogin(isSettingOn(s.tempbox_upload_requires_login, true))
       setCommunityEnabled(isSettingOn(s.community_enabled, true))
       // ⚠️ 默认 false 而不是 true：这个开关是应急断流用的，取不到值时按「关」更安全
       setChatEnabled(isSettingOn(s.chat_enabled, false))
@@ -1950,74 +1304,21 @@ export default function AdminPage() {
       setCommunityCommentEditLimit(s.community_comment_edit_limit ?? "2")
       setSiteTzOffsetHours(s.site_timezone_offset_hours ?? "8")
       setPostCategories(parseCategorySetting(s.post_categories))
-      const basicRaw = (s.invite_basic_features ?? "r2").split(",").map((x) => x.trim()).filter(Boolean)
-      setInviteBasic({
-        r2: basicRaw.includes("r2"),
-        ai: basicRaw.includes("ai"),
-        proxy: basicRaw.includes("proxy"),
-      })
-      // 免权限访问：后端存空串表示「全部按权限卡」
-      const openRaw = (s.open_features ?? "").split(",").map((x) => x.trim()).filter(Boolean)
-      setOpenFeatures({
-        r2: openRaw.includes("r2"),
-        ai: openRaw.includes("ai"),
-        proxy: openRaw.includes("proxy"),
-      })
-      // 首捐奖励券可兑换的模块：缺省/取不到时按「全部可兑换」显示
-      // （与后端 parseFirstDonationFeatures 的缺省口径一致）
-      const fdRaw = (s.first_donation_voucher_features ?? "r2,ai,proxy,doulor")
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean)
-      setFirstDonationFeatures(
-        Object.fromEntries(FIRST_DONATION_FEATURES.map((f) => [f.key, fdRaw.includes(f.key)]))
-      )
       // 限时开放注册：总开关 + 截止时间（后端存 ISO，转成本地 datetime-local 显示）
       setOpenRegistration(isSettingOn(s.open_registration, false))
       setOpenRegistrationUntil(toLocalInput(s.open_registration_until || null))
       setRegisterEmailDomains(s.register_email_domains ?? "")
       setRegisterIpDailyLimit(s.register_ip_daily_limit ?? "3")
-      setTempMailboxRefreshLimit(s.temp_mailbox_refresh_daily_limit ?? "20")
       setRiskPeakThreshold(s.risk_peak_per_minute_threshold ?? "20")
-      // 自动审核：后端存空串表示「全部转人工」
-      const autoRaw = (s.auto_review_features ?? "").split(",").map((x) => x.trim()).filter(Boolean)
-      setAutoReview({
-        ai: autoRaw.includes("ai"),
-        proxy: autoRaw.includes("proxy"),
-      })
-      // 捐献是否授予对应权限（5 条通道各自独立，默认全开）
-      setDonationGrants({
-        ai: isSettingOn(s.donation_grant_ai, true),
-        sensenova: isSettingOn(s.donation_grant_sensenova, true),
-        proxy: isSettingOn(s.donation_grant_proxy, true),
-        wb2api: isSettingOn(s.donation_grant_wb2api, true),
-        qoder2api: isSettingOn(s.donation_grant_qoder2api, true),
-      })
       // 捐献 baseUrl 黑名单：后端存的是归一化后的文本，这里原样回显（前端不再加工，
       // 免得两套归一化口径打架）
-      setDonationUrlBlocklist(s.donation_url_blocklist ?? "")
-      // 捐献可发放「可转授额度」的模块：缺省/取不到时按「三个都发」显示
-      // （与后端 parseDonationQuotaFeatures 的缺省口径一致）
-      const dqRaw = (s.donation_transfer_features ?? "r2,ai,proxy")
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean)
-      setDonationQuotaFeatures({
-        r2: dqRaw.includes("r2"),
-        ai: dqRaw.includes("ai"),
-        proxy: dqRaw.includes("proxy"),
-      })
       // ---- 2026-09-26 补齐的设置项 ----
-      setNewapiFreePlanId(s.newapi_free_plan_id ?? "1")
       setQuotaPerUnitInput(s.newapi_quota_per_unit ?? "500000")
-      setInviteRewardEnabled(isSettingOn(s.invite_reward_enabled, true))
-      setInviteRewardPlanId(s.invite_reward_plan_id ?? "2")
       setInviteRewardAiPlanId(s.invite_reward_ai_plan_id ?? "3")
       setAchievementRewardEnabled(isSettingOn(s.achievement_reward_enabled, false))
       setAchievementRewardPlanId(s.achievement_reward_plan_id ?? "4")
       setAchievementRewardPoints(s.achievement_reward_points ?? "10")
       setInviteQuotaBase(s.invite_quota_base ?? "3")
-      setProxyEnabled(isSettingOn(s.proxy_enabled, true))
       setFeedbackNotifyEmail(s.feedback_admin_notify_email ?? "")
       // 积分系统的开关/比例/每日上限不在这里：改由 管理面板 → 积分 → 商城 维护
       // （见 admin-points.tsx 商品表第一行的「内置商品」行，接口是 PUT /api/admin/points/config）
@@ -2029,11 +1330,8 @@ export default function AdminPage() {
       setPostaFrom(s.posta_from ?? "")
       setBrevoSenderEmail(s.brevo_sender_email ?? "")
       setBrevoSenderName(s.brevo_sender_name ?? "Doulor Cloud")
-      setPostaConfigured(Boolean(res.mailSecrets?.postaConfigured))
-      setBrevoKeys(res.mailSecrets?.brevoKeys ?? [])
-      // 密钥明文不回传，输入框清空（placeholder 显示「已配置」）
+      // 密钥明文不回传，输入框清空
       setPostaKey("")
-      setBrevoAddInput("")
     } catch (err) {
       toast.error(err instanceof HttpError ? err.message : t("adm.39"))
     } finally {
@@ -2055,14 +1353,6 @@ export default function AdminPage() {
         checkin_points_min: checkinMin,
         checkin_points_max: checkinMax,
         checkin_milestones: checkinMilestones,
-        storage_quota_bytes: Math.round(Number(quotaMb) * 1024 * 1024),
-        storage_max_file_bytes: Math.round(Number(maxFileMb) * 1024 * 1024),
-        storage_enabled: storageEnabled,
-        newapi_trial_quota: Math.round(Number(trialQuotaUsd) * quotaPerUnit),
-        newapi_group: newapiGroup,
-        newapi_unlimited_quota: newapiUnlimited,
-        newapi_enabled: newapiEnabled,
-        newapi_visible_groups: newapiVisibleGroups,
         // JSON 字符串：后端对该键有专门分支（先解析再 sanitize），
         // 不走通用的「截断到 100 字」；空数组会序列化成 "[]" 正常写入。
         newapi_recommended_models: JSON.stringify(
@@ -2076,11 +1366,6 @@ export default function AdminPage() {
         ),
         download_android_url: downloadAndroidUrl.trim(),
         download_windows_url: downloadWindowsUrl.trim(),
-        tempbox_enabled: tempboxEnabled,
-        tempbox_default_minutes: Math.round(Number(tempboxMinutes) || 30),
-        tempbox_max_file_bytes: Math.round(Number(tempboxMaxFileMb) * 1024 * 1024),
-        tempbox_max_files: Math.round(Number(tempboxMaxFiles) || 20),
-        tempbox_upload_requires_login: tempboxUploadLogin,
         community_enabled: communityEnabled,
         chat_enabled: chatEnabled,
         community_guest_access: communityGuestAccess,
@@ -2097,48 +1382,12 @@ export default function AdminPage() {
         ...(postCategories.length > 0
           ? { post_categories: serializeCategories(postCategories) }
           : {}),
-        // 邀请码模块权限：基础 vs 受限，逗号分隔
-        invite_basic_features: Object.entries(inviteBasic)
-          .filter(([, on]) => on)
-          .map(([k]) => k)
-          .join(","),
-        // 免权限访问的模块，逗号分隔；全关时发空串（后端允许空串 = 全部按权限卡）
-        open_features: Object.entries(openFeatures)
-          .filter(([, on]) => on)
-          .map(([k]) => k)
-          .join(","),
-        // 首捐奖励券可兑换的模块，逗号分隔；全关时发空串（后端 = 一个都不给）
-        first_donation_voucher_features: Object.entries(firstDonationFeatures)
-          .filter(([, on]) => on)
-          .map(([k]) => k)
-          .join(","),
         // 限时开放注册：总开关 + 截止时间（本地时间转 ISO；留空 = 不自动关闭）
         open_registration: openRegistration,
         open_registration_until: fromLocalInput(openRegistrationUntil) ?? "",
         register_email_domains: registerEmailDomains,
         register_ip_daily_limit: registerIpDailyLimit,
-        temp_mailbox_refresh_daily_limit: Math.round(Number(tempMailboxRefreshLimit) || 0),
         risk_peak_per_minute_threshold: riskPeakThreshold,
-        // 自动审核的模块，逗号分隔；全关时发空串 = 全部转人工
-        auto_review_features: Object.entries(autoReview)
-          .filter(([, on]) => on)
-          .map(([k]) => k)
-          .join(","),
-        // 捐献是否授予对应权限（5 条通道各自独立）
-        donation_grant_ai: donationGrants.ai,
-        donation_grant_sensenova: donationGrants.sensenova,
-        donation_grant_proxy: donationGrants.proxy,
-        donation_grant_wb2api: donationGrants.wb2api,
-        donation_grant_qoder2api: donationGrants.qoder2api,
-        // 一键捐献节点的默认上架配置
-        // 可转授额度的模块，逗号分隔；全关时发空串（后端 = 一个都不发）
-        donation_transfer_features: Object.entries(donationQuotaFeatures)
-          .filter(([, on]) => on)
-          .map(([k]) => k)
-          .join(","),
-        // 自定义 AI 渠道捐献的 baseUrl 黑名单：空串 = 不启用（后端为它单开了保存分支，
-        // 通用分支会把空串当「不修改」跳过，导致清不掉）
-        donation_url_blocklist: donationUrlBlocklist,
         // 反代账号捐献通道
         wb2api_enabled: wb2apiEnabled,
         wb2api_donation_visible: wb2apiDonationVisible,
@@ -2161,16 +1410,12 @@ export default function AdminPage() {
         sensenova_base_url: sensenovaBaseUrl.trim(),
         // 空串是合法值（= 通道未配置、捐献转人工），要原样提交才能「清空」
         sensenova_channel_id: sensenovaChannelId.trim(),
-        newapi_free_plan_id: Math.max(0, Math.round(Number(newapiFreePlanId) || 0)),
         newapi_quota_per_unit: Math.max(1, Math.round(Number(quotaPerUnitInput) || 500000)),
-        invite_reward_enabled: inviteRewardEnabled,
-        invite_reward_plan_id: Math.max(0, Math.round(Number(inviteRewardPlanId) || 0)),
         invite_reward_ai_plan_id: Math.max(0, Math.round(Number(inviteRewardAiPlanId) || 0)),
         achievement_reward_enabled: achievementRewardEnabled,
         achievement_reward_plan_id: Math.max(0, Math.round(Number(achievementRewardPlanId) || 0)),
         achievement_reward_points: Math.max(1, Math.round(Number(achievementRewardPoints) || 10)),
         invite_quota_base: Math.max(0, Math.round(Number(inviteQuotaBase) || 0)),
-        proxy_enabled: proxyEnabled,
         feedback_admin_notify_email: feedbackNotifyEmail.trim(),
         // ---- 出站邮件通道 ----
         // 密钥留空则不更新（后端空串跳过，见 updateSettingsHandler），
@@ -2181,8 +1426,7 @@ export default function AdminPage() {
         posta_url: postaUrl.trim(),
         posta_key: postaKey.trim(),
         posta_from: postaFrom.trim(),
-        // brevo_api_key 不在这里提交：它的列表是「改完立刻生效」的，
-        // 且前端只有打码串、无法原样回传（见 saveBrevoKeys 的 keep:<n> 协议）。
+        // brevo_api_key 不在这里提交：明文永不回前端，前端只有打码串、无法原样回传。
         brevo_sender_email: brevoSenderEmail.trim(),
         brevo_sender_name: brevoSenderName.trim(),
       })
@@ -2192,382 +1436,6 @@ export default function AdminPage() {
       toast.error(err instanceof HttpError ? err.message : t("adm.41"))
     } finally {
       setSettingsBusy(false)
-    }
-  }
-
-  /**
-   * 保存 Brevo Key 列表（改完立刻生效，不等下面的「保存设置」）。
-   *
-   * 为什么用 keep:<n> 协议：明文永不回前端，前端拿不到「原 Key」，
-   * 只能用序号表示「保留第 n 把」，后端据此把原值取回来。
-   * 传空数组 = 一把都不留 ⇒ 后端清空全部。
-   */
-  const saveBrevoKeys = async (keepIndices: number[], newKeys: string[]) => {
-    const parts = [...keepIndices.map((i) => `keep:${i}`), ...newKeys]
-    setBrevoBusy(true)
-    try {
-      const res = await adminApi.updateSettings({ brevo_api_key: parts.join(",") })
-      setBrevoKeys(res.mailSecrets?.brevoKeys ?? [])
-      return true
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.42"))
-      return false
-    } finally {
-      setBrevoBusy(false)
-    }
-  }
-
-  const handleAddBrevoKey = async () => {
-    const added = brevoAddInput
-      .split(/[\s,;]+/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-    if (added.length === 0) {
-      toast.error(t("adm.43"))
-      return
-    }
-    const keep = brevoKeys.map((_, i) => i + 1)
-    if (await saveBrevoKeys(keep, added)) {
-      setBrevoAddInput("")
-      toast.success(t("adm.932", { v0: added.length }))
-    }
-  }
-
-  const handleRemoveBrevoKey = async (index1Based: number) => {
-    const keep = brevoKeys.map((_, i) => i + 1).filter((n) => n !== index1Based)
-    if (await saveBrevoKeys(keep, [])) toast.success(t("adm.44"))
-  }
-
-  /** 保存中转站重试次数（2026-10-17，用户 yuan 的反馈） */
-  const handleSaveRelayRetry = async () => {
-    const n = Number(relayRetryInput)
-    if (!Number.isInteger(n) || n < 0 || n > 10) {
-      toast.error(t("adm.retry.range"))
-      return
-    }
-    setRelayRetryBusy(true)
-    try {
-      const res = await adminApi.setRelayRetryTimes(n)
-      setRelayRetry({ available: true, retryTimes: res.retryTimes })
-      setRelayRetryInput(String(res.retryTimes))
-      toast.success(t("adm.retry.ok"))
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.retry.fail"))
-    } finally {
-      setRelayRetryBusy(false)
-    }
-  }
-
-  // ---- 中转站管理员凭据 ----
-
-  const loadNewApiConfig = React.useCallback(async () => {
-    setNewapiCredLoading(true)
-    try {
-      const res = await adminApi.getNewApiConfig()
-      setNewapiCred(res)
-      setNewapiUserId(res.adminUserId || "1")
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.47"))
-    } finally {
-      setNewapiCredLoading(false)
-    }
-    // 中转站重试次数：读不到不弹错、不影响上面的凭据卡片（对方版本可能没这一项）
-    try {
-      const r = await adminApi.getRelayRetryTimes()
-      setRelayRetry(r)
-      setRelayRetryInput(r.retryTimes === null ? "" : String(r.retryTimes))
-    } catch {
-      setRelayRetry({ available: false, retryTimes: null })
-    }
-    // 模型候选单独拉：失败只是没有下拉可选（降级为手输），不该弹错误打扰管理员
-    try {
-      const m = await adminApi.listNewApiModels()
-      setModelOptions(m.models)
-    } catch {
-      setModelOptions([])
-    }
-    // 订阅套餐列表同样单独拉、失败静默：它只是「点一下填 ID」的便利，
-    // 读不到就退化成手输，不该弹错误打扰管理员。
-    try {
-      const p = await adminApi.listSubscriptionPlans()
-      setSubPlans(p.plans)
-    } catch {
-      setSubPlans([])
-    }
-  }, [])
-
-  /**
-   * 给填进来的用户名批量发放订阅。
-   *
-   * 前端只做「非空 / 数字」这种一眼可见的校验，**真正的校验在服务端**：
-   * 用户名不存在、或用户还没开通中转站时，服务端整体 4xx 且一个订阅都不发 ——
-   * 所以这里失败分支只负责把服务端的原话展示出来。
-   */
-  const handleGrantSubscriptions = async () => {
-    const usernames = grantSubUsers.trim()
-    const planId = Number(grantSubPlanId)
-    const count = Number(grantSubCount)
-    if (!usernames) {
-      toast.error(t("adm.grantSub.needUsers"))
-      return
-    }
-    if (!Number.isInteger(planId) || planId <= 0) {
-      toast.error(t("adm.grantSub.needPlan"))
-      return
-    }
-    if (!Number.isInteger(count) || count < 1) {
-      toast.error(t("adm.grantSub.needCount"))
-      return
-    }
-    setGrantSubBusy(true)
-    setGrantSubResults([])
-    try {
-      const res = await adminApi.grantSubscriptions({ usernames, planId, count })
-      setGrantSubResults(res.results)
-      if (res.ok) {
-        toast.success(t("adm.grantSub.done").replace("{n}", String(res.granted)))
-      } else {
-        // 校验已过、但有人的订阅没发满（上游报错 / 撞限购）—— 逐人结果就在下面
-        toast.error(t("adm.grantSub.partial"))
-      }
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.grantSub.failed"))
-    } finally {
-      setGrantSubBusy(false)
-    }
-  }
-
-  // ---- 「付费」分组授权（2026-10-11 站长要求）----
-  //
-  // 与发放订阅是两件事：这里只让该用户在**建 Key 时能选到「付费」分组**，
-  // 永久有效、不发任何额度。真正的校验在服务端（用户名不存在 / 未开通中转站
-  // 会整体 4xx，零副作用），这里只负责把服务端的原话展示出来。
-
-  const loadPremiumGrants = React.useCallback(async () => {
-    setPremListBusy(true)
-    try {
-      const res = await adminApi.listPremiumGrants()
-      setPremGrants(res.grants)
-      setPremLoaded(true)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.prem.msg.loadFailed"))
-    } finally {
-      setPremListBusy(false)
-    }
-  }, [t])
-
-  const handleGrantPremium = async () => {
-    const usernames = premUsers.trim()
-    if (!usernames) {
-      toast.error(t("adm.prem.msg.needUsers"))
-      return
-    }
-    setPremBusy(true)
-    try {
-      const res = await adminApi.grantPremiumGroup({ usernames })
-      toast.success(
-        t("adm.prem.msg.granted")
-          .replace("{n}", String(res.granted))
-          .replace("{m}", String(res.existed))
-      )
-      setPremUsers("")
-      await loadPremiumGrants()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.prem.msg.grantFailed"))
-    } finally {
-      setPremBusy(false)
-    }
-  }
-
-  const handleRevokePremium = async (username: string) => {
-    setPremBusy(true)
-    try {
-      const res = await adminApi.revokePremiumGroup({ usernames: username })
-      if (res.revoked > 0) {
-        toast.success(t("adm.prem.msg.revoked").replace("{u}", username))
-      } else {
-        // 并发场景：别人刚取消过 —— 不报错，刷新一下名单即可
-        toast.success(t("adm.prem.msg.revoked").replace("{u}", username))
-      }
-      await loadPremiumGrants()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.prem.msg.revokeFailed"))
-    } finally {
-      setPremBusy(false)
-    }
-  }
-
-  // ---- WorkBuddy 反代账号捐献 ----
-
-  const loadWb2api = React.useCallback(async () => {
-    setWb2apiLoading(true)
-    try {
-      const cfg = await wb2apiApi.getConfig()
-      setWb2apiConfig(cfg)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.48"))
-    } finally {
-      setWb2apiLoading(false)
-    }
-    // 绑定列表与池概览各自容错：一个失败不该让整页空白。
-    // ⚠️ 2026-09-26：但失败要**提示**，不能静默置空 —— 否则管理员会把
-    // 「读取失败」误判成「确实没有绑定 / 池是空的」。
-    try {
-      const b = await wb2apiApi.listBindings()
-      setWb2apiBindings(b.bindings)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.49"))
-      setWb2apiBindings([])
-    }
-    try {
-      const p = await wb2apiApi.getPool()
-      setWb2apiPool(p.pool)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.50"))
-      setWb2apiPool(null)
-    }
-  }, [])
-
-  const handleSaveWb2apiKey = async () => {
-    const key = wb2apiNewKey.trim()
-    if (!key) {
-      toast.error(t("adm.51"))
-      return
-    }
-    setWb2apiBusy(true)
-    try {
-      const res = await wb2apiApi.saveConfig(key)
-      setWb2apiNewKey("") // 明文用完即弃，不留内存
-      toast.success(res.message || t("adm.52"))
-      void loadWb2api()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.53"))
-    } finally {
-      setWb2apiBusy(false)
-    }
-  }
-
-  const handleRemoveWb2apiBinding = async () => {
-    const b = wb2apiRemoving
-    if (!b) return
-    setWb2apiBusy(true)
-    try {
-      const res = await wb2apiApi.removeBinding(b.id, wb2apiRevokeAi)
-      toast.success(
-        res.aiRevoked
-          ? t("adm.54")
-          : t("adm.55")
-      )
-      if (res.upstreamWarning) {
-        toast.warning(t("adm.933", { v0: res.upstreamWarning }))
-      }
-      setWb2apiRemoving(null)
-      void loadWb2api()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.56"))
-    } finally {
-      setWb2apiBusy(false)
-    }
-  }
-
-  // ---- Qoder2API 反代账号捐献（第二条通道）----
-
-  const loadQoder2api = React.useCallback(async () => {
-    setQoder2apiLoading(true)
-    try {
-      const cfg = await qoder2apiApi.getConfig()
-      setQoder2apiConfig(cfg)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.57"))
-    } finally {
-      setQoder2apiLoading(false)
-    }
-    try {
-      const b = await qoder2apiApi.listBindings()
-      setQoder2apiBindings(b.bindings)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.58"))
-      setQoder2apiBindings([])
-    }
-    try {
-      const p = await qoder2apiApi.getPool()
-      setQoder2apiPool(p)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.59"))
-      setQoder2apiPool(null)
-    }
-  }, [])
-
-  const handleSaveQoder2apiKey = async () => {
-    const key = qoder2apiNewKey.trim()
-    if (!key) {
-      toast.error(t("adm.60"))
-      return
-    }
-    setQoder2apiBusy(true)
-    try {
-      await qoder2apiApi.saveConfig(key)
-      setQoder2apiNewKey("")
-      toast.success(t("adm.61"))
-      void loadQoder2api()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.62"))
-    } finally {
-      setQoder2apiBusy(false)
-    }
-  }
-
-  const handleRemoveQoder2apiBinding = async () => {
-    const b = qoder2apiRemoving
-    if (!b) return
-    setQoder2apiBusy(true)
-    try {
-      const res = await qoder2apiApi.removeBinding(b.id, qoder2apiRevokeAi)
-      toast.success(
-        res.aiRevoked
-          ? t("adm.63")
-          : t("adm.64")
-      )
-      if (res.upstreamWarning) {
-        toast.warning(t("adm.934", { v0: res.upstreamWarning }))
-      }
-      setQoder2apiRemoving(null)
-      void loadQoder2api()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.65"))
-    } finally {
-      setQoder2apiBusy(false)
-    }
-  }
-
-  const handleUpdateNewApiToken = async () => {
-    const token = newapiNewToken.trim()
-    if (!token) {
-      toast.error(t("adm.66"))
-      return
-    }
-    setNewapiCredBusy(true)
-    try {
-      const res = await adminApi.updateNewApiConfig({ token, adminUserId: newapiUserId })
-      setNewapiCred((prev) =>
-        prev
-          ? {
-              ...prev,
-              source: res.source,
-              maskedToken: res.maskedToken,
-              adminUserId: res.adminUserId,
-              updatedAt: res.updatedAt,
-              configured: true,
-            }
-          : prev
-      )
-      setNewapiNewToken("") // 明文用完即弃，不留内存
-      toast.success(res.message || t("adm.67"))
-      void loadNewApiConfig()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.68"))
-    } finally {
-      setNewapiCredBusy(false)
     }
   }
 
@@ -3072,246 +1940,6 @@ export default function AdminPage() {
     }
   }
 
-  // ---- R2 多桶 ----
-  const loadR2 = React.useCallback(async () => {
-    setR2Loading(true)
-    try {
-      const res = await r2AdminApi.buckets()
-      setR2Data(res)
-      // 顺带拉各桶的操作数（未配置 token 的会返回 configured:false）
-      const ops: Record<string, R2Operations> = {}
-      await Promise.all(
-        res.buckets
-          .filter((b) => b.id)
-          .map(async (b) => {
-            try {
-              ops[b.id] = await r2AdminApi.operations(b.id)
-            } catch {
-              // 忽略单桶失败，不影响整体
-            }
-          })
-      )
-      setR2Ops(ops)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.105"))
-    } finally {
-      setR2Loading(false)
-    }
-  }, [])
-
-  const openR2BucketDialog = (
-    bucket?: R2Bucket,
-    prefill?: { endpoint?: string; bucketName?: string }
-  ) => {
-    if (bucket) {
-      setR2EditId(bucket.id)
-      setR2Draft({
-        id: bucket.id,
-        name: bucket.name,
-        accountId: bucket.accountId ?? "",
-        endpoint: bucket.endpoint,
-        bucketName: bucket.bucketName,
-        accessKeyId: "",
-        secretAccessKey: "",
-        analyticsToken: "",
-        // 草稿单位 MB（库里存的是字节）
-        quotaPerUser: String(Math.round((bucket.quotaPerUser / 1024 / 1024) * 100) / 100),
-        // 桶容量草稿单位 GB
-        capacityBytes: String(Math.round((bucket.capacityBytes / 1024 / 1024 / 1024) * 100) / 100),
-        sortOrder: String(bucket.sortOrder),
-        kind: bucket.kind ?? "user",
-      })
-    } else {
-      setR2EditId(null)
-      setR2Draft({
-        id: "",
-        name: "",
-        accountId: "",
-        endpoint: prefill?.endpoint ?? "",
-        bucketName: prefill?.bucketName ?? "",
-        accessKeyId: "",
-        secretAccessKey: "",
-        analyticsToken: "",
-        quotaPerUser: "1024",
-        capacityBytes: "10",
-        sortOrder: "0",
-        kind: "user",
-      })
-      setR2Pick("")
-      // 新建时拉一次可选桶列表（用全局 token 自动发现）
-      void loadR2Discover()
-    }
-    setR2BucketOpen(true)
-  }
-
-  /** 用全局 token 拉取所有账户及其桶 */
-  const loadR2Discover = React.useCallback(async () => {
-    setR2DiscoverLoading(true)
-    try {
-      const res = await r2AdminApi.discover()
-      setR2Discovered(res)
-    } catch (err) {
-      setR2Discovered({
-        available: false,
-        reason: err instanceof HttpError ? err.message : t("adm.949"),
-        accounts: [],
-      })
-    } finally {
-      setR2DiscoverLoading(false)
-    }
-  }, [])
-
-  /** 选中某个「账户|桶」后自动填充 endpoint / 桶名 / 账户 ID / 默认名称 */
-  const handlePickBucket = (value: string) => {
-    setR2Pick(value)
-    const [accountId, bucketName] = value.split("|")
-    if (!accountId || !bucketName) return
-    const acc = r2Discovered?.accounts.find((a) => a.id === accountId)
-    setR2Draft((d) => ({
-      ...d,
-      accountId,
-      bucketName,
-      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-      // 名称/ id 建议值，用户可改
-      name: d.name || `${acc?.name ?? accountId.slice(0, 8)} / ${bucketName}`,
-      id: d.id || bucketName.replace(/[^a-z0-9_-]/gi, "").slice(0, 40),
-    }))
-  }
-
-  const handleSaveR2Bucket = async () => {
-    if (!r2Draft.name.trim() || !r2Draft.endpoint.trim() || !r2Draft.bucketName.trim()) {
-      toast.error(
-        r2Pick || r2EditId
-          ? t("adm.106")
-          : t("adm.107")
-      )
-      return
-    }
-    setR2Busy(true)
-    try {
-      const base = {
-        name: r2Draft.name,
-        accountId: r2Draft.accountId || undefined,
-        endpoint: r2Draft.endpoint,
-        bucketName: r2Draft.bucketName,
-        // 草稿是 MB，后端要字节
-        quotaPerUser: Math.round((Number(r2Draft.quotaPerUser) || 1024) * 1024 * 1024),
-        // 草稿是 GB，后端要字节
-        capacityBytes: Math.round((Number(r2Draft.capacityBytes) || 10) * 1024 * 1024 * 1024),
-        sortOrder: Number(r2Draft.sortOrder) || 0,
-      }
-      if (r2EditId) {
-        await r2AdminApi.update(r2EditId, {
-          ...base,
-          kind: r2Draft.kind,
-          // 留空表示不修改凭据
-          ...(r2Draft.accessKeyId ? { accessKeyId: r2Draft.accessKeyId } : {}),
-          ...(r2Draft.secretAccessKey ? { secretAccessKey: r2Draft.secretAccessKey } : {}),
-          ...(r2Draft.analyticsToken ? { analyticsToken: r2Draft.analyticsToken } : {}),
-        })
-        toast.success(t("adm.108"))
-      } else {
-        if (!r2Draft.id.trim()) {
-          toast.error(t("adm.109"))
-          setR2Busy(false)
-          return
-        }
-        await r2AdminApi.create({
-          ...base,
-          id: r2Draft.id,
-          kind: r2Draft.kind,
-          accessKeyId: r2Draft.accessKeyId,
-          secretAccessKey: r2Draft.secretAccessKey,
-          ...(r2Draft.analyticsToken ? { analyticsToken: r2Draft.analyticsToken } : {}),
-        })
-        toast.success(t("adm.110"))
-      }
-      setR2BucketOpen(false)
-      void loadR2()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.111"))
-    } finally {
-      setR2Busy(false)
-    }
-  }
-
-  const handleDeleteR2Bucket = async (id: string, name: string) => {
-    if (!confirm(t("adm.950", { v0: name }))) return
-    try {
-      await r2AdminApi.remove(id)
-      void loadR2()
-      toast.success(t("adm.112"))
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.113"))
-    }
-  }
-
-  const handleTestR2Bucket = async (id: string, write: boolean) => {
-    try {
-      const res = write ? await r2AdminApi.writeTest(id) : await r2AdminApi.test(id)
-      if (res.ok) toast.success(res.message ?? t("adm.114"))
-      else toast.error(res.error ?? t("adm.115"))
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.116"))
-    }
-  }
-
-  const handleAssignBucket = async (username: string, bucketId: string) => {
-    try {
-      await r2AdminApi.assign(username, bucketId)
-      void loadR2()
-      toast.success(t("adm.951", { v0: username, v1: bucketId || t("adm.120") }))
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.121"))
-    }
-  }
-
-  /** 把所有未分配用户一次性迁入某桶（接管 env 默认桶时用） */
-  const handleAssignAll = async (bucketId: string, bucketName: string) => {
-    if (
-      !confirm(
-        t("adm.952", { v0: bucketName }) +
-          t("adm.953")
-      )
-    )
-      return
-    try {
-      const res = await r2AdminApi.assignAll(bucketId)
-      void loadR2()
-      toast.success(t("adm.954", { v0: res.moved }))
-    } catch (err) {
-      if (err instanceof HttpError && err.code === "BUCKET_FULL") {
-        // 超上限：明确告知后可强制
-        if (confirm(t("adm.955", { v0: err.message }))) {
-          try {
-            const res = await r2AdminApi.assignAll(bucketId, true)
-            void loadR2()
-            toast.success(t("adm.956", { v0: res.moved }))
-          } catch (e2) {
-            toast.error(e2 instanceof HttpError ? e2.message : t("adm.122"))
-          }
-        }
-        return
-      }
-      toast.error(err instanceof HttpError ? err.message : t("adm.123"))
-    }
-  }
-
-  const handleRecalculate = async () => {
-    setSettingsBusy(true)
-    try {
-      const res = await adminApi.recalculateStorage()
-      toast.success(
-        t("adm.957", { v0: res.accounts, v1: formatBytes(res.totalBytes) })
-      )
-      await loadSettings()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.124"))
-    } finally {
-      setSettingsBusy(false)
-    }
-  }
-
   // 2026-10-08：搜索已改服务端（后端按用户名/邮箱/命名空间同口径过滤），
   // 这里不再做本地过滤 —— 旧写法在全量数据上过滤，分页后会对「当前页」重复过滤，
   // 口径一致所以结果相同，纯属浪费，删掉。
@@ -3330,10 +1958,6 @@ export default function AdminPage() {
       const res = await adminApi.getUser(username)
       setDetail(res)
       setNickDraft(res.user.nickname ?? "")
-      // 网盘配额草稿（MB，保留两位小数，够 512 MB / 1.5 GB 这种）
-      setStorageQuotaMbDraft(
-        res.storage ? String(Math.round((res.storage.quotaBytes / 1024 / 1024) * 100) / 100) : ""
-      )
       setDetailUser(username)
       // 「最近活动」懒加载状态随详情一起重置：首屏正好 20 条时大概率还有下一页
       setActivityExtra([])
@@ -3401,108 +2025,6 @@ export default function AdminPage() {
     }
   }
 
-  /**
-   * 保存单个用户的网盘配额（MB → 字节）。
-   *
-   * 为什么需要这个：`storage_accounts.quota_bytes` 是**开通那一刻写死的快照**，
-   * 改桶的「每人配额」只影响之后新开通的人，存量用户不会跟着变。
-   */
-  const handleSaveStorageQuota = async () => {
-    if (!detail?.storage) return
-    const mb = Number(storageQuotaMbDraft)
-    if (!Number.isFinite(mb) || mb <= 0) {
-      toast.error(t("adm.129"))
-      return
-    }
-    const bytes = Math.round(mb * 1024 * 1024)
-    // 配额低于已用量：不删已有文件，但用户传不了新东西 ⇒ 让站长确认
-    if (bytes < detail.storage.usedBytes) {
-      if (
-        !confirm(
-          t("adm.958", { v0: formatBytes(detail.storage.usedBytes), v1: formatBytes(bytes) }) +
-            t("adm.959")
-        )
-      ) {
-        return
-      }
-    }
-    setStorageQuotaBusy(true)
-    try {
-      await adminApi.updateStorageQuota(detail.user.username, bytes)
-      const res = await adminApi.getUser(detail.user.username)
-      setDetail(res)
-      toast.success(t("adm.130"))
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.131"))
-    } finally {
-      setStorageQuotaBusy(false)
-    }
-  }
-
-  /**
-   * 把存量用户的配额一次性刷成「所属桶的每人配额」。
-   *
-   * 先用前端已有的桶/用户数据算一遍预览，把「谁从多少改成多少」摆给站长看，再提交。
-   */
-  const handleSyncStorageQuota = async () => {
-    const buckets = (r2Data?.buckets ?? []).filter((b) => b.kind !== "platform")
-    if (buckets.length === 0) {
-      toast.error(t("adm.132"))
-      return
-    }
-    // 预览要跟后端口径一致：管理员被跳过，不能列进「会被改成多少」里误导站长
-    const isAdminRole = (r: string) => r === "admin" || r === "superadmin" || r === "root"
-    const preview: string[] = []
-    let adminCount = 0
-    for (const b of buckets) {
-      for (const u of b.users) {
-        if (isAdminRole(u.role)) {
-          adminCount++
-          continue
-        }
-        if (u.quotaBytes !== b.quotaPerUser) {
-          preview.push(`${u.username}：${formatBytes(u.quotaBytes)} → ${formatBytes(b.quotaPerUser)}`)
-        }
-      }
-    }
-    // 未纳入多桶的老用户（bucket_id 为空）会被刷成「默认存储配额」，也要一并预告
-    const defaultBytes = Math.round(Number(quotaMb) * 1024 * 1024)
-    for (const u of r2Data?.legacyBucket?.users ?? []) {
-      if (isAdminRole(u.role)) {
-        adminCount++
-        continue
-      }
-      if (u.quotaBytes !== defaultBytes) {
-        preview.push(
-          t("adm.960", { v0: u.username, v1: formatBytes(u.quotaBytes), v2: formatBytes(defaultBytes) })
-        )
-      }
-    }
-    const shown = preview.slice(0, 12)
-    const more = preview.length > shown.length ? t("adm.961", { v0: preview.length - shown.length }) : ""
-    const ok = confirm(
-      t("adm.962") +
-        t("adm.963", { v0: buckets.map((b) => `${b.name} ${formatBytes(b.quotaPerUser)}`).join("、") }) +
-        (preview.length ? shown.join("\n") + more : t("adm.964")) +
-        t("adm.965", { v0: adminCount })
-    )
-    if (!ok) return
-    setSyncQuotaBusy(true)
-    try {
-      const res = await adminApi.syncStorageQuota()
-      toast.success(
-        t("adm.966", { v0: res.updated }) +
-          (res.skippedAdmins ? t("adm.967", { v0: res.skippedAdmins }) : "") +
-          (res.overQuota ? t("adm.968", { v0: res.overQuota }) : "")
-      )
-      await loadR2()
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.133"))
-    } finally {
-      setSyncQuotaBusy(false)
-    }
-  }
-
   /** 切换邮箱验证 / 通知开关 */
   const handleToggleUserFlag = async (
     field: "emailVerified" | "notifyEnabled",
@@ -3533,6 +2055,38 @@ export default function AdminPage() {
       void load()
     } catch (err) {
       toast.error(err instanceof HttpError ? err.message : t("adm.139"))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 调整会员等级（2026-11-06）：运营兜底，允许下调（用户侧不可降）。
+   * 常规升级走用户自己的「积分」页（消耗积分），这里只处理补偿 / 纠错。
+   */
+  const handleSetMemberLevel = async (lv: number) => {
+    if (!detail) return
+    const cur = detail.user.memberLevel ?? 0
+    if (lv === cur) return
+    if (lv < cur) {
+      const ok = await confirmDialog({
+        title: t("adm.level.confirmDown", {
+          name: detail.user.username,
+          from: t(`lvl.${cur}`),
+          to: t(`lvl.${lv}`),
+        }),
+        danger: true,
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    try {
+      const res = await adminApi.updateUser(detail.user.username, { memberLevel: lv })
+      setDetail(res)
+      toast.success(t("adm.level.toast", { name: detail.user.username, to: t(`lvl.${lv}`) }))
+      void load()
+    } catch (err) {
+      toast.error(err instanceof HttpError ? err.message : t("adm.136"))
     } finally {
       setBusy(false)
     }
@@ -3623,35 +2177,7 @@ export default function AdminPage() {
     }
   }
 
-  /**
-   * 对齐该用户的中转站账号状态（启用 / 禁用）。
-   *
-   * 用途：商汤 Key 巡检收回 `ai` 权限时会连带**禁用**中转站账号；用户后来
-   * 重新捐到权限后审批会自动解禁，但**修复上线之前**被禁的账号仍是禁用的
-   * （用户 pillbox 就是这种历史遗留），需要在这里一键对齐。
-   *
-   * 方向由服务端判断（按「该不该有 ai 权限」），前端不做决定 —— 只传用户名，
-   * 避免全量同步撞满 Worker 的 subrequest 上限。
-   */
-  const handleSyncNewApi = async () => {
-    if (!detail) return
-    setNewapiSyncBusy(true)
-    try {
-      const res = await adminApi.syncNewApiPermissions({
-        username: detail.user.username,
-      })
-      toast.success(
-        t("adm.972", { v0: res.enabled, v1: res.disabled }) +
-          (res.errors.length ? t("adm.973", { v0: res.errors.length }) : "")
-      )
-      if (res.errors.length) console.warn(t("adm.974"), res.errors)
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : t("adm.143"))
-    } finally {
-      setNewapiSyncBusy(false)
-    }
-  }
-
+  
   /** 切换某用户的功能权限（管理员在成员详情里调整） */
   const handleTogglePermission = async (key: FeatureKey, value: boolean) => {
     if (!detail) return
@@ -3775,37 +2301,15 @@ export default function AdminPage() {
   /** 按栏目懒加载数据（初始直达 / 后退 / 前进时也要跑，所以挂在 useEffect 上） */
   const loadForTab = (v: string) => {
     if (v === "invites") void loadInvites()
-    if (v === "settings") {
-      void loadSettings()
-      // 「网盘配额」卡片里要展示/编辑每个桶的人数上限，所以设置页也要拉一次桶列表
-      void loadR2()
-    }
-    if (v === "mail") void loadSettings()
-    if (v === "proxy") void loadProxy()
+    if (v === "settings") void loadSettings()
     if (v === "reserved") void loadNickReserved()
-    if (v === "donations") { void loadDonations(); void loadWb2api() }
     if (v === "announcements") void loadAnnouncements()
     if (v === "events") void loadEvents()
     if (v === "inviteQuotas") void loadInviteQuotas()
-    if (v === "r2") void loadR2()
     if (v === "community") void loadCommunity()
-    if (v === "newapi") {
-      void loadSettings()
-      void loadNewApiConfig()
-      // 「付费」分组授权的名单（2026-10-11）—— 进这个标签页就拉一次，
-      // 免得管理员看到一个空列表还以为没人有权限
-      void loadPremiumGrants()
-    }
-    // 「捐献通道」一个选项卡里放三条通道（wb2api / qoder2api / 商汤），
-    // 三条的设置都走同一个 PUT /admin/settings ⇒ 进这个 tab 要一次把三方数据都拉齐
-    if (v === "wb2api") {
-      void loadWb2api()
-      void loadQoder2api()
-      void loadSettings()
-    }
   }
 
-  // 初始直达（/admin/r2 直接打开）与前进/后退都走这里：路由变了就按新栏目拉数据
+  // 初始直达（/admin/invites 直接打开）与前进/后退都走这里：路由变了就按新栏目拉数据
   React.useEffect(() => {
     loadForTab(activeTab)
     // loadForTab 引用的加载函数都是本组件内的 useCallback/普通函数，
@@ -3880,29 +2384,6 @@ export default function AdminPage() {
                   />
                 )}
               </NavGroup>
-              <NavGroup label={t("adm.220")} open={groupOpen("adm.220")} onToggle={() => toggleGroup("adm.220")}>
-                {canSeeTab("newapi") && <NavItem active={activeTab === "newapi"} icon={Sparkles} label={t("adm.221")} onClick={() => handleTabChange("newapi")} />}
-                {/* 游戏仓库：本 tab 的全部接口都在 collection 权限域下，
-                    可见性必须用 collection（tab key 是 games 但权限树没有它——
-                    见 canSeeTab 的「无映射栏目全放行」兜底与 relay 时代的同一坑） */}
-                {canSeeTab("collection") && (
-                  <NavItem
-                    active={activeTab === "games"}
-                    icon={Gamepad2}
-                    label={t("adm.games.tab")}
-                    onClick={() => handleTabChange("games")}
-                  />
-                )}
-                {/* 中转站入驻审核（2026-10-16 审核制）：批准 / 拒绝 / 停用。
-                    可见性复用 `newapi` 那一栏 —— 后端这三个接口都在
-                    `newapi.subscriptions` 权限域下（assertAdminScope），
-                    这里若只看 `relay`（权限树里没有这个大类）会变成「人人可见、点了全 403」。 */}
-                {/* 三条免审核捐献通道（wb2api / qoder2api / 商汤）合并在一个选项卡里 */}
-                {canSeeTab("wb2api") && <NavItem active={activeTab === "wb2api"} icon={Unplug} label={t("adm.222")} onClick={() => handleTabChange("wb2api")} />}
-                {canSeeTab("r2") && <NavItem active={activeTab === "r2"} icon={Database} label={t("adm.223")} onClick={() => handleTabChange("r2")} />}
-                {canSeeTab("proxy") && <NavItem active={activeTab === "proxy"} icon={Zap} label={t("adm.225")} onClick={() => handleTabChange("proxy")} />}
-
-              </NavGroup>
               <NavGroup label={t("adm.226")} open={groupOpen("adm.226")} onToggle={() => toggleGroup("adm.226")}>
                 {canSeeTab("announcements") && <NavItem active={activeTab === "announcements"} icon={Megaphone} label={t("adm.227")} onClick={() => handleTabChange("announcements")} />}
                 {canSeeTab("funLinks") && <NavItem active={activeTab === "funLinks"} icon={Compass} label={t("adm.228")} onClick={() => handleTabChange("funLinks")} />}
@@ -3928,15 +2409,6 @@ export default function AdminPage() {
                   />
                 )}
                 {canSeeTab("community") && <NavItem active={activeTab === "community"} icon={MessagesSquare} label={t("adm.231")} onClick={() => handleTabChange("community")} />}
-                {canSeeTab("donations") && (
-                  <NavItem
-                    active={activeTab === "donations"}
-                    icon={Heart}
-                    label={t("adm.232")}
-                    count={attention?.donations}
-                    onClick={() => handleTabChange("donations")}
-                  />
-                )}
                 {canSeeTab("feedback") && (
                   <NavItem
                     active={activeTab === "feedback"}
@@ -3952,9 +2424,7 @@ export default function AdminPage() {
                 {canSeeTab("cfQuota") && <NavItem active={activeTab === "cfQuota"} icon={Gauge} label={t("adm.237")} onClick={() => handleTabChange("cfQuota")} />}
                 {canSeeTab("perf") && <NavItem active={activeTab === "perf"} icon={Activity} label={t("perf.tab")} onClick={() => handleTabChange("perf")} />}
                 {canSeeTab("audit") && <NavItem active={activeTab === "audit"} icon={ScrollText} label={t("adm.238")} onClick={() => handleTabChange("audit")} />}
-                {canSeeTab("mail") && <NavItem active={activeTab === "mail"} icon={Mail} label={t("adm.239")} onClick={() => handleTabChange("mail")} />}
                 {canSeeTab("settings") && <NavItem active={activeTab === "settings"} icon={SlidersHorizontal} label={t("adm.240")} onClick={() => handleTabChange("settings")} />}
-                {canSeeTab("api") && <NavItem active={activeTab === "api"} icon={Webhook} label={t("adm.api.tab")} onClick={() => handleTabChange("api")} />}
                 {/* 权限管理：只有 root / superadmin 能进（后端守卫一致） */}
                 {(user?.role === "root" || user?.role === "superadmin") && (
                   <NavItem active={activeTab === "permissions"} icon={ShieldCheck} label={t("adm.perm.tab")} onClick={() => handleTabChange("permissions")} />
@@ -4056,15 +2526,14 @@ export default function AdminPage() {
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card">{t("adm.327")}</TableHead>
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card">{t("adm.328")}</TableHead>
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card">{t("adm.329")}</TableHead>
+                <TableHead className="sticky top-[56px] z-10 border-b bg-card">
+                  {t("adm.level.col")}
+                </TableHead>
                 {showRegisterIp && (
                   <TableHead className="sticky top-[56px] z-10 border-b bg-card">
                     {t("adm.registerIp")}
                   </TableHead>
                 )}
-                <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.330")}</TableHead>
-                <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.331")}</TableHead>
-                <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.333")}</TableHead>
-                <TableHead className="sticky top-[56px] z-10 border-b bg-card text-center">{t("adm.334")}</TableHead>
                 <TableHead className="sticky top-[56px] z-10 border-b bg-card">{t("adm.335")}</TableHead>
                 <TableHead className="sticky top-[56px] z-10 w-24 border-b bg-card" />
               </TableRow>
@@ -4077,7 +2546,7 @@ export default function AdminPage() {
                     <TableCell className="font-mono text-xs">
                       {u.uid != null ? fmtUid(u.uid) : "—"}
                     </TableCell>
-                    <TableCell colSpan={selectMode ? 11 : 10}>
+                    <TableCell colSpan={selectMode ? 9 : 8}>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-sm line-through">{u.username}</span>
                         <span className="text-xs">{u.email}</span>
@@ -4177,36 +2646,14 @@ export default function AdminPage() {
                       )}
                     </TableCell>
                   )}
-                  <TableCell className="text-center">
-                    <BoolMark on={u.storageEnabled} />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <BoolMark on={u.aiEnabled} />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <BoolMark on={u.proxyEnabled} />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <BoolMark on={u.profileEnabled} />
-                      {u.profileEnabled &&
-                        (() => {
-                          const url = profilePublicUrl(u.profileSlug, u.profileFqdn)
-                          return url ? (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-muted-foreground"
-                              asChild
-                              title={t("adm.244")}
-                            >
-                              <a href={url} target="_blank" rel="noopener noreferrer">
-                                <ExternalLink className="h-3.5 w-3.5" />
-                              </a>
-                            </Button>
-                          ) : null
-                        })()}
-                    </div>
+                  <TableCell>
+                    {(u.memberLevel ?? 0) > 0 ? (
+                      <Badge variant="outline" className="border-amber-500 text-amber-600">
+                        {t(`lvl.${u.memberLevel}`)}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{t("lvl.0")}</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {u.status === "active" ? (
@@ -4398,7 +2845,9 @@ export default function AdminPage() {
                             onClick={() => openInvitePerms(inv)}
                             title={t("adm.251")}
                           >
-                            {FEATURES.filter((f) => inv.permissions[f.key]).length ===
+                            {FEATURES.length === 0 ? (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            ) : FEATURES.filter((f) => inv.permissions[f.key]).length ===
                             FEATURES.length ? (
                               <Badge variant="secondary">{t("adm.346")}</Badge>
                             ) : FEATURES.filter((f) => inv.permissions[f.key]).length ===
@@ -4497,128 +2946,6 @@ export default function AdminPage() {
                   <ChevronRight className="ml-1 h-3.5 w-3.5" />
                 </Button>
               </div>
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="proxy">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              {t("adm.363")}
-            </p>
-            <Button
-              size="sm"
-              onClick={() => {
-                setProxyForm({
-                  id: "",
-                  name: "",
-                  region: "",
-                  url: "",
-                  protocol: "",
-                  status: "unknown",
-                  statusNote: "",
-                  enabled: true,
-                  sortOrder: "0",
-                  note: "",
-                })
-                setProxyOpen(true)
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              {t("adm.364")}
-            </Button>
-          </div>
-
-          {proxyLoading ? (
-            <LoadingBlock variant="list" />
-          ) : proxySubs.length === 0 ? (
-            <EmptyState
-              title={t("adm.257")}
-              description={t("adm.258")}
-            />
-          ) : (
-            <div className="rounded-lg border bg-card">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("adm.365")}</TableHead>
-                    <TableHead>{t("adm.366")}</TableHead>
-                    <TableHead>{t("adm.367")}</TableHead>
-                    <TableHead>{t("adm.368")}</TableHead>
-                    <TableHead>{t("adm.369")}</TableHead>
-                    <TableHead className="w-28" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {proxySubs.map((s) => (
-                    <TableRow key={s.id}>
-                      <TableCell className="text-sm">
-                        {s.name}
-                        {s.region && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            {s.region}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="max-w-[260px] truncate font-mono text-xs">
-                        {s.url}
-                      </TableCell>
-                      <TableCell className="text-xs">{s.protocol}</TableCell>
-                      <TableCell>
-                        {s.status === "online" ? (
-                          <Badge variant="success">{t("adm.370")}</Badge>
-                        ) : s.status === "offline" ? (
-                          <Badge variant="destructive">{t("adm.371")}</Badge>
-                        ) : s.status === "maintenance" ? (
-                          <Badge variant="secondary">{t("adm.372")}</Badge>
-                        ) : (
-                          <Badge variant="outline">{t("adm.373")}</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {s.enabled ? (
-                          <Badge variant="success">{t("adm.374")}</Badge>
-                        ) : (
-                          <Badge variant="secondary">{t("adm.375")}</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setProxyForm({
-                                id: s.id,
-                                name: s.name,
-                                region: s.region ?? "",
-                                url: s.url ?? "",
-                                protocol: s.protocol,
-                                status: s.status,
-                                statusNote: s.statusNote ?? "",
-                                enabled: s.enabled,
-                                sortOrder: String(s.sortOrder),
-                                note: s.note ?? "",
-                              })
-                              setProxyOpen(true)
-                            }}
-                          >
-                            {t("adm.376")}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={() => void handleDeleteProxy(s.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
             </div>
           )}
         </TabsContent>
@@ -4786,359 +3113,6 @@ export default function AdminPage() {
               <p className="text-xs text-muted-foreground">{t("adm.401")}</p>
             )}
           </div>
-        </TabsContent>
-
-        <TabsContent value="donations">
-          <div className="mb-4 flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              {t("adm.402")}
-            </p>
-            <Button variant="outline" size="sm" onClick={() => void loadDonations()}>
-              <RefreshCw className="h-4 w-4" />
-              {t("adm.403")}
-            </Button>
-          </div>
-
-          {/* 类别筛选（上层）：全部 / AI / 内网穿透 / 代理 / 商汤。
-              计数来自接口的 GROUP BY（donationCounts）—— 分页后当前页数据数不准 */}
-          <div className="mb-2 flex flex-wrap gap-2">
-            {DONATION_TYPE_FILTERS.map((f) => {
-              const n =
-                f.key === ""
-                  ? donationCounts?.[""]?.[""] ?? donations.length
-                  : donationCounts?.[f.key]?.[""] ?? donations.filter((d) => d.type === f.key).length
-              const active = donationTypeFilter === f.key
-              return (
-                <Button
-                  key={f.key || "all"}
-                  size="sm"
-                  variant={active ? "default" : "outline"}
-                  onClick={() => { setDonationTypeFilter(f.key); setDonationPage(0) }}
-                >
-                  {t(f.label)}
-                  <span className="ml-1.5 tabular-nums opacity-70">{n}</span>
-                </Button>
-              )
-            })}
-          </div>
-
-          {/* 状态分类（下层）：数字是「当前类别下」各状态的条数（同样来自 GROUP BY） */}
-          <div className="mb-4 flex flex-wrap gap-2">
-            {DONATION_FILTERS.map((f) => {
-              const n =
-                f.key === ""
-                  ? donationCounts?.[donationTypeFilter]?.[""] ?? filterDonationsByTypeAndStatus(donations, donationTypeFilter, "").length
-                  : donationCounts?.[donationTypeFilter]?.[f.key] ?? filterDonationsByTypeAndStatus(donations, donationTypeFilter, f.key).length
-              const active = donationFilter === f.key
-              return (
-                <Button
-                  key={f.key || "all"}
-                  size="sm"
-                  variant={active ? "default" : "outline"}
-                  onClick={() => { setDonationFilter(f.key); setDonationPage(0) }}
-                >
-                  {t(f.label)}
-                  <span className="ml-1.5 tabular-nums opacity-70">{n}</span>
-                </Button>
-              )
-            })}
-          </div>
-
-          {donationLoading ? (
-            <LoadingBlock variant="list" />
-          ) : donations.length === 0 ? (
-            <EmptyState
-              title={t("adm.269")}
-              description={t("adm.270")}
-            />
-          ) : (
-            <div className="space-y-3">
-              {donations.map((d) => (
-                <div key={d.id} className="rounded-lg border bg-card p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1.5">
-                      <p className="text-sm font-medium">
-                        {d.username}
-                        <Badge variant="outline" className="ml-2">
-                          {t(DONATION_LABEL[d.type] ?? d.type)}
-                        </Badge>
-                        <Badge
-                          variant={
-                            d.status === "pending"
-                              ? "secondary"
-                              : d.status === "approved"
-                                ? "success"
-                                : "destructive"
-                          }
-                          className="ml-2"
-                        >
-                          {d.status === "pending"
-                            ? t("adm.155")
-                            : d.status === "approved"
-                              ? d.autoReviewed
-                                ? t("adm.156")
-                                : t("adm.157")
-                              : d.status === "revoked"
-                                ? t("adm.158")
-                                : d.autoReviewed
-                                  ? t("adm.159")
-                                  : t("adm.160")}
-                        </Badge>
-                      </p>
-                      <DonationDetail type={d.type} payload={d.payload} />
-                      {(d.type === "ai" || d.type === "sensenova") && (
-                        <p className="text-xs text-muted-foreground">
-                          {d.status === "revoked"
-                            ? t("adm.161")
-                            : d.channelId !== null && d.channelId !== undefined
-                              ? t("adm.1010", { v0: d.channelId })
-                              : t("adm.162")}
-                          {d.autoReviewed && t("adm.1011")}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">{t("adm.1012", { v0: d.notifyEmail, v1: fmtTime(d.createdAt) })}</p>
-                      {d.remark && (
-                        <p className="text-xs text-muted-foreground">{t("adm.1013", { v0: d.remark })}</p>
-                      )}
-                      {d.reviewNote && (
-                        <p className="whitespace-pre-wrap text-xs text-muted-foreground">{t("adm.1014", { v0: d.reviewNote })}</p>
-                      )}
-                    </div>
-                    {d.status === "pending" && (
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => void handleReviewDonation(d, "approve")}
-                          disabled={donationBusy}
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          {t("adm.404")}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleReviewDonation(d, "reject")}
-                          disabled={donationBusy}
-                        >
-                          <XCircle className="h-3.5 w-3.5" />
-                          {t("adm.405")}
-                        </Button>
-                      </div>
-                    )}
-                    {(d.status === "rejected" || d.status === "revoked") && (
-                      <div className="flex shrink-0 items-center gap-2">
-                        {/* AI 渠道可以「先用原始信息重试接入」；代理/内网穿透没有
-                            {t("adm.406")}
-                            {t("adm.407")}
-                            这是管理员的人工兜底 —— 复核接入会重新校验并并入。 */}
-                        {(d.type === "ai" || d.type === "sensenova") && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleProvisionDonation(d)}
-                            disabled={donationBusy}
-                          >
-                            <PlugZap className="h-3.5 w-3.5" />
-                            {t("adm.408")}
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          onClick={() => void handleReviewDonation(d, "approve")}
-                          disabled={donationBusy}
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          {t("adm.409")}
-                        </Button>
-                      </div>
-                    )}
-                    {d.status === "approved" && (
-                      <div className="flex shrink-0 items-center gap-2">
-                        {/* 渠道已接入 → 才有「补全/重试」的对象。补全用于救
-                            {t("adm.410")}
-                            重试用于补回当时因限流/超时而没通过的模型。 */}
-                        {d.type === "ai" && d.channelId != null && (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleRefetchModels(d)}
-                              disabled={donationBusy}
-                            >
-                              <PlugZap className="h-3.5 w-3.5" />
-                              {t("adm.411")}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleRetryModels(d)}
-                              disabled={donationBusy}
-                            >
-                              <RefreshCw className="h-3.5 w-3.5" />
-                              {t("adm.412")}
-                            </Button>
-                          </>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-muted-foreground hover:text-destructive"
-                          onClick={() => void handleRevokeDonation(d)}
-                          disabled={donationBusy}
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                          {t("adm.413")}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* 服务端分页控件（2026-10-08，与用户列表同款）：total 来自接口 */}
-          {!donationLoading && donationTotal != null && donationTotal > DONATION_PAGE_SIZE && (
-            <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-              <span>
-                {t("adm.userPageInfo", {
-                  from: donationPage * DONATION_PAGE_SIZE + 1,
-                  to: Math.min((donationPage + 1) * DONATION_PAGE_SIZE, donationTotal),
-                  total: donationTotal,
-                })}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={donationPage === 0}
-                  onClick={() => setDonationPage((p) => Math.max(0, p - 1))}
-                >
-                  <ChevronLeft className="mr-1 h-3.5 w-3.5" />
-                  {t("adm.userPagePrev")}
-                </Button>
-                <span className="tabular-nums">
-                  {donationPage + 1} / {Math.ceil(donationTotal / DONATION_PAGE_SIZE)}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={(donationPage + 1) * DONATION_PAGE_SIZE >= donationTotal}
-                  onClick={() => setDonationPage((p) => p + 1)}
-                >
-                  {t("adm.userPageNext")}
-                  <ChevronRight className="ml-1 h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* 反代账号贡献：免审核通道，登录即生效，这里只做观察与摘除 */}
-          <div className="mt-6 border-t pt-6">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium">{t("adm.414")}</h3>
-                <p className="text-xs text-muted-foreground">
-                  {t("adm.415")}
-                </p>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => void loadWb2api()}>
-                <RefreshCw className="h-4 w-4" />
-                {t("adm.416")}
-              </Button>
-            </div>
-            {wb2apiBindings.length === 0 ? (
-              <EmptyState
-                icon={Unplug}
-                title={t("adm.273")}
-                description={t("adm.274")}
-              />
-            ) : (
-              <div className="divide-y rounded-md border">
-                {wb2apiBindings.map((b) => (
-                  <div
-                    key={b.id}
-                    className="flex flex-wrap items-center gap-2 px-4 py-3"
-                  >
-                    <span className="text-sm font-medium">{b.username}</span>
-                    <span className="text-sm">{b.nickname || b.uid}</span>
-                    <Badge variant="outline">{realmLabel(b.realm)}</Badge>
-                    <Badge variant={b.status === "active" ? "success" : "secondary"}>
-                      {b.status === "active" ? t("adm.1015") : t("adm.1016")}
-                    </Badge>
-                    <Badge variant={b.grantedAi ? "outline" : "secondary"}>
-                      {b.grantedAi ? t("adm.1017") : t("adm.1018")}
-                    </Badge>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {fmtTime(b.createdAt)}
-                    </span>
-                    {b.status === "active" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={() => {
-                          setWb2apiRevokeAi(b.grantedAi)
-                          setWb2apiRemoving(b)
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        {t("adm.417")}
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 审核理由弹窗 */}
-          <Dialog open={reviewTarget !== null} onOpenChange={(o) => !o && setReviewTarget(null)}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  {reviewTarget?.action === "approve" ? t("adm.1019") : t("adm.1020")}
-                </DialogTitle>
-                <DialogDescription>{t("adm.1021", { v0: reviewTarget?.donation.username, v1: reviewTarget?.action === "approve"
-                    ? t("adm.163")
-                    : t("adm.164"), v2: reviewTarget?.action === "approve" &&
-                    reviewTarget.donation.type === "ai" &&
-                    (reviewTarget.donation.channelId === null ||
-                      reviewTarget.donation.channelId === undefined) &&
-                    t("adm.1022") })}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-2">
-                <Label htmlFor="reviewNote">
-                  {reviewTarget?.action === "approve" ? t("adm.1023") : t("adm.1024")}
-                </Label>
-                <Textarea
-                  id="reviewNote"
-                  rows={3}
-                  placeholder={
-                    reviewTarget?.action === "reject"
-                      ? t("adm.165")
-                      : t("adm.166")
-                  }
-                  value={reviewNote}
-                  onChange={(e) => setReviewNote(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("adm.418")}
-                </p>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setReviewTarget(null)} disabled={donationBusy}>
-                  {t("adm.419")}
-                </Button>
-                <Button
-                  variant={reviewTarget?.action === "reject" ? "destructive" : "default"}
-                  onClick={() => void confirmReview()}
-                  disabled={donationBusy}
-                >
-                  {donationBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{t("adm.1025", { v0: reviewTarget?.action === "approve" ? t("adm.1026") : t("adm.1027") })}</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </TabsContent>
 
         <TabsContent value="feedback">
@@ -5409,339 +3383,6 @@ export default function AdminPage() {
           <PointsAdminPanel />
         </TabsContent>
 
-        <TabsContent value="r2">
-          <div className="mb-4 flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              {t("adm.426")}
-              {t("adm.427")}
-            </p>
-            <Button size="sm" onClick={() => openR2BucketDialog()}>
-              <Plus className="h-4 w-4" />
-              {t("adm.428")}
-            </Button>
-          </div>
-
-          {r2Loading ? (
-            <LoadingBlock variant="cards" />
-          ) : !r2Data || (r2Data.buckets.length === 0 && !r2Data.legacyBucket) ? (
-            <EmptyState
-              icon={Database}
-              title={t("adm.283")}
-              description={t("adm.284")}
-            />
-          ) : (
-            <div className="space-y-4">
-              {/* 免费额度图例 */}
-              <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">{t("adm.429")}</span>
-                <span>{t("adm.1042")}{formatBytes(r2Data.freeTier.storageBytes)}</span>
-                <span>{t("adm.1043")}{r2Data.freeTier.classAOps.toLocaleString()}</span>
-                <span>{t("adm.1044")}{r2Data.freeTier.classBOps.toLocaleString()}</span>
-              </div>
-
-              {/* 各桶卡片 */}
-              {[...r2Data.buckets, ...(r2Data.legacyBucket ? [r2Data.legacyBucket] : [])].map(
-                (b) => {
-                  const s = b.stats
-                  const capacityPct =
-                    s.capacityBytes > 0 ? Math.min((s.usedBytes / s.capacityBytes) * 100, 100) : 0
-                  const ops = b.id ? r2Ops[b.id] : undefined
-                  return (
-                    <Card key={b.id || "legacy"}>
-                      <CardHeader>
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <CardTitle className="flex items-center gap-2 text-base">
-                              <Database className="h-4 w-4 text-muted-foreground" />
-                              {b.name}
-                              {b.kind === "platform" && (
-                                <Badge variant="secondary">{t("adm.430")}</Badge>
-                              )}
-                              {!b.enabled && <Badge variant="secondary">{t("adm.1045")}</Badge>}
-                              {b.id === "" && <Badge variant="outline">{t("adm.1046")}</Badge>}
-                            </CardTitle>
-                            <CardDescription className="font-mono text-xs">
-                              {b.bucketName}
-                              {b.accountId ? ` · ${b.accountId.slice(0, 8)}…` : ""}
-                              {b.id === "" && t("adm.1047")}
-                            </CardDescription>
-                          </div>
-                          {b.id !== "" ? (
-                            <div className="flex items-center gap-1.5">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void handleTestR2Bucket(b.id, false)}
-                              >
-                                {t("adm.431")}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void handleTestR2Bucket(b.id, true)}
-                              >
-                                {t("adm.432")}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => openR2BucketDialog(b)}
-                                aria-label={t("adm.285")}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                onClick={() => void handleDeleteR2Bucket(b.id, b.name)}
-                                aria-label={t("adm.286")}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  openR2BucketDialog(undefined, {
-                                    endpoint: b.endpoint,
-                                    bucketName: b.bucketName,
-                                  })
-                                }
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                                {t("adm.433")}
-                              </Button>
-                              {r2Data.assignableBuckets.length > 0 && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    const first = r2Data.assignableBuckets[0]
-                                    void handleAssignAll(first.id, first.name)
-                                  }}
-                                >{t("adm.1048", { v0: r2Data.assignableBuckets[0].name })}</Button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        {/* 存储用量：占免费额度百分比 */}
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">{t("adm.434")}</span>
-                            <span className="font-medium">
-                              {formatBytes(s.usedBytes)}
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                / {formatBytes(r2Data.freeTier.storageBytes)}（
-                                {s.storagePercent.toFixed(1)}%）
-                              </span>
-                            </span>
-                          </div>
-                          <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                            <div
-                              className={`h-full rounded-full transition-all ${
-                                s.storagePercent > 85
-                                  ? "bg-destructive"
-                                  : s.storagePercent > 60
-                                    ? "bg-amber-500"
-                                    : "bg-primary"
-                              }`}
-                              style={{ width: `${s.storagePercent}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* 容量分配：仅用户网盘桶有意义（2026-10-17 起不再有「人数」这个概念） */}
-                        {b.kind !== "platform" && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">{t("adm.435")}</span>
-                              <span className="font-medium">
-                                {formatBytes(s.usedBytes)}
-                                <span className="ml-1 text-xs text-muted-foreground">
-                                  / {formatBytes(s.capacityBytes)}（{capacityPct.toFixed(1)}%）
-                                </span>
-                              </span>
-                            </div>
-                            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                              <div
-                                className="h-full rounded-full bg-emerald-500 transition-all"
-                                style={{ width: `${capacityPct}%` }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* 文件统计 */}
-                        {b.kind === "platform" ? (
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-md border px-3 py-2">
-                              <p className="text-xs text-muted-foreground">{t("adm.436")}</p>
-                              <p className="text-sm font-semibold">{t("adm.437")}</p>
-                            </div>
-                            <div className="rounded-md border px-3 py-2">
-                              <p className="text-xs text-muted-foreground">{t("adm.438")}</p>
-                              <p className="text-sm font-semibold">{s.fileCount}</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-md border px-3 py-2">
-                              <p className="text-xs text-muted-foreground">{t("adm.440")}</p>
-                              <p className="text-sm font-semibold">{s.fileCount}</p>
-                            </div>
-                            <div className="rounded-md border px-3 py-2">
-                              <p className="text-xs text-muted-foreground">{t("adm.441")}</p>
-                              <p className="text-sm font-semibold">
-                                {formatBytes(b.quotaPerUser)}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* A/B 类操作数 */}
-                        {b.id !== "" && (
-                          <div className="space-y-2 rounded-md border p-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-medium">{t("adm.443")}</span>
-                              {!ops?.configured && (
-                                <span className="text-xs text-muted-foreground">
-                                  {ops?.reason ?? t("adm.1049")}
-                                </span>
-                              )}
-                              {ops?.error && (
-                                <span className="text-xs text-destructive">
-                                  {ops.error.slice(0, 60)}
-                                </span>
-                              )}
-                            </div>
-                            {ops?.configured && !ops.error && (
-                              <>
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted-foreground">{t("adm.444")}</span>
-                                    <span>
-                                      {(ops.classA ?? 0).toLocaleString()} /{" "}
-                                      {ops.freeTier.classAOps.toLocaleString()}（
-                                      {(ops.classAPercent ?? 0).toFixed(1)}%）
-                                    </span>
-                                  </div>
-                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                                    <div
-                                      className={`h-full rounded-full ${
-                                        (ops.classAPercent ?? 0) > 85
-                                          ? "bg-destructive"
-                                          : "bg-primary"
-                                      }`}
-                                      style={{ width: `${ops.classAPercent ?? 0}%` }}
-                                    />
-                                  </div>
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted-foreground">{t("adm.445")}</span>
-                                    <span>
-                                      {(ops.classB ?? 0).toLocaleString()} /{" "}
-                                      {ops.freeTier.classBOps.toLocaleString()}（
-                                      {(ops.classBPercent ?? 0).toFixed(1)}%）
-                                    </span>
-                                  </div>
-                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                                    <div
-                                      className={`h-full rounded-full ${
-                                        (ops.classBPercent ?? 0) > 85
-                                          ? "bg-destructive"
-                                          : "bg-emerald-500"
-                                      }`}
-                                      style={{ width: `${ops.classBPercent ?? 0}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-
-                        {/* 用户列表 + 改派：只列「真的存了东西」的人（共享池，0 用量不显示） */}
-                        {b.users.filter((u) => u.usedBytes > 0).length > 0 && (
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground">
-                              {t("adm.446")}
-                            </p>
-                            <div className="divide-y rounded-md border">
-                              {b.users.filter((u) => u.usedBytes > 0).map((u) => (
-                                <div
-                                  key={u.userId}
-                                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                                >
-                                  <div className="flex min-w-0 items-center gap-2">
-                                    <span className="font-mono">{u.username}</span>
-                                    {!u.enabled && (
-                                      <Badge variant="secondary" className="text-xs">
-                                        {t("adm.447")}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    <span className="text-xs text-muted-foreground">{t("adm.1050", { v0: formatBytes(u.usedBytes), v1: formatBytes(u.quotaBytes), v2: " ", v3: u.fileCount })}</span>
-                                    {b.id !== "" && (
-                                      <>
-                                        <Select
-                                          value={assignTarget[u.username] ?? b.id}
-                                          onValueChange={(v) =>
-                                            setAssignTarget((p) => ({
-                                              ...p,
-                                              [u.username]: v,
-                                            }))
-                                          }
-                                        >
-                                          <SelectTrigger className="h-7 w-32 text-xs">
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {r2Data.assignableBuckets.map((ab) => (
-                                              <SelectItem key={ab.id} value={ab.id}>
-                                                {ab.name}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-7 text-xs"
-                                          onClick={() =>
-                                            void handleAssignBucket(
-                                              u.username,
-                                              assignTarget[u.username] ?? b.id
-                                            )
-                                          }
-                                        >
-                                          {t("adm.448")}
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  )
-                }
-              )}
-            </div>
-          )}
-        </TabsContent>
-
         <TabsContent value="community">
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <div className="relative max-w-xs flex-1">
@@ -5838,1248 +3479,6 @@ export default function AdminPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="newapi">
-          <div className="space-y-6">
-            {/* 管理员凭据：NewAPI 的「系统访问令牌」会被后台轮换，旧令牌立即失效，
-                这里允许直接在网页上验证并替换，不必重跑 wrangler secret put。 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.461")}</CardTitle>
-                <CardDescription>
-                  {t("adm.462")}
-                  {t("adm.463")}
-                  {t("adm.464")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {newapiCredLoading ? (
-                  <LoadingBlock variant="form" />
-                ) : (
-                  <>
-                    <div className="space-y-1 rounded-md border p-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">{t("adm.465")}</span>
-                        {newapiCred?.source === "db" ? (
-                          <Badge variant="secondary">{t("adm.466")}</Badge>
-                        ) : newapiCred?.source === "env" ? (
-                          <Badge variant="outline">{t("adm.467")}</Badge>
-                        ) : (
-                          <Badge variant="destructive">{t("adm.468")}</Badge>
-                        )}
-                        {newapiCred?.configured ? (
-                          <Badge variant="secondary">{t("adm.469")}</Badge>
-                        ) : (
-                          <Badge variant="destructive">{t("adm.470")}</Badge>
-                        )}
-                      </div>
-                      <p className="text-muted-foreground">{t("adm.1052", { v0: newapiCred?.baseUrl || t("adm.1053") })}</p>
-                      <p className="font-mono text-xs">{t("adm.1054", { v0: newapiCred?.maskedToken ?? t("adm.1055") })}</p>
-                      <p className="text-muted-foreground">{t("adm.1056", { v0: newapiCred?.adminUserId ?? "1", v1: newapiCred?.updatedAt
-                          ? t("adm.1057", { v0: new Date(newapiCred.updatedAt).toLocaleString("zh-CN") })
-                          : "" })}</p>
-                      {/* 真实探测一次管理接口：NewAPI 的令牌会被后台轮换，
-                          不主动测就只能等用户建 Key 时才发现已经失效 */}
-                      <p className="flex items-center gap-1.5">
-                        <span className="text-muted-foreground">{t("adm.471")}</span>
-                        {newapiCred?.health?.ok ? (
-                          <span className="flex items-center gap-1 text-emerald-600">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            {t("adm.472")}
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-destructive">
-                            <XCircle className="h-3.5 w-3.5" />
-                            {newapiCred?.health?.message || t("adm.1058")}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2 sm:col-span-2">
-                        <Label htmlFor="newapiNewToken">{t("adm.473")}</Label>
-                        <Input
-                          id="newapiNewToken"
-                          type="password"
-                          autoComplete="off"
-                          placeholder={t("adm.290")}
-                          value={newapiNewToken}
-                          onChange={(e) => setNewapiNewToken(e.target.value)}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          {t("adm.474")}
-                          {t("adm.475")}
-                        </p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="newapiAdminUserId">{t("adm.476")}</Label>
-                        <Input
-                          id="newapiAdminUserId"
-                          inputMode="numeric"
-                          value={newapiUserId}
-                          onChange={(e) => setNewapiUserId(e.target.value)}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          {t("adm.477")}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={() => void handleUpdateNewApiToken()}
-                        disabled={newapiCredBusy || !newapiNewToken.trim()}
-                      >
-                        {newapiCredBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {t("adm.478")}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 中转站「失败重试次数」= NewAPI 系统设置 RetryTimes。
-                用户反馈（yuan）想调它，但原本只能去对方后台手点 —— 这里做成站内入口。
-                写之前后端会先读一次确认该项存在，不存在就明确报错，绝不硬写猜的键名。 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.retry.title")}</CardTitle>
-                <CardDescription>{t("adm.retry.desc")}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {relayRetry?.available === false ? (
-                  <p className="text-sm text-muted-foreground">
-                    {relayRetry?.reason === "newapi_not_configured"
-                      ? t("adm.retry.notConfigured")
-                      : t("adm.retry.unavailable")}
-                  </p>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="relayRetryInput">{t("adm.retry.label")}</Label>
-                        <Input
-                          id="relayRetryInput"
-                          inputMode="numeric"
-                          className="w-28"
-                          value={relayRetryInput}
-                          onChange={(e) =>
-                            setRelayRetryInput(e.target.value.replace(/[^0-9]/g, ""))
-                          }
-                        />
-                      </div>
-                      <Button onClick={() => void handleSaveRelayRetry()} disabled={relayRetryBusy}>
-                        {relayRetryBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {t("common.save")}
-                      </Button>
-                      {relayRetry?.retryTimes !== null && relayRetry?.retryTimes !== undefined && (
-                        <span className="pb-2 text-xs text-muted-foreground">
-                          {t("adm.retry.current", { v0: String(relayRetry.retryTimes) })}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">{t("adm.retry.hint")}</p>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 开通策略：与原「设置」标签里的 AI 中转站卡片同一份状态 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.479")}</CardTitle>
-                <CardDescription>{t("adm.1059", { v0: " ", v1: settingsStats?.newapiAccounts ?? 0, v2: settingsStats?.newapiKeys ?? 0 })}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="trialQuota">{t("adm.1060", { v0: currencySymbol })}</Label>
-                    <Input
-                      id="trialQuota"
-                      type="number"
-                      min={0}
-                      step="0.5"
-                      value={trialQuotaUsd}
-                      onChange={(e) => setTrialQuotaUsd(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="newapiGroup">{t("adm.480")}</Label>
-                    <Input
-                      id="newapiGroup"
-                      value={newapiGroup}
-                      onChange={(e) => setNewapiGroup(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="newapiVisibleGroups">{t("adm.481")}</Label>
-                  <Input
-                    id="newapiVisibleGroups"
-                    value={newapiVisibleGroups}
-                    onChange={(e) => setNewapiVisibleGroups(e.target.value)}
-                    placeholder="default"
-                  />
-                  <p className="text-xs text-muted-foreground">{t("adm.1061", { v0: t("adm.482"), v1: t("adm.483") })}<span className="font-mono">default</span>{t("adm.1062", { v0: " " })}<span className="font-mono">{t("adm.1063")}</span>。
-                  </p>
-                </div>
-                <div className="flex items-center justify-between rounded-md border p-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.484")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.485")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={newapiUnlimited}
-                    onCheckedChange={setNewapiUnlimited}
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-md border p-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.486")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.487")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={newapiEnabled}
-                    onCheckedChange={setNewapiEnabled}
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    onClick={() => void handleSaveSettings()}
-                    disabled={settingsBusy}
-                  >
-                    {settingsBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t("adm.488")}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 推荐模型：用户在 AI 页看到的「第一梯队 / 第二梯队」就是这份 */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <CardTitle className="text-base">{t("adm.489")}</CardTitle>
-                    <CardDescription>
-                      {t("adm.490")}
-                      {t("adm.491")}
-                      {t("adm.492")}
-                    </CardDescription>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setRecommendedTiers((prev) => [
-                        ...prev,
-                        { tier: t("adm.1064", { v0: prev.length + 1 }), desc: "", models: [] },
-                      ])
-                    }
-                    disabled={recommendedTiers.length >= 8}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    {t("adm.493")}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {recommendedTiers.length === 0 ? (
-                  <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
-                    {t("adm.494")}
-                  </p>
-                ) : (
-                  recommendedTiers.map((tier, i) => (
-                    <div key={i} className="space-y-3 rounded-lg border p-3.5">
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">
-                          {i + 1}
-                        </span>
-                        <Input
-                          value={tier.tier}
-                          placeholder={t("adm.291")}
-                          maxLength={20}
-                          className="h-8 flex-1"
-                          onChange={(e) =>
-                            setRecommendedTiers((list) =>
-                              list.map((x, idx) =>
-                                idx === i ? { ...x, tier: e.target.value } : x
-                              )
-                            )
-                          }
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={() =>
-                            setRecommendedTiers((list) =>
-                              list.filter((_, idx) => idx !== i)
-                            )
-                          }
-                          title={t("adm.292")}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      <Input
-                        value={tier.desc}
-                        placeholder={t("adm.293")}
-                        maxLength={120}
-                        className="h-8 text-sm"
-                        onChange={(e) =>
-                          setRecommendedTiers((list) =>
-                            list.map((x, idx) =>
-                              idx === i ? { ...x, desc: e.target.value } : x
-                            )
-                          )
-                        }
-                      />
-
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap gap-1.5">
-                          {tier.models.length === 0 ? (
-                            <span className="text-xs text-muted-foreground">
-                              {t("adm.495")}
-                            </span>
-                          ) : (
-                            tier.models.map((m) => (
-                              <Badge
-                                key={m}
-                                variant="outline"
-                                className="gap-1 font-mono text-xs"
-                              >
-                                {m}
-                                <button
-                                  type="button"
-                                  className="text-muted-foreground hover:text-destructive"
-                                  onClick={() =>
-                                    setRecommendedTiers((list) =>
-                                      list.map((x, idx) =>
-                                        idx === i
-                                          ? {
-                                              ...x,
-                                              models: x.models.filter((mm) => mm !== m),
-                                            }
-                                          : x
-                                      )
-                                    )
-                                  }
-                                  aria-label={t("adm.1065", { v0: m })}
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </Badge>
-                            ))
-                          )}
-                        </div>
-                        {/* 候选来自中转站 pricing；拉不到时降级为手输 */}
-                        {modelOptions.length > 0 ? (
-                          <div className="flex gap-2">
-                            <Select
-                              value=""
-                              onValueChange={(m) =>
-                                setRecommendedTiers((list) =>
-                                  list.map((x, idx) =>
-                                    idx === i && !x.models.includes(m)
-                                      ? { ...x, models: [...x.models, m] }
-                                      : x
-                                  )
-                                )
-                              }
-                            >
-                              <SelectTrigger className="h-8 flex-1 text-xs">
-                                <SelectValue placeholder={t("adm.294")} />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {modelOptions
-                                  .filter((m) => !tier.models.includes(m))
-                                  .map((m) => (
-                                    <SelectItem key={m} value={m} className="font-mono text-xs">
-                                      {m}
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        ) : (
-                          <Input
-                            placeholder={t("adm.295")}
-                            className="h-8 font-mono text-xs"
-                            onKeyDown={(e) => {
-                              if (e.key !== "Enter") return
-                              e.preventDefault()
-                              const v = e.currentTarget.value.trim()
-                              if (!v) return
-                              setRecommendedTiers((list) =>
-                                list.map((x, idx) =>
-                                  idx === i && !x.models.includes(v)
-                                    ? { ...x, models: [...x.models, v] }
-                                    : x
-                                )
-                              )
-                              e.currentTarget.value = ""
-                            }}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-                {/* 推荐模型走的是同一个 handleSaveSettings（整个 newapi 标签页共用一份
-                    {t("adm.496")}
-                    就近入口。 */}
-                <div className="flex justify-end">
-                  <Button
-                    onClick={() => void handleSaveSettings()}
-                    disabled={settingsBusy}
-                  >
-                    {settingsBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t("adm.497")}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 手动发放订阅（2026-10-10 站长要求）：按用户名批量发放。
-                ⚠️ 服务端**先全量校验再动手** —— 有一个用户名不存在、或该用户还没开通
-                中转站，就整体报错、一个订阅都不发（不会留下「部分成功」要收尾）。 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.grantSub.title")}</CardTitle>
-                <CardDescription>{t("adm.grantSub.desc")}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="grantSubUsers">{t("adm.grantSub.users")}</Label>
-                  <Textarea
-                    id="grantSubUsers"
-                    rows={5}
-                    className="font-mono text-xs"
-                    placeholder={"alice\nbob\ncharlie"}
-                    value={grantSubUsers}
-                    onChange={(e) => setGrantSubUsers(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">{t("adm.grantSub.usersHint")}</p>
-                </div>
-
-                <div className="flex flex-wrap items-end gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="grantSubPlan">{t("adm.grantSub.plan")}</Label>
-                    <Input
-                      id="grantSubPlan"
-                      type="number"
-                      min={1}
-                      className="w-36"
-                      placeholder="1"
-                      value={grantSubPlanId}
-                      onChange={(e) => setGrantSubPlanId(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="grantSubCount">{t("adm.grantSub.count")}</Label>
-                    <Input
-                      id="grantSubCount"
-                      type="number"
-                      min={1}
-                      max={10}
-                      className="w-28"
-                      value={grantSubCount}
-                      onChange={(e) => setGrantSubCount(e.target.value)}
-                    />
-                  </div>
-                  <Button onClick={() => void handleGrantSubscriptions()} disabled={grantSubBusy}>
-                    {grantSubBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t("adm.grantSub.submit")}
-                  </Button>
-                </div>
-
-                {/* 可选套餐：点一下就把 ID 填进上面的输入框。读不到就整块不显示（退化手输） */}
-                {subPlans.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">{t("adm.grantSub.plansHint")}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {subPlans.map((p) => (
-                        <button
-                          key={p.planId}
-                          type="button"
-                          onClick={() => setGrantSubPlanId(String(p.planId))}
-                          className={`rounded-md border px-2 py-1 text-xs transition-colors hover:bg-accent ${
-                            String(p.planId) === grantSubPlanId ? "border-primary bg-accent" : ""
-                          }`}
-                        >
-                          <span className="font-mono">{p.planId}</span>
-                          {p.title && <span className="ml-1.5">{p.title}</span>}
-                          {p.maxPurchasePerUser > 0 && (
-                            <span className="ml-1.5 text-muted-foreground">
-                              {t("adm.grantSub.planLimit").replace(
-                                "{n}",
-                                String(p.maxPurchasePerUser)
-                              )}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {grantSubResults.length > 0 && (
-                  <div className="space-y-1.5 rounded-md border p-3 text-sm">
-                    {grantSubResults.map((r) => (
-                      <div key={r.username} className="flex flex-wrap items-center gap-2">
-                        {r.ok ? (
-                          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                        ) : (
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                        )}
-                        <span className="font-mono">{r.username}</span>
-                        <span className="text-muted-foreground">
-                          {t("adm.grantSub.granted").replace("{n}", String(r.granted))}
-                        </span>
-                        {r.message && (
-                          <span className="text-xs text-muted-foreground">{r.message}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 「付费」分组授权（2026-10-11 站长要求）—— 放在「手动发放订阅」旁边。
-                ⚠️ 与发放订阅是**两件事**：这里只授权「建 Key 时能选到付费分组」，
-                **永久有效、不发任何额度**。落库后由后端 group-sync 同步进 NewAPI
-                （约 60 秒一轮），所以点完授权不会立刻生效，稍等再看面板。 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.prem.title")}</CardTitle>
-                <CardDescription>{t("adm.prem.desc")}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="premUsers">{t("adm.prem.users")}</Label>
-                  <Textarea
-                    id="premUsers"
-                    rows={4}
-                    className="font-mono text-xs"
-                    placeholder={"alice\nbob"}
-                    value={premUsers}
-                    onChange={(e) => setPremUsers(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">{t("adm.prem.usersHint")}</p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => void handleGrantPremium()} disabled={premBusy}>
-                    {premBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t("adm.prem.grant")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => void loadPremiumGrants()}
-                    disabled={premListBusy}
-                  >
-                    {premListBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t("adm.prem.refresh")}
-                  </Button>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>{t("adm.prem.listTitle")}</Label>
-                  {premGrants.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {premLoaded ? t("adm.prem.empty") : t("adm.prem.notLoaded")}
-                    </p>
-                  ) : (
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>{t("adm.prem.colUser")}</TableHead>
-                            <TableHead>{t("adm.prem.colTime")}</TableHead>
-                            <TableHead>{t("adm.prem.colBy")}</TableHead>
-                            <TableHead className="text-right">
-                              {t("adm.prem.colAction")}
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {premGrants.map((g) => (
-                            <TableRow key={g.userId}>
-                              <TableCell className="font-mono">{g.username}</TableCell>
-                              <TableCell className="text-muted-foreground">
-                                {new Date(g.grantedAt).toLocaleString("zh-CN")}
-                              </TableCell>
-                              <TableCell className="text-muted-foreground">
-                                {g.grantedBy ?? "—"}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  disabled={premBusy}
-                                  onClick={() => void handleRevokePremium(g.username)}
-                                >
-                                  {t("adm.prem.revoke")}
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="wb2api">
-          <div className="space-y-6">
-            {/* 三条免审核捐献通道都在这一页：① 反代账号（wb2api）② Qoder2API ③ 商汤 Key。
-                每条通道自带「通道开关」（管功能）与「显示入口」（只管捐献页给不给看）。 */}
-            <p className="text-sm text-muted-foreground">{t("adm.1066")}<b className="font-medium">{t("adm.1067")}</b>{t("adm.1068", { v0: t("adm.498"), v1: t("adm.499"), v2: t("adm.500") })}</p>
-
-            {/* ① 反代账号（wb2api）：通道开关与限额，走全局设置接口 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.501")}</CardTitle>
-                <CardDescription>
-                  {t("adm.502")}
-                  {t("adm.503")}
-                  {t("adm.504")}
-                  {t("adm.505")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.506")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.507")}
-                    </p>
-                  </div>
-                  <Switch checked={wb2apiEnabled} onCheckedChange={setWb2apiEnabled} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.508")}</p>
-                    <p className="text-xs text-muted-foreground">{t("adm.1069")}<span className="font-medium">{t("adm.1070")}</span>{t("adm.1071", { v0: t("adm.509") })}</p>
-                  </div>
-                  <Switch
-                    checked={wb2apiDonationVisible}
-                    onCheckedChange={setWb2apiDonationVisible}
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="wb2apiLimit">{t("adm.510")}</Label>
-                    <Input
-                      id="wb2apiLimit"
-                      type="number"
-                      min={1}
-                      value={wb2apiMaxBindings}
-                      onChange={(e) => setWb2apiMaxBindings(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.511")}
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="wb2apiBaseUrl">{t("adm.512")}</Label>
-                    <Input
-                      id="wb2apiBaseUrl"
-                      placeholder="https://wb2api.doulor.cn"
-                      value={wb2apiBaseUrl}
-                      onChange={(e) => setWb2apiBaseUrl(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.513")}
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t("adm.514")}</Label>
-                    <Select
-                      value={wb2apiRealm}
-                      onValueChange={(v) => setWb2apiRealm(v as "cn" | "global")}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cn">{t("adm.515")}</SelectItem>
-                        <SelectItem value="global">{t("adm.516")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.517")}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.515")}</p>
-                    <p className="text-xs text-muted-foreground">{t("adm.wbRealmCnHint")}</p>
-                  </div>
-                  <Switch checked={wb2apiRealmCn} onCheckedChange={setWb2apiRealmCn} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.516")}</p>
-                    <p className="text-xs text-muted-foreground">{t("adm.wbRealmGlobalHint")}</p>
-                  </div>
-                  <Switch checked={wb2apiRealmGlobal} onCheckedChange={setWb2apiRealmGlobal} />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 网关访问密钥：反代网关面板的 api_key 可能被随时改，允许在网页上验证并替换 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.518")}</CardTitle>
-                <CardDescription>{t("adm.1072", { v0: realmLabel(wb2apiRealm), v1: t("adm.519"), v2: t("adm.520") })}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {wb2apiLoading ? (
-                  <LoadingBlock variant="list" />
-                ) : (
-                  <>
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <Badge
-                        variant={
-                          wb2apiConfig?.source === "db"
-                            ? "success"
-                            : wb2apiConfig?.source === "env"
-                              ? "secondary"
-                              : "destructive"
-                        }
-                      >
-                        {wb2apiConfig?.source === "db"
-                          ? t("adm.170")
-                          : wb2apiConfig?.source === "env"
-                            ? t("adm.171")
-                            : t("adm.172")}
-                      </Badge>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {wb2apiConfig?.maskedApiKey ?? t("adm.1073")}
-                      </span>
-                      {wb2apiConfig?.updatedAt && (
-                        <span className="text-xs text-muted-foreground">{t("adm.1074", { v0: fmtTime(wb2apiConfig.updatedAt) })}</span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="text-muted-foreground">{t("adm.521")}</span>
-                      <span className="font-mono text-xs">
-                        {wb2apiConfig?.baseUrl || t("adm.1075")}
-                      </span>
-                      <span className="text-muted-foreground">{t("adm.1076", { v0: wb2apiConfig?.enabled ? t("adm.1077") : t("adm.1078"), v1: wb2apiConfig?.limit ?? "-" })}</span>
-                    </div>
-
-                    {wb2apiConfig?.health && (
-                      <p
-                        className={
-                          "flex items-start gap-2 text-sm " +
-                          (wb2apiConfig.health.ok
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-destructive")
-                        }
-                      >
-                        {wb2apiConfig.health.ok ? (
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                        ) : (
-                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                        )}
-                        {wb2apiConfig.health.message}
-                      </p>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label htmlFor="wb2apiKey">{t("adm.522")}</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="wb2apiKey"
-                          type="password"
-                          placeholder={t("adm.296")}
-                          value={wb2apiNewKey}
-                          onChange={(e) => setWb2apiNewKey(e.target.value)}
-                        />
-                        <Button
-                          onClick={() => void handleSaveWb2apiKey()}
-                          disabled={wb2apiBusy || !wb2apiNewKey.trim()}
-                        >
-                          {wb2apiBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                          {t("adm.523")}
-                        </Button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 账号池概览：直接读网关的池状态，确认捐献的账号是否真的进池 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.524")}</CardTitle>
-                <CardDescription>
-                  {t("adm.525")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {!wb2apiPool ? (
-                  <p className="text-sm text-muted-foreground">
-                    {t("adm.526")}
-                  </p>
-                ) : (
-                  <>
-                    <div className="mb-4 flex flex-wrap gap-4 text-sm">
-                      <span>{t("adm.1079")}<span className="font-semibold">{wb2apiPool.total}</span>
-                      </span>
-                      <span className="text-emerald-600 dark:text-emerald-400">{t("adm.1080")}<span className="font-semibold">{wb2apiPool.healthy}</span>
-                      </span>
-                      <span className="text-amber-600 dark:text-amber-400">{t("adm.1081")}<span className="font-semibold">{wb2apiPool.cooling}</span>
-                      </span>
-                      <span className="text-muted-foreground">{t("adm.1082")}<span className="font-semibold">{wb2apiPool.disabled}</span>
-                      </span>
-                    </div>
-                    {wb2apiPool.accounts.length > 0 && (
-                      <div className="divide-y rounded-md border">
-                        {wb2apiPool.accounts.map((a) => (
-                          <div
-                            key={a.uid}
-                            className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm"
-                          >
-                            <span>{a.nickname || a.uid}</span>
-                            {a.realm && <Badge variant="outline">{realmLabel(a.realm)}</Badge>}
-                            <span className="ml-auto font-mono text-xs text-muted-foreground">
-                              {typeof a.credits === "number" ? t("adm.1083", { v0: a.credits }) : ""}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 绑定列表：谁捐了哪个账号，可摘除 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.1084", { v0: wb2apiBindings.length })}</CardTitle>
-                {/* 失效账号处理（2026-10-10）：上游把账号判死（如 11140）时需要通知捐献者重新登录 */}
-                <div className="flex flex-wrap items-center gap-2 pt-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={wbInvalidBusy}
-                    onClick={() => void scanWbInvalid()}
-                  >
-                    {t("adm.wbInvalidScan")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={wbInvalidBusy}
-                    onClick={() => void notifyWbInvalid()}
-                  >
-                    {t("adm.wbInvalidNotify")}
-                  </Button>
-                  <span className="text-xs text-muted-foreground">{t("adm.wbInvalidHint")}</span>
-                </div>
-                <CardDescription>
-                  {t("adm.527")}
-                  {t("adm.528")}
-                  {t("adm.529")}
-                  {t("adm.530")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {wb2apiBindings.length === 0 ? (
-                  <EmptyState
-                    icon={Unplug}
-                    title={t("adm.297")}
-                    description={t("adm.298")}
-                  />
-                ) : (
-                  <div className="divide-y rounded-md border">
-                    {wb2apiBindings.map((b) => (
-                      <div
-                        key={b.id}
-                        className="flex flex-wrap items-center gap-2 px-4 py-3"
-                      >
-                        <span className="text-sm font-medium">{b.username}</span>
-                        <span className="text-sm">{b.nickname || b.uid}</span>
-                        <Badge variant={b.status === "active" ? "success" : "secondary"}>
-                          {b.status === "active" ? t("adm.1085") : t("adm.1086")}
-                        </Badge>
-                        <Badge variant={b.grantedAi ? "outline" : "secondary"}>
-                          {b.grantedAi ? t("adm.1087") : t("adm.1088")}
-                        </Badge>
-                        <span className="ml-auto text-xs text-muted-foreground">
-                          {fmtTime(b.createdAt)}
-                        </span>
-                        {b.status === "active" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-muted-foreground hover:text-destructive"
-                            onClick={() => {
-                              // 默认勾选 = 服务端的自动判定结果（无其他依据则收回）
-                              setWb2apiRevokeAi(b.grantedAi)
-                              setWb2apiRemoving(b)
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            {t("adm.531")}
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            {/* ============ 第二条通道：Qoder2API ============
-                {t("adm.532")}
-                同一个选项卡**里，所以这里不再是 <TabsContent>，只是同一页里的一段。
-                别再拆成兄弟 tab（2026-10-01 合并，站长要求）。 */}
-            {/* 通道开关 / 上限 / provider / region：走全局设置接口 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.533")}</CardTitle>
-                <CardDescription>
-                  {t("adm.534")}
-                  {t("adm.535")}
-                  {t("adm.536")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.537")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.538")}
-                    </p>
-                  </div>
-                  <Switch checked={qoder2apiEnabled} onCheckedChange={setQoder2apiEnabled} />
-                </div>
-                {/* 允许用户自选的版本（与 wb 卡的两个开关同款）：关掉的版本在捐献页隐藏 */}
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.q2RealmCn")}</p>
-                    <p className="text-xs text-muted-foreground">{t("adm.q2RealmCnHint")}</p>
-                  </div>
-                  <Switch checked={qoder2apiRealmCn} onCheckedChange={setQoder2apiRealmCn} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.q2RealmIntl")}</p>
-                    <p className="text-xs text-muted-foreground">{t("adm.q2RealmIntlHint")}</p>
-                  </div>
-                  <Switch checked={qoder2apiRealmIntl} onCheckedChange={setQoder2apiRealmIntl} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.539")}</p>
-                    <p className="text-xs text-muted-foreground">{t("adm.1089")}<span className="font-medium">{t("adm.1090")}</span>{t("adm.1091", { v0: t("adm.540") })}</p>
-                  </div>
-                  <Switch
-                    checked={qoder2apiDonationVisible}
-                    onCheckedChange={setQoder2apiDonationVisible}
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="qoder2apiLimit">{t("adm.541")}</Label>
-                    <Input
-                      id="qoder2apiLimit"
-                      type="number"
-                      min={1}
-                      value={qoder2apiMaxBindings}
-                      onChange={(e) => setQoder2apiMaxBindings(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="qoder2apiBaseUrl">{t("adm.542")}</Label>
-                    <Input
-                      id="qoder2apiBaseUrl"
-                      placeholder="https://qoder2api.doulor.cn"
-                      value={qoder2apiBaseUrl}
-                      onChange={(e) => setQoder2apiBaseUrl(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">{t("adm.543")}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="qoder2apiRealm">{t("adm.546")}</Label>
-                    <Select
-                      value={qoder2apiRealm}
-                      onValueChange={(v) => setQoder2apiRealm(v)}
-                    >
-                      <SelectTrigger id="qoder2apiRealm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cn">{t("adm.547")}</SelectItem>
-                        <SelectItem value="intl">{t("adm.548")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.549")}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* console key：会先探测再加密入库 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.550")}</CardTitle>
-                <CardDescription>
-                  <span className="text-destructive">{t("adm.551")}</span>
-                  {t("adm.552")}
-                  {t("adm.553")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {qoder2apiLoading ? (
-                  <LoadingBlock variant="list" />
-                ) : (
-                  <>
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <Badge
-                        variant={
-                          qoder2apiConfig?.source === "db"
-                            ? "success"
-                            : qoder2apiConfig?.source === "env"
-                              ? "secondary"
-                              : "destructive"
-                        }
-                      >
-                        {qoder2apiConfig?.source === "db"
-                          ? t("adm.173")
-                          : qoder2apiConfig?.source === "env"
-                            ? t("adm.174")
-                            : t("adm.175")}
-                      </Badge>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {qoder2apiConfig?.maskedKey ?? t("adm.1092")}
-                      </span>
-                      {qoder2apiConfig?.updatedAt && (
-                        <span className="text-xs text-muted-foreground">{t("adm.1093", { v0: fmtTime(qoder2apiConfig.updatedAt) })}</span>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="qoder2apiKey">{t("adm.554")}</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="qoder2apiKey"
-                          type="password"
-                          placeholder={t("adm.299")}
-                          value={qoder2apiNewKey}
-                          onChange={(e) => setQoder2apiNewKey(e.target.value)}
-                        />
-                        <Button
-                          onClick={() => void handleSaveQoder2apiKey()}
-                          disabled={qoder2apiBusy || !qoder2apiNewKey.trim()}
-                        >
-                          {qoder2apiBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                          {t("adm.555")}
-                        </Button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 账号池概览 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.556")}</CardTitle>
-                <CardDescription>
-                  {t("adm.557")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {!qoder2apiPool ? (
-                  <p className="text-sm text-muted-foreground">
-                    {t("adm.558")}
-                  </p>
-                ) : !qoder2apiPool.available ? (
-                  <p className="text-sm text-destructive">{qoder2apiPool.reason}</p>
-                ) : qoder2apiPool.accounts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t("adm.559")}</p>
-                ) : (
-                  <div className="divide-y rounded-md border">
-                    {qoder2apiPool.accounts.map((a) => (
-                      <div key={a.id} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
-                        <span className="font-medium">{a.name}</span>
-                        <Badge variant="outline">
-                          {realmLabel(a.realm)}
-                        </Badge>
-                        <Badge variant={a.enabled ? "success" : "secondary"}>
-                          {a.enabled ? t("adm.1094") : t("adm.1095")}
-                        </Badge>
-                        {a.ready && <Badge variant="success">{t("adm.1096")}</Badge>}
-                        <span className="ml-auto font-mono text-xs text-muted-foreground">
-                          {a.id}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 绑定列表 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.1097", { v0: qoder2apiBindings.length })}</CardTitle>
-                <CardDescription>
-                  {t("adm.560")}
-                  {t("adm.561")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {qoder2apiBindings.length === 0 ? (
-                  <EmptyState
-                    icon={Unplug}
-                    title={t("adm.300")}
-                    description={t("adm.301")}
-                  />
-                ) : (
-                  <div className="divide-y rounded-md border">
-                    {qoder2apiBindings.map((b) => (
-                      <div key={b.id} className="flex flex-wrap items-center gap-2 px-4 py-3">
-                        <span className="text-sm font-medium">{b.username}</span>
-                        <span className="text-sm">{b.nickname || b.accountId}</span>
-                        <Badge variant="outline">
-                          {realmLabel(b.realm)}
-                        </Badge>
-                        <Badge variant={b.status === "active" ? "success" : "secondary"}>
-                          {b.status === "active" ? t("adm.1098") : t("adm.1099")}
-                        </Badge>
-                        <span className="ml-auto text-xs text-muted-foreground">
-                          {fmtTime(b.createdAt)}
-                        </span>
-                        {b.status === "active" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-muted-foreground hover:text-destructive"
-                            onClick={() => {
-                              setQoder2apiRevokeAi(false)
-                              setQoder2apiRemoving(b)
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            {t("adm.562")}
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* ============ 第三条通道：商汤 Key ============
-                {t("adm.563")}
-                （上游地址与「并入哪个渠道」都做成可配置）。 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.564")}</CardTitle>
-                <CardDescription>
-                  {t("adm.565")}
-                  {t("adm.566")}
-                  {t("adm.567")}
-                  {t("adm.568")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.569")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.570")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={sensenovaEnabled}
-                    onCheckedChange={setSensenovaEnabled}
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.571")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.572")}
-                      {t("adm.573")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={sensenovaDonationVisible}
-                    onCheckedChange={setSensenovaDonationVisible}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sensenovaBaseUrl">{t("adm.574")}</Label>
-                  <Input
-                    id="sensenovaBaseUrl"
-                    placeholder="https://token.sensenova.cn"
-                    value={sensenovaBaseUrl}
-                    onChange={(e) => setSensenovaBaseUrl(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.575")}
-                    {t("adm.576")}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sensenovaChannelId">{t("adm.577")}</Label>
-                  <Input
-                    id="sensenovaChannelId"
-                    inputMode="numeric"
-                    placeholder={t("adm.302")}
-                    value={sensenovaChannelId}
-                    onChange={(e) => setSensenovaChannelId(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.578")}
-                    {t("adm.579")}
-                    {t("adm.580")}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 三条通道的「开关 / 地址 / 上限」都走同一个 PUT /admin/settings，
-                所以整页只留一个保存按钮 —— 免得出现三个「保存」而不知道到底存了什么。 */}
-            <Card>
-              <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
-                <p className="text-xs text-muted-foreground">
-                  {t("adm.581")}
-                </p>
-                <Button onClick={() => void handleSaveSettings()} disabled={settingsBusy}>
-                  {settingsBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {t("adm.582")}
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
         <TabsContent value="oauth">
           <OAuthAdminPanel />
         </TabsContent>
@@ -7098,10 +3497,6 @@ export default function AdminPage() {
 
         <TabsContent value="audit">
           <AuditPanel />
-        </TabsContent>
-
-        <TabsContent value="games">
-          <GamesTab />
         </TabsContent>
 
         <TabsContent value="settings">
@@ -7166,79 +3561,6 @@ export default function AdminPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">{t("adm.588")}</CardTitle>
-                  <CardDescription>{t("adm.1100", { v0: t("adm.589"), v1: t("adm.590"), v2: settingsStats?.storageAccounts ?? 0, v3: formatBytes(settingsStats?.storageUsedBytes ?? 0) })}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="storageQuota">{t("adm.591")}</Label>
-                      <Input
-                        id="storageQuota"
-                        type="number"
-                        min={1}
-                        value={quotaMb}
-                        onChange={(e) => setQuotaMb(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="maxFile">{t("adm.592")}</Label>
-                      <Input
-                        id="maxFile"
-                        type="number"
-                        min={1}
-                        value={maxFileMb}
-                        onChange={(e) => setMaxFileMb(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{t("adm.593")}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("adm.594")}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={storageEnabled}
-                      onCheckedChange={setStorageEnabled}
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleSyncStorageQuota()}
-                      disabled={syncQuotaBusy}
-                    >
-                      {syncQuotaBusy ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      )}
-                      {t("adm.601")}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleRecalculate()}
-                      disabled={settingsBusy}
-                    >
-                      {settingsBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      {t("adm.602")}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      {t("adm.603")}
-                      {t("adm.604")}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
                   <CardTitle className="text-base">{t("adm.downloadTitle")}</CardTitle>
                   <CardDescription>{t("adm.downloadDesc")}</CardDescription>
                 </CardHeader>
@@ -7269,97 +3591,7 @@ export default function AdminPage() {
               </Card>
 
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.610")}</CardTitle>
-                  <CardDescription>
-                    {t("adm.611")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="tempboxMinutes">{t("adm.612")}</Label>
-                      <Input
-                        id="tempboxMinutes"
-                        type="number"
-                        min={1}
-                        value={tempboxMinutes}
-                        onChange={(e) => setTempboxMinutes(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="tempboxMaxFile">{t("adm.613")}</Label>
-                      <Input
-                        id="tempboxMaxFile"
-                        type="number"
-                        min={1}
-                        value={tempboxMaxFileMb}
-                        onChange={(e) => setTempboxMaxFileMb(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="tempboxMaxFiles">{t("adm.614")}</Label>
-                      <Input
-                        id="tempboxMaxFiles"
-                        type="number"
-                        min={1}
-                        value={tempboxMaxFiles}
-                        onChange={(e) => setTempboxMaxFiles(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{t("adm.615")}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("adm.616")}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={tempboxUploadLogin}
-                      onCheckedChange={setTempboxUploadLogin}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{t("adm.617")}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("adm.618")}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={tempboxEnabled}
-                      onCheckedChange={setTempboxEnabled}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.tempMailbox")}</CardTitle>
-                  <CardDescription>
-                    {t("adm.tempMailboxHint")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="tempMailboxRefreshLimit">{t("adm.tempMailboxRefreshLimit")}</Label>
-                    <Input
-                      id="tempMailboxRefreshLimit"
-                      type="number"
-                      min={0}
-                      className="w-32"
-                      value={tempMailboxRefreshLimit}
-                      onChange={(e) => setTempMailboxRefreshLimit(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.tempMailboxRefreshLimitHint")}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
 
               <Card>
                 <CardHeader>
@@ -7630,191 +3862,8 @@ export default function AdminPage() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.640")}</CardTitle>
-                  <CardDescription>
-                    {t("adm.641")}
-                    {t("adm.642")}
-                    {t("adm.643")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {Object.keys(inviteBasic).map((f) => (
-                    <div
-                      key={f}
-                      className="flex items-center justify-between rounded-md border p-3"
-                    >
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium">
-                          {t(FEATURE_LABELS[f as FeatureKey] ?? f)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {inviteBasic[f]
-                            ? t("adm.178")
-                            : t("adm.179")}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={inviteBasic[f] ?? false}
-                        onCheckedChange={(v) =>
-                          setInviteBasic((prev) => ({ ...prev, [f]: v }))
-                        }
-                      />
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.644")}
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.firstDonation.title")}</CardTitle>
-                  <CardDescription>{t("adm.firstDonation.desc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {Object.keys(firstDonationFeatures).map((f) => (
-                    <div
-                      key={f}
-                      className="flex items-center justify-between rounded-md border p-3"
-                    >
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium">
-                          {t(FEATURE_LABELS[f as FeatureKey] ?? f)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {firstDonationFeatures[f]
-                            ? t("adm.firstDonation.on")
-                            : t("adm.firstDonation.off")}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={firstDonationFeatures[f] ?? false}
-                        onCheckedChange={(v) =>
-                          setFirstDonationFeatures((prev) => ({ ...prev, [f]: v }))
-                        }
-                      />
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.firstDonation.hint")}
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.645")}</CardTitle>
-                  <CardDescription>
-                    {t("adm.646")}
-                    {t("adm.647")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {Object.keys(openFeatures).map((f) => (
-                    <div
-                      key={f}
-                      className="flex items-center justify-between rounded-md border p-3"
-                    >
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium">
-                          {t(FEATURE_LABELS[f as FeatureKey] ?? f)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {openFeatures[f]
-                            ? t("adm.180")
-                            : t("adm.181")}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={openFeatures[f] ?? false}
-                        onCheckedChange={(v) =>
-                          setOpenFeatures((prev) => ({ ...prev, [f]: v }))
-                        }
-                      />
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.648")}
-                    {t("adm.649")}
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.650")}</CardTitle>
-                  <CardDescription>
-                    {t("adm.651")}
-                    {t("adm.652")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {Object.keys(autoReview).map((f) => (
-                    <div
-                      key={f}
-                      className="flex items-center justify-between rounded-md border p-3"
-                    >
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium">
-                          {t(FEATURE_LABELS[f as FeatureKey] ?? f)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {f === "ai"
-                            ? t("adm.182")
-                            : f === "proxy"
-                              ? t("adm.183")
-                              : t("adm.184")}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={autoReview[f] ?? false}
-                        onCheckedChange={(v) =>
-                          setAutoReview((prev) => ({ ...prev, [f]: v }))
-                        }
-                      />
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.653")}
-                    {t("adm.654")}
-                    {t("adm.655")}
-                    {t("adm.656")}
-                    {t("adm.657")}
-                  </p>
-                </CardContent>
-              </Card>
-
               {/* 捐献是否授予权限：与「自动审核」并列的捐献侧开关，
                   只管「通过后给不给权限」，不影响资源入库 / 额度 / 积分 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.1269")}</CardTitle>
-                  <CardDescription>{t("adm.1270")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {DONATION_GRANT_ITEMS.map((item) => (
-                    <div
-                      key={item.key}
-                      className="flex items-center justify-between rounded-md border p-3"
-                    >
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium">{t(item.label)}</p>
-                        <p className="text-xs text-muted-foreground">{t(item.desc)}</p>
-                      </div>
-                      <Switch
-                        checked={donationGrants[item.key] ?? false}
-                        onCheckedChange={(v) =>
-                          setDonationGrants((prev) => ({ ...prev, [item.key]: v }))
-                        }
-                      />
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">{t("adm.1283")}</p>
-                </CardContent>
-              </Card>
 
               {/* 捐献发放「可转授的模块权限额度」：四个模块**各自一个开关**。
                   ⚠️ 与上面那张「捐献授予权限」不是一回事，别合并：
@@ -7822,56 +3871,10 @@ export default function AdminPage() {
                   转授给别人**」（建邀请码时勾选的额度）。站长 2026-10-08 要求：
                   捐献了也不一定该换出可转授的额度，否则用户捐个 AI 渠道就能建成
                   邀请码直接给别人开通中转站；且要能**逐模块**单独控制。 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t("adm.1302")}</CardTitle>
-                  <CardDescription>{t("adm.1303")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {DONATION_QUOTA_ITEMS.map((item) => (
-                    <div
-                      key={item.key}
-                      className="flex items-center justify-between rounded-md border p-3"
-                    >
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium">{t(item.label)}</p>
-                        <p className="text-xs text-muted-foreground">{t(item.desc)}</p>
-                      </div>
-                      <Switch
-                        checked={donationQuotaFeatures[item.key] ?? false}
-                        onCheckedChange={(v) =>
-                          setDonationQuotaFeatures((prev) => ({ ...prev, [item.key]: v }))
-                        }
-                      />
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">{t("adm.1306")}</p>
-                </CardContent>
-              </Card>
 
               {/* 自定义 AI 渠道捐献的 baseUrl 黑名单：**前缀匹配**，命中即不允许捐献。
                   与上面两张捐献侧开关卡片放在一起。空 = 不启用（可清空）。 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    {t("adm.donationUrlBlocklistTitle")}
-                  </CardTitle>
-                  <CardDescription>{t("adm.donationUrlBlocklistDesc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Textarea
-                    rows={4}
-                    className="font-mono text-xs"
-                    aria-label={t("adm.donationUrlBlocklistTitle")}
-                    placeholder="https://token.example.com"
-                    value={donationUrlBlocklist}
-                    onChange={(e) => setDonationUrlBlocklist(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.donationUrlBlocklistHint")}
-                  </p>
-                </CardContent>
-              </Card>
+
 
               {/* ⚠️ 商汤 Key 捐献的配置卡片已挪到「捐献通道」选项卡（三条通道合并），
                   {t("adm.658")}
@@ -7887,38 +3890,6 @@ export default function AdminPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{t("adm.662")}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("adm.663")}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={inviteRewardEnabled}
-                      onCheckedChange={setInviteRewardEnabled}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="inviteRewardPlanId">{t("adm.664")}</Label>
-                    <Input
-                      id="inviteRewardPlanId"
-                      inputMode="numeric"
-                      value={inviteRewardPlanId}
-                      onChange={(e) => setInviteRewardPlanId(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">{t("adm.1106")}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="inviteRewardAiPlanId">{t("adm.665")}</Label>
-                    <Input
-                      id="inviteRewardAiPlanId"
-                      inputMode="numeric"
-                      value={inviteRewardAiPlanId}
-                      onChange={(e) => setInviteRewardAiPlanId(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">{t("adm.1107")}</p>
-                  </div>
                   <div className="space-y-2 rounded-md border p-3">
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
@@ -7981,13 +3952,6 @@ export default function AdminPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="newapiFreePlanId">{t("adm.675")}</Label>
-                    <Input
-                      id="newapiFreePlanId"
-                      inputMode="numeric"
-                      value={newapiFreePlanId}
-                      onChange={(e) => setNewapiFreePlanId(e.target.value)}
-                    />
                     <p className="text-xs text-muted-foreground">{t("adm.1108")}</p>
                   </div>
                   <div className="space-y-2">
@@ -8001,24 +3965,6 @@ export default function AdminPage() {
                     <p className="text-xs text-muted-foreground">
                       {t("adm.676")}
                       <strong>{t("adm.1110")}</strong>{t("adm.1111")}</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t("adm.677")}</CardTitle>
-                  <CardDescription>{t("adm.678")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{t("adm.679")}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("adm.680")}
-                      </p>
-                    </div>
-                    <Switch checked={proxyEnabled} onCheckedChange={setProxyEnabled} />
                   </div>
                 </CardContent>
               </Card>
@@ -8037,348 +3983,12 @@ export default function AdminPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="mail">
-          <SectionedCards pageKey="mail">
-            {/* 管理员通知邮箱（frp 申请通知邮箱已随内网穿透功能移除，只剩反馈通知） */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.682")}</CardTitle>
-                <CardDescription>
-                  {t("adm.683")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="feedbackNotify">{t("adm.688")}</Label>
-                  <Textarea
-                    id="feedbackNotify"
-                    rows={3}
-                    placeholder={t("adm.1112")}
-                    value={feedbackNotifyEmail}
-                    onChange={(e) => setFeedbackNotifyEmail(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.689")}
-                    {notifyEmailOptions.length > 0 && (
-                      <>{t("adm.1113")}{notifyEmailOptions.join("、")}</>
-                    )}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 邮件发送通道 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("adm.690")}</CardTitle>
-                <CardDescription>
-                  {t("adm.691")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="mailOrder">{t("adm.692")}</Label>
-                  <Input
-                    id="mailOrder"
-                    value={mailTransportOrder}
-                    onChange={(e) => setMailTransportOrder(e.target.value)}
-                    className="font-mono text-xs"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.693")}
-                    {t("adm.694")}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>{t("adm.695")}</Label>
-                  <Select
-                    value={announcementMailTransport}
-                    onValueChange={setAnnouncementMailTransport}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="posta">{t("adm.696")}</SelectItem>
-                      <SelectItem value="brevo">{t("adm.697")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.698")}
-                    {t("adm.699")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{t("adm.1114", { v0: t("adm.700") })}</p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="mailCfTargets">{t("adm.701")}</Label>
-                  <Textarea
-                    id="mailCfTargets"
-                    rows={3}
-                    value={mailCfTargets}
-                    onChange={(e) => setMailCfTargets(e.target.value)}
-                    placeholder={"admin@foxmail.com\nanother@qq.com"}
-                    className="font-mono text-xs"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.702")}
-                    {t("adm.703")}
-                  </p>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-3 rounded-md border p-3">
-                  <p className="text-sm font-medium">{t("adm.704")}</p>
-                  <div className="space-y-2">
-                    <Label htmlFor="postaUrl">{t("adm.705")}</Label>
-                    <Input
-                      id="postaUrl"
-                      value={postaUrl}
-                      onChange={(e) => setPostaUrl(e.target.value)}
-                      placeholder="https://xxx.doulor.cn"
-                      className="font-mono text-xs"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="postaKey">
-                      API Key{postaConfigured && t("adm.1115")}
-                    </Label>
-                    <Input
-                      id="postaKey"
-                      type="password"
-                      value={postaKey}
-                      onChange={(e) => setPostaKey(e.target.value)}
-                      placeholder={postaConfigured ? t("adm.1116") : t("adm.1117")}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="postaFrom">{t("adm.706")}</Label>
-                    <Input
-                      id="postaFrom"
-                      value={postaFrom}
-                      onChange={(e) => setPostaFrom(e.target.value)}
-                      placeholder="Doulor Cloud <DoulorCloud@foxmail.com>"
-                      className="font-mono text-xs"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.707")}
-                      {t("adm.708")}
-                      {t("adm.709")}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-3 rounded-md border p-3">
-                  <p className="text-sm font-medium">{t("adm.710")}</p>
-                  <div className="space-y-2">
-                    <Label>
-                      API Key
-                      {brevoKeys.length > 0 && t("adm.1118", { v0: brevoKeys.length })}
-                    </Label>
-
-                    {/* 已配置的 Key 列表：只显示中间打码的串，明文永不回前端 */}
-                    {brevoKeys.length > 0 ? (
-                      <ul className="space-y-1">
-                        {brevoKeys.map((k, i) => (
-                          <li
-                            key={`${i}-${k}`}
-                            className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5"
-                          >
-                            <span className="flex items-center gap-2 overflow-hidden">
-                              <span className="shrink-0 text-[11px] text-muted-foreground">{t("adm.1119", { v0: i + 1 })}</span>
-                              <span className="truncate font-mono text-xs">{k}</span>
-                            </span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 shrink-0 px-2 text-xs text-destructive hover:text-destructive"
-                              disabled={brevoBusy}
-                              onClick={() => void handleRemoveBrevoKey(i + 1)}
-                            >
-                              {t("adm.711")}
-                            </Button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground">
-                        {t("adm.712")}
-                      </p>
-                    )}
-
-                    {/* 添加：支持一次粘多把（逗号 / 换行分隔） */}
-                    <div className="flex gap-2">
-                      <Input
-                        id="brevoKeyAdd"
-                        type="password"
-                        value={brevoAddInput}
-                        onChange={(e) => setBrevoAddInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault()
-                            void handleAddBrevoKey()
-                          }
-                        }}
-                        placeholder={t("adm.304")}
-                        className="font-mono text-xs"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0"
-                        disabled={brevoBusy || !brevoAddInput.trim()}
-                        onClick={() => void handleAddBrevoKey()}
-                      >
-                        {t("adm.713")}
-                      </Button>
-                    </div>
-
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.714")}
-                      {t("adm.715")}
-                      <span className="font-medium">
-                        {t("adm.716")}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="brevoSenderEmail">{t("adm.717")}</Label>
-                      <Input
-                        id="brevoSenderEmail"
-                        value={brevoSenderEmail}
-                        onChange={(e) => setBrevoSenderEmail(e.target.value)}
-                        placeholder="no-reply@doulor.cn"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="brevoSenderName">{t("adm.718")}</Label>
-                      <Input
-                        id="brevoSenderName"
-                        value={brevoSenderName}
-                        onChange={(e) => setBrevoSenderName(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {t("adm.719")}
-                  </p>
-                  <BrevoQuotaPanel />
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="flex justify-end">
-              <Button onClick={() => void handleSaveSettings()} disabled={settingsBusy}>
-                {settingsBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-                {t("adm.720")}
-              </Button>
-            </div>
-          </SectionedCards>
-        </TabsContent>
-
-        <TabsContent value="api">
-          <AdminApiTab />
-        </TabsContent>
-
         <TabsContent value="permissions">
           <AdminPermissionsPanel isRoot={user?.role === "root"} />
         </TabsContent>
           </div>
         </div>
       </Tabs>
-
-      {/* 摘除反代捐献绑定 */}
-      <Dialog
-        open={wb2apiRemoving !== null}
-        onOpenChange={(o) => {
-          if (!o) setWb2apiRemoving(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("adm.721")}</DialogTitle>
-            <DialogDescription>{t("adm.1120", { v0: wb2apiRemoving?.nickname || wb2apiRemoving?.uid, v1: wb2apiRemoving?.username, v2: t("adm.722") })}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <label className="flex cursor-pointer items-start gap-3 rounded-md border px-4 py-3">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4"
-                checked={wb2apiRevokeAi}
-                onChange={(e) => setWb2apiRevokeAi(e.target.checked)}
-              />
-              <span className="text-sm">
-                {t("adm.723")}
-                <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {t("adm.724")}
-                  {t("adm.725")}
-                </span>
-              </span>
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setWb2apiRemoving(null)}>
-              {t("adm.726")}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => void handleRemoveWb2apiBinding()}
-              disabled={wb2apiBusy}
-            >
-              {wb2apiBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t("adm.727")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 摘除 Qoder2API 绑定 */}
-      <Dialog
-        open={qoder2apiRemoving !== null}
-        onOpenChange={(o) => {
-          if (!o) setQoder2apiRemoving(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("adm.728")}</DialogTitle>
-            <DialogDescription>{t("adm.1121", { v0: qoder2apiRemoving?.accountId, v1: qoder2apiRemoving?.username, v2: t("adm.729") })}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <label className="flex cursor-pointer items-start gap-3 rounded-md border px-4 py-3">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4"
-                checked={qoder2apiRevokeAi}
-                onChange={(e) => setQoder2apiRevokeAi(e.target.checked)}
-              />
-              <span className="text-sm">
-                {t("adm.730")}
-                <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {t("adm.731")}
-                  {t("adm.732")}
-                </span>
-              </span>
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setQoder2apiRemoving(null)}>
-              {t("adm.733")}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => void handleRemoveQoder2apiBinding()}
-              disabled={qoder2apiBusy}
-            >
-              {qoder2apiBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t("adm.734")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* 编辑邀请码权限 */}
       <Dialog
@@ -9794,203 +5404,6 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* R2 桶编辑弹窗 */}
-      <Dialog open={r2BucketOpen} onOpenChange={setR2BucketOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{r2EditId ? t("adm.1139") : t("adm.1140")}</DialogTitle>
-            <DialogDescription>
-              {r2EditId
-                ? t("adm.207")
-                : t("adm.208")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* 新建时：从已发现的桶里选（大幅简化填写） */}
-            {!r2EditId && (
-              <div className="space-y-2">
-                <Label>{t("adm.828")}</Label>
-                {r2DiscoverLoading ? (
-                  <p className="text-xs text-muted-foreground">{t("adm.829")}</p>
-                ) : r2Discovered?.available ? (
-                  <>
-                    <Select value={r2Pick} onValueChange={handlePickBucket}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t("adm.314")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {r2Discovered.accounts.flatMap((a) =>
-                          a.buckets.map((b) => (
-                            <SelectItem
-                              key={`${a.id}|${b.name}`}
-                              value={`${a.id}|${b.name}`}
-                              disabled={b.imported}
-                            >
-                              {a.name} / {b.name}
-                              {b.imported ? t("adm.1141") : ""}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.830")}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    {r2Discovered?.reason ?? t("adm.1142")}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* 桶类型：决定用途 */}
-            <div className="space-y-2">
-              <Label>{t("adm.831")}</Label>
-              <Select
-                value={r2Draft.kind}
-                onValueChange={(v) => setR2Draft((d) => ({ ...d, kind: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="user">{t("adm.832")}</SelectItem>
-                  <SelectItem value="platform">{t("adm.833")}</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {r2Draft.kind === "platform"
-                  ? t("adm.209")
-                  : t("adm.210")}
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="r2id">{t("adm.834")}</Label>
-                <Input
-                  id="r2id"
-                  placeholder="b2"
-                  value={r2Draft.id}
-                  disabled={Boolean(r2EditId)}
-                  onChange={(e) => setR2Draft((d) => ({ ...d, id: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="r2name">{t("adm.835")}</Label>
-                <Input
-                  id="r2name"
-                  placeholder={t("adm.315")}
-                  value={r2Draft.name}
-                  onChange={(e) => setR2Draft((d) => ({ ...d, name: e.target.value }))}
-                />
-              </div>
-            </div>
-            <details className="rounded-md border" open={Boolean(r2EditId) || !r2Discovered?.available}>
-              <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
-                {t("adm.836")}
-              </summary>
-              <div className="space-y-4 border-t px-3 pb-3 pt-3">
-                <div className="space-y-2">
-                  <Label htmlFor="r2endpoint">S3 Endpoint</Label>
-                  <Input
-                    id="r2endpoint"
-                    placeholder="https://<account>.r2.cloudflarestorage.com"
-                    className="font-mono text-xs"
-                    value={r2Draft.endpoint}
-                    onChange={(e) => setR2Draft((d) => ({ ...d, endpoint: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="r2bucket">{t("adm.837")}</Label>
-                    <Input
-                      id="r2bucket"
-                      placeholder="network2"
-                      className="font-mono text-xs"
-                      value={r2Draft.bucketName}
-                      onChange={(e) => setR2Draft((d) => ({ ...d, bucketName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="r2account">{t("adm.838")}</Label>
-                    <Input
-                      id="r2account"
-                      placeholder="d20b3b86…"
-                      className="font-mono text-xs"
-                      value={r2Draft.accountId}
-                      onChange={(e) => setR2Draft((d) => ({ ...d, accountId: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="r2ak">Access Key ID</Label>
-                  <Input
-                    id="r2ak"
-                    placeholder={r2EditId ? t("adm.1143") : t("adm.1144")}
-                    className="font-mono text-xs"
-                    value={r2Draft.accessKeyId}
-                    onChange={(e) => setR2Draft((d) => ({ ...d, accessKeyId: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="r2sk">Secret Access Key</Label>
-                  <Input
-                    id="r2sk"
-                    type="password"
-                    placeholder={r2EditId ? t("adm.1145") : t("adm.1146")}
-                    className="font-mono text-xs"
-                    value={r2Draft.secretAccessKey}
-                    onChange={(e) => setR2Draft((d) => ({ ...d, secretAccessKey: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </details>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="r2quota">{t("adm.840")}</Label>
-                <Input
-                  id="r2quota"
-                  type="number"
-                  min={1}
-                  value={r2Draft.quotaPerUser}
-                  onChange={(e) => setR2Draft((d) => ({ ...d, quotaPerUser: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="r2capacity">{t("adm.1230")}</Label>
-                <Input
-                  id="r2capacity"
-                  type="number"
-                  min={1}
-                  value={r2Draft.capacityBytes}
-                  onChange={(e) => setR2Draft((d) => ({ ...d, capacityBytes: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="r2sort">{t("adm.841")}</Label>
-                <Input
-                  id="r2sort"
-                  type="number"
-                  value={r2Draft.sortOrder}
-                  onChange={(e) => setR2Draft((d) => ({ ...d, sortOrder: e.target.value }))}
-                />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">{t("adm.1147", { v0: t("adm.842") })}</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setR2BucketOpen(false)}>
-              {t("adm.843")}
-            </Button>
-            <Button onClick={() => void handleSaveR2Bucket()} disabled={r2Busy}>
-              {r2Busy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {r2EditId ? t("adm.1148") : t("adm.1149")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <Dialog
         open={detail !== null}
         onOpenChange={(open) => {
@@ -10079,6 +5492,29 @@ export default function AdminPage() {
 
                     <div className="flex items-center justify-between rounded-md border p-3">
                       <div className="space-y-0.5">
+                        <p className="text-sm font-medium">{t("adm.level.title")}</p>
+                        <p className="text-xs text-muted-foreground">{t("adm.level.desc")}</p>
+                      </div>
+                      <Select
+                        value={String(detail.user.memberLevel ?? 0)}
+                        onValueChange={(v) => void handleSetMemberLevel(Number(v))}
+                        disabled={busy}
+                      >
+                        <SelectTrigger className="w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {([0, 1, 2, 3] as const).map((lv) => (
+                            <SelectItem key={lv} value={String(lv)}>
+                              {t(`lvl.${lv}`)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-md border p-3">
+                      <div className="space-y-0.5">
                         <p className="text-sm font-medium">
                           {detail.user.role === "root" ? t("adm.1153") : t("adm.1154")}
                         </p>
@@ -10158,170 +5594,18 @@ export default function AdminPage() {
                   )}
                 </section>
 
-                {/* ---- 各模块用量与开通状态 ---- */}
-                <section>
-                  <h3 className="mb-2 text-sm font-medium">{t("adm.850")}</h3>
-                  <div className="rounded-md border">
-                    {/* 网盘 */}
-                    <div className="border-b px-3 py-2 text-xs last:border-b-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{t("adm.851")}</span>
-                        {detail.storage ? (
-                          <Badge variant={detail.storage.enabled ? "success" : "secondary"}>
-                            {detail.storage.enabled ? t("adm.1155") : t("adm.1156")}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline">{t("adm.852")}</Badge>
-                        )}
-                      </div>
-                      {detail.storage && (
-                        <>
-                          <p className="mt-1 text-muted-foreground">{t("adm.1157", { v0: detail.storage.prefix, v1: formatBytes(detail.storage.usedBytes), v2: " ", v3: formatBytes(detail.storage.quotaBytes), v4: detail.storage.fileCount, v5: detail.storage.bucketName && t("adm.1158", { v0: detail.storage.bucketName }) })}</p>
-                          {/* 单独改这个人的配额：配额是开通时写死的快照，改桶不会回填老用户 */}
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <Input
-                              type="number"
-                              min={1}
-                              className="h-8 w-28"
-                              aria-label={t("adm.317")}
-                              value={storageQuotaMbDraft}
-                              onChange={(e) => setStorageQuotaMbDraft(e.target.value)}
-                            />
-                            <span className="text-muted-foreground">MB</span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8"
-                              disabled={
-                                storageQuotaBusy ||
-                                storageQuotaMbDraft ===
-                                  String(
-                                    Math.round((detail.storage.quotaBytes / 1024 / 1024) * 100) /
-                                      100
-                                  )
-                              }
-                              onClick={() => void handleSaveStorageQuota()}
-                            >
-                              {storageQuotaBusy && (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              )}
-                              {t("adm.853")}
-                            </Button>
-                            {detail.storage.usedBytes > 0 && (
-                              <span className="text-muted-foreground">{t("adm.1159", { v0: formatBytes(detail.storage.usedBytes) })}</span>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    {/* AI 中转站 */}
-                    <div className="border-b px-3 py-2 text-xs last:border-b-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{t("adm.854")}</span>
-                        {detail.newapi ? (
-                          <Badge variant="success">{t("adm.855")}</Badge>
-                        ) : (
-                          <Badge variant="outline">{t("adm.856")}</Badge>
-                        )}
-                      </div>
-                      {detail.newapi && (
-                        <p className="mt-1 text-muted-foreground">{t("adm.1160", { v0: detail.newapi.newapiUserId, v1: " ", v2: currencySymbol, v3: (detail.newapi.quota / quotaPerUnit).toFixed(2), v4: " ", v5: currencySymbol, v6: (detail.newapi.usedQuota / quotaPerUnit).toFixed(2), v7: " ", v8: detail.newapi.requestCount, v9: detail.newapi.syncedAt && t("adm.1161", { v0: fmtTime(detail.newapi.syncedAt) }) })}</p>
-                      )}
-                      {detail.newapi && (
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8"
-                            disabled={newapiSyncBusy}
-                            onClick={() => void handleSyncNewApi()}
-                          >
-                            {newapiSyncBusy && (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            )}
-                            {t("adm.857")}
-                          </Button>
-                          <span className="text-muted-foreground">
-                            {t("adm.858")}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 代理节点 */}
-                    <div className="px-3 py-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{t("adm.862")}</span>
-                        {detail.proxy ? (
-                          <Badge variant={detail.proxy.enabled ? "success" : "secondary"}>
-                            {detail.proxy.enabled ? t("adm.1166") : t("adm.1167")}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline">{t("adm.863")}</Badge>
-                        )}
-                      </div>
-                      {detail.proxy?.consentedAt && (
-                        <p className="mt-1 text-muted-foreground">{t("adm.1168", { v0: detail.proxy.consentVersion, v1: " ", v2: fmtTime(detail.proxy.consentedAt) })}</p>
-                      )}
-                    </div>
-                  </div>
-                </section>
-
-                {/* ---- 个人名片 ---- */}
-                <section>
-                  <h3 className="mb-2 text-sm font-medium">{t("adm.864")}</h3>
-                  <div className="rounded-md border p-3 text-xs">
-                    {detail.profile ? (
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant={detail.profile.published ? "success" : "secondary"}>
-                            {detail.profile.published ? t("adm.1169") : t("adm.1170")}
-                          </Badge>
-                          <span className="text-muted-foreground">
-                            {detail.profile.displayName ?? t("adm.1171")}
-                          </span>
-                          {(() => {
-                            const url = profilePublicUrl(
-                              detail.profile.slug,
-                              detail.profile.fqdn
-                            )
-                            return url ? (
-                              <a
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="ml-auto inline-flex items-center gap-1 text-primary hover:underline"
-                              >
-                                {t("adm.865")}
-                                <ExternalLink className="h-3 w-3" />
-                              </a>
-                            ) : null
-                          })()}
-                        </div>
-                        <p className="text-muted-foreground">{t("adm.1172", { v0: detail.profile.fqdn ?? `/profile/${detail.profile.slug}`, v1: detail.profile.viewCount, v2: " ", v3: fmtTime(detail.profile.updatedAt) })}</p>
-                      </div>
-                    ) : (
-                      <p className="text-muted-foreground">{t("adm.866")}</p>
-                    )}
-                  </div>
-                </section>
-
-                {/* ---- 邀请码 / 模块额度 ---- */}
+                {/* ---- 邀请码额度 ---- */}
                 <section>
                   <h3 className="mb-2 text-sm font-medium">{t("adm.867")}</h3>
                   <div className="rounded-md border p-3 text-xs">
-                    <p className="text-muted-foreground">{t("adm.1173", { v0: detail.quota.inviteTotal, v1: " ", v2: detail.quota.inviteBase, v3: detail.quota.inviteBonus, v4: " ", v5: detail.quota.inviteUsed, v6: detail.quota.inviteRemaining })}</p>
-                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
-                      {Object.keys(detail.quota.featureQuota).map((f) => (
-                        <div key={f} className="flex items-center justify-between">
-                          <span>{detail.quota.featureLabels[f] ?? f}</span>
-                          <span className="text-muted-foreground">
-                            {detail.quota.featureRemaining[f]} / {detail.quota.featureQuota[f]}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-muted-foreground">
+                      {t("adm.inviteQuotaOnly", {
+                        total: detail.quota.inviteTotal,
+                        base: detail.quota.inviteBase,
+                        used: detail.quota.inviteUsed,
+                        left: detail.quota.inviteRemaining,
+                      })}
+                    </p>
                   </div>
                 </section>
 
@@ -10652,196 +5936,8 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-
-      {/* 代理订阅源编辑 */}
-      <Dialog open={proxyOpen} onOpenChange={setProxyOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{proxyForm.id ? t("adm.1189") : t("adm.1190")}</DialogTitle>
-            <DialogDescription>
-              {t("adm.902")}
-              {t("adm.903")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{t("adm.904")}</Label>
-                <Input
-                  value={proxyForm.name}
-                  onChange={(e) =>
-                    setProxyForm((f) => ({ ...f, name: e.target.value }))
-                  }
-                  placeholder={t("adm.322")}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("adm.905")}</Label>
-                <Input
-                  value={proxyForm.region}
-                  onChange={(e) =>
-                    setProxyForm((f) => ({ ...f, region: e.target.value }))
-                  }
-                  placeholder={t("adm.323")}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>{t("adm.906")}</Label>
-              <Input
-                value={proxyForm.url}
-                onChange={(e) =>
-                  setProxyForm((f) => ({ ...f, url: e.target.value }))
-                }
-                placeholder="https://example.com/api/v1/client/subscribe?token=..."
-                className="font-mono text-xs"
-              />
-              <p className="text-xs text-muted-foreground">{t("adm.1191", { v0: t("adm.907") })}</p>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label>{t("adm.908")}</Label>
-                <Input
-                  value={proxyForm.protocol}
-                  onChange={(e) =>
-                    setProxyForm((f) => ({ ...f, protocol: e.target.value }))
-                  }
-                  placeholder={t("adm.324")}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("adm.909")}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>{t("adm.910")}</Label>
-                <Input
-                  type="number"
-                  value={proxyForm.sortOrder}
-                  onChange={(e) =>
-                    setProxyForm((f) => ({ ...f, sortOrder: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>{t("adm.911")}</Label>
-                <Select
-                  value={proxyForm.status}
-                  onValueChange={(v) =>
-                    setProxyForm((f) => ({ ...f, status: v }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="online">{t("adm.912")}</SelectItem>
-                    <SelectItem value="offline">{t("adm.913")}</SelectItem>
-                    <SelectItem value="maintenance">{t("adm.914")}</SelectItem>
-                    <SelectItem value="unknown">{t("adm.915")}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t("adm.916")}
-                </p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>{t("adm.917")}</Label>
-              <Input
-                value={proxyForm.statusNote}
-                onChange={(e) =>
-                  setProxyForm((f) => ({ ...f, statusNote: e.target.value }))
-                }
-                placeholder={t("adm.325")}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t("adm.918")}</Label>
-              <Input
-                value={proxyForm.note}
-                onChange={(e) =>
-                  setProxyForm((f) => ({ ...f, note: e.target.value }))
-                }
-              />
-            </div>
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">{t("adm.919")}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t("adm.920")}
-                </p>
-              </div>
-              <Switch
-                checked={proxyForm.enabled}
-                onCheckedChange={(v) => setProxyForm((f) => ({ ...f, enabled: v }))}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setProxyOpen(false)}>
-              {t("adm.921")}
-            </Button>
-            <Button onClick={() => void handleSaveProxy()} disabled={proxyBusy}>
-              {proxyBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t("adm.922")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
-}
-
-const DONATION_LABEL: Record<string, string> = {
-  ai: "adm.1192",
-  frp: "adm.1193",
-  proxy: "adm.1194",
-  sensenova: "adm.1195",
-}
-
-/** 捐献的分类维度：未处理 / 人工通过 / 人工拒绝 / 自动通过 / 自动拒绝 */
-type DonationBucket = "pending" | "approved" | "rejected" | "autoApproved" | "autoRejected"
-
-const DONATION_FILTERS: { key: string; label: string }[] = [
-  { key: "", label: "adm.1196" },
-  { key: "pending", label: "adm.1197" },
-  { key: "approved", label: "adm.1198" },
-  { key: "rejected", label: "adm.1199" },
-  { key: "autoApproved", label: "adm.1200" },
-  { key: "autoRejected", label: "adm.1201" },
-]
-
-/**
- * 判断一条捐献属于哪个分类（pending 归「未处理」，其余按 autoReviewed 分人工/自动）。
- *
- * `revoked`（已通过后被系统巡检撤销，如商汤 Key 失效）走最后一行 —— 它是系统
- * 自动处置的，因此落在「自动拒绝」分类里，管理员能在那里看到并复核。
- */
-function donationBucket(d: Donation): DonationBucket {
-  if (d.status === "pending") return "pending"
-  if (d.status === "approved") return d.autoReviewed ? "autoApproved" : "approved"
-  return d.autoReviewed ? "autoRejected" : "rejected"
-}
-
-/** 捐献类别筛选（上层）：全部 / AI / 内网穿透 / 代理 / 商汤 */
-const DONATION_TYPE_FILTERS: { key: string; label: string }[] = [
-  { key: "", label: "adm.1202" },
-  { key: "ai", label: "AI" },
-  { key: "frp", label: "adm.1203" },
-  { key: "proxy", label: "adm.1204" },
-  { key: "sensenova", label: "adm.1205" },
-]
-
-/** 先按类别筛，再按状态分类筛 */
-function filterDonationsByTypeAndStatus(
-  list: Donation[],
-  typeFilter: string,
-  statusFilter: string
-): Donation[] {
-  let out = list
-  if (typeFilter) out = out.filter((d) => d.type === typeFilter)
-  if (statusFilter) out = out.filter((d) => donationBucket(d) === statusFilter)
-  return out
 }
 
 /** 邀请码分类：未使用 / 部分使用 / 已使用 */
@@ -10864,67 +5960,4 @@ const INVITE_FILTERS: { key: string; label: string }[] = [
 function filterInvites(list: AdminInvite[], filter: string): AdminInvite[] {
   if (!filter) return list
   return list.filter((inv) => inviteBucket(inv) === filter)
-}
-
-/** 按类型渲染捐献详情（payload 结构随类型不同） */
-function DonationDetail({ type, payload }: { type: string; payload: unknown }) {
-  const { t } = useT()
-  const p = (payload ?? {}) as Record<string, unknown>
-  const rows: [string, string][] = []
-
-  if (type === "ai") {
-    if (p.baseUrl) rows.push(["Base URL", String(p.baseUrl)])
-    if (p.apiKey) rows.push(["API Key", String(p.apiKey)])
-    const models = Array.isArray(p.models) ? p.models.join("、") : p.models
-    if (models) rows.push([t("adm.1214"), String(models)])
-  } else if (type === "sensenova") {
-    // 只展示 Key：上游地址是管理面板的全局配置（不在 payload 里），
-    // 模型列表是建渠道时从上游拉来的、也没存进 payload。
-    if (p.apiKey) rows.push(["API Key", String(p.apiKey)])
-  } else if (type === "frp") {
-    // 捐献的是服务端信息（迁移 0054 改版后）；旧数据是 configYml（客户端配置）
-    if (p.serverAddr) rows.push([t("adm.1215"), `${String(p.serverAddr)}:${String(p.serverPort ?? "")}`])
-    if (p.nodeName) rows.push([t("adm.1216"), String(p.nodeName)])
-    if (p.region) rows.push([t("adm.1217"), String(p.region)])
-    if (p.portMin != null || p.portMax != null) {
-      rows.push([t("adm.1218"), `${String(p.portMin ?? "")}-${String(p.portMax ?? "")}`])
-    }
-    if (p.maxPorts != null) rows.push([t("adm.1219"), String(p.maxPorts)])
-    const authModeLabel: Record<string, string> = {
-      none: t("adm.1220"),
-      token: t("adm.1221"),
-      token_user: t("adm.1222"),
-      custom: t("adm.1223"),
-    }
-    if (p.authMode) rows.push([t("adm.1224"), t(authModeLabel[String(p.authMode)] ?? String(p.authMode))])
-    if (p.note) rows.push([t("adm.1225"), String(p.note)])
-  } else if (type === "proxy") {
-    const subs = Array.isArray(p.subUrls) ? p.subUrls : []
-    if (subs.length) rows.push([t("adm.1226"), subs.join("、")])
-    if (p.nodeCount) rows.push([t("adm.1227"), String(p.nodeCount)])
-  }
-
-  const configYml = typeof p.configYml === "string" ? p.configYml : ""
-  const configSample = typeof p.configSample === "string" ? p.configSample : ""
-  const configText = configYml || configSample
-
-  return (
-    <div className="space-y-1">
-      {rows.map(([k, v]) => (
-        <p key={k} className="break-all font-mono text-xs text-muted-foreground">
-          {k}：{v}
-        </p>
-      ))}
-      {configText && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground">
-            {configYml ? t("adm.1228") : t("adm.1229")}
-          </summary>
-          <pre className="mt-1 max-h-56 overflow-auto rounded border bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
-            {configText}
-          </pre>
-        </details>
-      )}
-    </div>
-  )
 }

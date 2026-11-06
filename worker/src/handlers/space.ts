@@ -4,7 +4,6 @@ import { getSettingBool } from "../settings"
 import { FEATURE_LABELS, parsePermissions, type Feature } from "../permissions"
 import { ACHIEVEMENT_GROUPS, loadAchievementSnapshot } from "./achievements"
 import { getTitleForUser } from "./titles"
-import { DONATION_TYPE_LABELS } from "./donations"
 import type { Env } from "../env"
 
 /**
@@ -93,6 +92,19 @@ async function loadSpaceSettings(env: Env, userId: string): Promise<SpaceSetting
     .bind(userId)
     .first<SpaceSettings>()
   return row ?? DEFAULT_SETTINGS
+}
+
+/**
+ * 捐献类型 → 展示标签（内联自已删除的 donations 模块，2026-11-06 大裁撤）。
+ * 历史捐献记录仍会在空间页「历史贡献」里展示，只是不再产生新的捐献。
+ */
+const DONATION_TYPE_LABELS: Record<string, string> = {
+  ai: "AI 渠道",
+  proxy: "代理节点",
+  frp: "内网穿透",
+  sensenova: "商汤 Key",
+  r2: "网盘扩容",
+  doulor: "专属域名",
 }
 
 /**
@@ -197,12 +209,10 @@ export async function getSpace(
   const stats = settings.show_stats
     ? {
         days,
-        mailboxes: counts.mailbox,
         posts: counts.posts,
         comments: counts.comments,
         likesReceived: counts.likes_received,
         invited: counts.invited,
-        donations: counts.donations,
       }
     : null
 

@@ -19,6 +19,8 @@ export interface User {
   nickname: string | null
   /** 是否设置了头像 */
   hasAvatar: boolean
+  /** 会员等级：0=普通会员 1=黄金会员 2=白金会员 3=黑金会员（只升不降，管理员可兜底调整） */
+  memberLevel: number
   createdAt: string
 }
 
@@ -375,8 +377,6 @@ export interface AdminUser {
   storageEnabled: boolean
   /** AI 中转站：已开通 */
   aiEnabled: boolean
-  /** 代理节点：已启用 */
-  proxyEnabled: boolean
   /** 个人名片：已启用对外展示 */
   profileEnabled: boolean
   /** 名片 slug（用于拼 /profile/<slug> 公开地址） */
@@ -386,6 +386,8 @@ export interface AdminUser {
   /** 注册时使用的 IP（来自 audit_logs 的 register 记录；查不到时为 null） */
   registerIp: string | null
   permissions: Permissions
+  /** 会员等级：0=普通 1=黄金 2=白金 3=黑金 */
+  memberLevel: number
   /** 注册时使用的邀请码（老用户或码已删除时为 null） */
   inviteCode: string | null
   /** 邀请码创建者用户名 */
@@ -458,6 +460,8 @@ export interface AdminUserDetail {
     nickname: string | null
     role: string
     status: string
+    /** 会员等级：0=普通 1=黄金 2=白金 3=黑金 */
+    memberLevel: number
     /** 邮箱是否已验证 */
     emailVerified: boolean
     /** 是否接收平台通知邮件 */
@@ -475,14 +479,6 @@ export interface AdminUserDetail {
   storage: AdminUserStorage | null
   /** AI 中转站（未开通为 null；额度为 D1 同步快照） */
   newapi: AdminUserNewApi | null
-  /** 代理节点启用状态（未启用过为 null） */
-  proxy: {
-    enabled: boolean
-    consentVersion: number
-    consentedAt: string | null
-    createdAt: string
-    updatedAt: string
-  } | null
   /** 个人名片（未开通为 null） */
   profile: {
     slug: string
@@ -1157,9 +1153,8 @@ export interface DnsRentalState {
 
 // ---- 排行榜 ----
 
-/** 四个榜 */
+/** 榜单（原 newapi 中转站榜已随模块移除） */
 export type LeaderboardBoard =
-  | "newapi"
   | "community"
   | "feedback"
   | "achievement"
@@ -2836,8 +2831,6 @@ export interface AppealPendingReply {
 }
 
 /** 可要求的捐献渠道（通知门槛）。语义是「任选其一」 */
-export type DonationChannel = "wb" | "frp" | "proxy"
-
 /** 管理端通知：用户侧待确认的一条 */
 export interface PendingNotice {
   id: string
@@ -2845,9 +2838,7 @@ export interface PendingNotice {
   body: string
   createdAt: string
   /** 发布时勾选的要求渠道；空数组 = 无门槛 */
-  donationRequired: DonationChannel[]
   /** 其中还没满足的渠道；非空 = 权限仍锁着，捐完才能解锁 */
-  donationMissing: DonationChannel[]
 }
 
 /** 管理端通知（列表条目） */
@@ -2858,7 +2849,6 @@ export interface AdminNotice {
   body: string
   restrictFeatures: string[]
   /** 要求捐献的渠道（任选其一即可解锁） */
-  requireDonation: DonationChannel[]
   newapiDisabled: boolean
   creator: string | null
   createdAt: string
@@ -3424,6 +3414,10 @@ export interface PointsOverview {
   sellerOrders: PointOrder[]
   /** 是否已绑定中转站账号（未绑定不能兑换 / 不能买自动充值商品） */
   bound: boolean
+  /** 当前会员等级（0=普通 1=黄金 2=白金 3=黑金） */
+  memberLevel: number
+  /** 各级升级价格（键 1/2/3；0 = 该等级未开放升级） */
+  levelPrices: Record<number, number>
 }
 
 /** POST /api/points/redeem 响应 */

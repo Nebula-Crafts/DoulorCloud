@@ -1,16 +1,18 @@
 /**
  * 排行榜。
  *
- * 四个榜（`board`）：
- *   · `newapi`      —— 中转站调用次数（**只有累计**：本地没有按天的调用日志，
- *                      按天的数据在 NewAPI 那台服务器的 logs 表里）
- *   · `community`   —— 社区广场互动量，按 `metric` 分 发帖数 / 点赞数 / 回复数
- *   · `feedback`    —— 反馈数量
- *   · `achievement` —— 成就点（**只有累计**：它是「已解锁等级」的荣誉值，天然是累计的）
+ * 各榜（`board`）：
+ *   · `community`      —— 社区广场互动量，按 `metric` 分 发帖数 / 点赞数 / 回复数
+ *   · `feedback`       —— 反馈数量
+ *   · `achievement`    —— 成就点（**只有累计**：它是「已解锁等级」的荣誉值，天然是累计的）
+ *   · `points_balance` —— 当前积分余额
+ *   · `points_earned`  —— 累计获得的积分
+ *
+ * （原 `newapi` 中转站调用榜已随 AI 中转站模块移除，2026-11-06 大裁撤。）
  *
  * 时间范围（`range`）：`all`（历史累计）/ `today`（今日）/ `week`（本周）/ `month`（本月）。
  *   · 社区与反馈的每条记录都有 `created_at`，四个范围都能实时算；
- *   · newapi 与 achievement 没有「当日增量」这个口径，只支持 `all`，
+ *   · achievement 与 points_balance 没有「当日增量」这个口径，只支持 `all`，
  *     请求别的范围会回落到 `all` 并在响应里如实标注 `ranges`。
  *   · 边界按**中国时区（UTC+8）**算 —— 不然「今日」会按 UTC 零点切，对国内用户错开 8 小时。
  *
@@ -36,7 +38,6 @@ import type { Env } from "../env"
 const TOP_N = 50
 
 export type LeaderboardBoard =
-  | "newapi"
   | "community"
   | "feedback"
   | "achievement"
@@ -48,7 +49,6 @@ export type CommunityMetric = "posts" | "likes" | "comments"
 export type LeaderboardRange = "all" | "today" | "week" | "month"
 
 const BOARDS: readonly LeaderboardBoard[] = [
-  "newapi",
   "community",
   "feedback",
   "achievement",
@@ -58,7 +58,7 @@ const BOARDS: readonly LeaderboardBoard[] = [
 const COMMUNITY_METRICS: readonly CommunityMetric[] = ["posts", "likes", "comments"]
 const RANGES: readonly LeaderboardRange[] = ["all", "today", "week", "month"]
 
-/** 每个榜支持哪些时间范围（newapi/achievement 只有累计） */
+/** 每个榜支持哪些时间范围（achievement / points_balance 只有累计） */
 function supportedRanges(board: LeaderboardBoard): readonly LeaderboardRange[] {
   switch (board) {
     case "community":
@@ -125,17 +125,6 @@ function scoreSource(
   const since = rangeStart(range, offsetHours)
 
   switch (board) {
-    case "newapi":
-      // `request_count` 是**累计**值，且由站点在用户打开中转站页面 / 同步时回写，
-      // 不是每次调用实时更新 —— 本地没有按天的调用记录，所以只有累计这一种口径。
-      return {
-        sql: `SELECT na.user_id AS user_id, na.request_count AS score
-                FROM newapi_accounts na
-                JOIN users u ON u.id = na.user_id
-               WHERE u.status = 'active' AND na.request_count > 0`,
-        params: [],
-      }
-
     case "community": {
       const t = since ? [since] : []
       if (metric === "posts") {
@@ -284,7 +273,7 @@ export async function getLeaderboard(env: Env, request: Request): Promise<Respon
   const user = await requireUser(env, request)
   const url = new URL(request.url)
 
-  const board = (url.searchParams.get("board") ?? "newapi") as LeaderboardBoard
+  const board = (url.searchParams.get("board") ?? "points_balance") as LeaderboardBoard
   if (!BOARDS.includes(board)) {
     throw new ApiError(400, "未知的榜单", "INVALID_INPUT")
   }

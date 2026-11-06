@@ -90,7 +90,7 @@ describe("computeAchievements", () => {
     // 测试库里用户总数远小于 20，所以「元老」对谁都是解锁的（生产不会）——
     // 这里把它排除掉，只断言其余成就都是 0
     expect(byId.get("posts")?.level).toBe(0)
-    expect(byId.get("donor")?.level).toBe(0)
+    expect(byId.get("feedback")?.level).toBe(0)
     expect(byId.get("visit")?.level).toBe(0)
     expect(snap.summary.points).toBeLessThanOrEqual(1)
     // 点数不到 3 → 还是入门称号
@@ -105,8 +105,9 @@ describe("computeAchievements", () => {
 
     const byId = new Map(snap.achievements.map((a) => [a.id, a]))
     expect(byId.get("posts")?.level).toBe(1) // 1 条帖子
-    expect(byId.get("donor")?.level).toBe(1) // 1 次通过审核的捐献
-    expect(byId.get("donor_all")?.level).toBe(0) // 只捐了一种类型 → 还没到三种
+    // 已裁撤模块的成就（捐献 / 网盘 / 名片 / 邮箱 / 公开 API）不再存在
+    expect(byId.has("donor")).toBe(false)
+    expect(byId.has("donor_all")).toBe(false)
     expect(snap.summary.points).toBe(
       snap.achievements.reduce((s, a) => s + a.level, 0)
     )
@@ -160,7 +161,6 @@ describe("computeAchievements", () => {
     const byId = new Map(snap.achievements.map((a) => [a.id, a]))
     // 新成就必须存在于列表（防止只在 SQL 里加列、忘了定义成就）
     for (const id of [
-      "mail_read",
       "post_edits",
       "post_images",
       "comment_replies",
@@ -168,20 +168,13 @@ describe("computeAchievements", () => {
       "direct_messages",
       "event_claims",
       "oauth_grants",
-      "public_api",
-      "profile_modules",
-      "feature_count",
       "points_earned",
       "checkin_streak",
     ]) {
       expect(byId.has(id), `缺少成就 ${id}`).toBe(true)
     }
-    expect(byId.get("mail_read")?.value).toBe(2) // 累计已读（读 user_stats.mail_read_count）
     expect(byId.get("post_images")?.value).toBe(1)
     expect(byId.get("notification_read")?.value).toBe(1) // 只算已读
-    expect(byId.get("profile_modules")?.value).toBe(3) // 只算 enabled=1
-    // 开通了名片一项 → feature_count 至少 1
-    expect(byId.get("feature_count")?.value).toBeGreaterThanOrEqual(1)
   })
 
   it("图文并茂：正文里的粘贴图算，表情包不算（2026-10-06）", async () => {
@@ -212,20 +205,20 @@ describe("computeAchievements", () => {
   it("分级成就按阈值算等级，不越界", async () => {
     const u = await makeUser()
     const now = new Date().toISOString()
-    // 3 个邮箱 → 「信箱林立」Lv.2（阈值 1/3）
-    for (let i = 0; i < 3; i++) {
+    // 5 条帖子 → 「笔耕不辍」Lv.3（阈值 1/5/20）
+    for (let i = 0; i < 5; i++) {
       await env.DB.prepare(
-        `INSERT INTO mailboxes (id, user_id, address, forwarding_to, created_at, is_temp)
-         VALUES (?, ?, ?, NULL, ?, 0)`
+        `INSERT INTO posts (id, user_id, channel, body, created_at)
+         VALUES (?, ?, 'general', ?, ?)`
       )
-        .bind(`mb_${i}_${u.id}`, u.id, `mx${i}_${u.id.slice(0, 8)}@doulor.cn`, now)
+        .bind(`p_${i}_${u.id}`, u.id, `第 ${i} 条`, now)
         .run()
     }
     const snap = computeAchievements(await loadUserCounts(env, u.id))
-    const a = snap.achievements.find((x) => x.id === "mailbox")!
-    expect(a.level).toBe(2)
-    expect(a.nextTier).toBeNull()
-    expect(a.maxed).toBe(true)
+    const a = snap.achievements.find((x) => x.id === "posts")!
+    expect(a.level).toBe(2) // 5 条达到「常驻楼主」（阈值 1/5/20）
+    expect(a.nextTier).toBe(20)
+    expect(a.maxed).toBe(false)
   })
 })
 

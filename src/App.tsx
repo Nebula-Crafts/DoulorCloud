@@ -33,19 +33,6 @@ function AdminRedirect() {
   return null
 }
 
-/** 旧地址 /dashboard/gallery/collection/settings → 管理后台游戏仓库。
- *  /admin 是独立 SPA 文档（admin.html），客户端路由到不了，必须整页跳转。 */
-function OldCollectionSettingsRedirect() {
-  window.location.assign("/admin/games")
-  return null
-}
-
-/** 旧地址 /dashboard/gallery/collection/:slug → /dashboard/sim/:slug（同文档，客户端跳转） */
-function OldCollectionSlugRedirect() {
-  const slug = useParams().slug
-  return <Navigate to={`/dashboard/sim/${slug ?? ""}`} replace />
-}
-
 const DashboardPage = page("/dashboard", () => import("@/pages/dashboard"))
 const OAuthConsentPage = page("/oauth/consent", () => import("@/pages/oauth-consent"))
 const SettingsPage = page("/dashboard/settings", () => import("@/pages/settings"))
@@ -53,17 +40,11 @@ const FeedbackPage = page("/dashboard/feedback", () => import("@/pages/feedback"
 const AchievementsPage = page("/dashboard/achievements", () => import("@/pages/achievements"))
 const LeaderboardPage = page("/dashboard/leaderboard", () => import("@/pages/leaderboard"))
 const PointsPage = page("/dashboard/points", () => import("@/pages/points"))
+// 商城（2026-11-06 自「积分与商城」拆出）：官方商城 / 用户商城 / 我的交易 / 上架
+const ShopPage = page("/dashboard/shop", () => import("@/pages/shop"))
 const MessagesPage = page("/dashboard/messages", () => import("@/pages/messages"))
 const DmPage = page("/dashboard/dm", () => import("@/pages/dm"))
 const CommunityPage = page("/dashboard/community", () => import("@/pages/community"))
-// 造物典藏（游戏大厅）：一个插件宿主 + 每个游戏自己的全屏界面。
-// ⚠️ 只登记大厅这一条路径：`page()` 是按路径注册预载项的，同一前缀下多登记会互相覆盖
-//    （与下面 ToolboxDetailPage 同理）。游戏页与设置页都是「点了大厅之后才可能进」，
-//    那时它们的 chunk 按需加载即可，不必预载。
-const SimPage = page("/dashboard/sim", () => import("@/pages/collection"))
-const SimPluginPage = React.lazy(() => import("@/pages/collection-plugin"))
-// 工具详情页挂在 /dashboard/toolbox 之下，不单独登记（同前缀会互相覆盖注册项）：
-// 用户是先进列表、再点某个工具，那时 ToolboxPage 早已加载，详情按需加载即可。
 const SpacePage = page("/space", () => import("@/pages/space"))
 const ActivityPage = page("/activity", () => import("@/pages/activity"))
 const AppealPage = page("/appeal", () => import("@/pages/appeal"))
@@ -108,8 +89,6 @@ function DashboardGate() {
   const { user, loading } = useAuth()
   const location = useLocation()
   const isCommunity = location.pathname.startsWith("/dashboard/community")
-  // 分享箱公开页：任何人（含访客）都能进 —— 查看/下载本就不需要登录
-  const isTempbox = location.pathname.startsWith("/dashboard/tempbox")
   // 游客态才需要探测后台开关；已登录用户不受该设置影响
   const [guestAccess, setGuestAccess] = React.useState<boolean | null>(null)
   React.useEffect(() => {
@@ -132,7 +111,7 @@ function DashboardGate() {
   // 露出 body 底色与云纹背景即可，等状态就绪直接进页面，由 PageEnter 做渐入。
   if (loading) return null
   if (!user && isCommunity && guestAccess === null) return null
-  const isPublic = isTempbox || (isCommunity && guestAccess !== false)
+  const isPublic = isCommunity && guestAccess !== false
   if (!user && !isPublic) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
@@ -150,19 +129,6 @@ function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
 function CommunityRedirect() {
   const { id } = useParams<{ id: string }>()
   return <Navigate to={id ? `/dashboard/community/${id}` : "/dashboard/community"} replace />
-}
-
-/**
- * 公开短链 /t?code=... 收敛到控制台路由。
- *
- * 分享箱原先是脱离外壳的独立页（无侧边栏、无 max-w 容器），在桌面宽屏下
- * 两栏 grid 会横向铺满整屏，比例失真。收敛进 /dashboard/tempbox 后，
- * 与社区广场一样走同一个外壳：侧边栏在场、内容落在 max-w-6xl 容器里。
- * ⚠️ 必须带上 location.search —— 接收码 `?code=` 全靠它透传，丢了就解不开。
- */
-function TempboxRedirect() {
-  const location = useLocation()
-  return <Navigate to={`/dashboard/tempbox${location.search}`} replace />
 }
 
 export default function App() {
@@ -226,24 +192,11 @@ function AppRoutes() {
         <Route index element={<DashboardPage />} />
         <Route path="community" element={<CommunityPage inDashboard />} />
         <Route path="community/:id" element={<CommunityPage inDashboard />} />
-        {/* AI 实验室与创想造物已下线（2026-11-05）：旧链接重定向到仍存在的相关页面，
-            别让外发过的链接 404。lab 的用户多半是冲着 AI 去的 → 中转站。 */}
-        {/*
-          造物典藏（游戏大厅 · 插件宿主）。
-          ⚠️ `settings` 必须能被静态段优先匹配到（React Router 的排序规则保证：
-             静态段 > 动态段），所以它写在 `:slug` 前面只是书写可读性，不依赖顺序。
-        */}
-        {/* ---- 模拟人生（游戏仓库，2026-10-25 自造物集整体迁出） ---- */}
-        <Route path="sim" element={<SimPage />} />
-        <Route path="sim/:slug" element={<SimPluginPage />} />
-        {/* 旧地址重定向。settings 指向管理后台（独立 SPA 文档），必须整页跳转 */}
-        <Route path="gallery/collection" element={<Navigate to="/dashboard/sim" replace />} />
-        <Route path="gallery/collection/:slug" element={<OldCollectionSlugRedirect />} />
-        <Route path="gallery/collection/settings" element={<OldCollectionSettingsRedirect />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="achievements" element={<AchievementsPage />} />
         <Route path="leaderboard" element={<LeaderboardPage />} />
         <Route path="points" element={<PointsPage />} />
+        <Route path="shop" element={<ShopPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="messages" element={<MessagesPage />} />
         {/* 一对一私信：带用户名就是打开某个会话，不带就是纯列表 */}
@@ -256,9 +209,6 @@ function AppRoutes() {
             客户端路由跳不过去 —— 那是另一个 SPA 文档 */}
         <Route path="admin" element={<AdminRedirect />} />
       </Route>
-
-      {/* 临时分享箱公开短链：收敛到控制台路由，保证侧边栏在场且比例正常 */}
-      <Route path="t" element={<TempboxRedirect />} />
 
       {/*
         个人空间：公开页（无需登录）—— 社区里点别人头像就跳这里。

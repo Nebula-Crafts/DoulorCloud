@@ -20,9 +20,6 @@
  * 存量 137 名持有该权限的用户已由 migrations/0154_frp_rental_compensation.sql
  * 每人补偿 50 积分；历史 JSON 里残留的 `"frp":true/false` 会被这里直接忽略。
  */
-import { ApiError } from "./http"
-import { getSetting } from "./settings"
-import type { Env } from "./env"
 
 export const FEATURES = ["r2", "ai", "proxy", "doulor", "relay_auto"] as const
 export type Feature = (typeof FEATURES)[number]
@@ -198,53 +195,6 @@ export function hasFeature(
   return permissions[feature] === true
 }
 
-/**
- * 解析 open_features（逗号分隔的模块名列表）。
- * 非法值直接忽略（不信任历史数据）；全部非法或为空 → 空集 = 都不放行。
- */
-export function parseOpenFeatures(raw: string | null | undefined): Set<Feature> {
-  const out = new Set<Feature>()
-  for (const seg of String(raw ?? "").split(",")) {
-    const f = seg.trim() as Feature
-    if ((FEATURES as readonly string[]).includes(f)) out.add(f)
-  }
-  return out
-}
-
-/**
- * 某模块当前是否被设为「免权限访问」—— 设置后不再要求用户权限，
- * 没有权限的人也能访问/启用（管理面板「免权限访问」卡片）。
- *
- * 只在权限校验**失败**时才被调用（见 auth.ts 的 requireFeatureUser），
- * 因此有权限的用户走不到这里，不会产生额外的 D1 读。
- */
-export async function isFeatureOpen(env: Env, feature: Feature): Promise<boolean> {
-  return parseOpenFeatures(await getSetting(env, "open_features")).has(feature)
-}
-
-/**
- * 要求当前用户具备某功能权限，否则 403。
- * 不信任前端——所有涉及该功能的接口都必须先过这里。
- */
-export function requireFeature(
-  permissions: Permissions,
-  feature: Feature
-): void {
-  if (!hasFeature(permissions, feature)) {
-    throw new ApiError(
-      403,
-      `你的账号未被授予「${FEATURE_LABELS[feature]}」权限，请联系管理员`,
-      "FEATURE_NOT_PERMITTED"
-    )
-  }
-}
-
-/** 便捷：从用户行取权限 */
-export function userPermissions(user: {
-  permissions?: string | null
-}): Permissions {
-  return parsePermissions(user.permissions)
-}
 
 /* --------------------------------------------------------------------------
  * 「原子写权限」的 SQL 片段（2026-09-26 审计修复）
@@ -287,13 +237,6 @@ export function grantFeaturesSql(features: Feature[]): string {
   )
 }
 
-/**
- * 仅用于 `WHERE` 的守卫：该模块**原本已是允许**。
- * 缺失键按「允许」解释，所以用 `COALESCE(..., 1) = 1` 而不是 `= json('true')`。
- */
-export function featurePermittedGuard(feature: Feature): string {
-  return `COALESCE(json_extract(${PERMISSIONS_JSON_EXPR}, '$.${feature}'), 1) = 1`
-}
 
 // 这里原本还有一个 `featureNotPermittedGuard`（`!= 1` 的反向守卫），已删除：
 // 它想表达「该模块**原本不是允许**，用于判定本次是否真的新增授予」，但全仓无调用点 ——

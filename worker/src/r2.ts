@@ -268,75 +268,6 @@ export async function hasManagedBuckets(env: Env): Promise<boolean> {
 }
 
 /**
- * 列出所有桶配置（管理端用，含加密凭据，调用方不得直接下发前端）。
- */
-export async function listBuckets(env: Env): Promise<R2BucketRow[]> {
-  const res = await env.DB.prepare(
-    "SELECT * FROM r2_buckets ORDER BY sort_order ASC, created_at ASC"
-  ).all<R2BucketRow>()
-  return res.results ?? []
-}
-
-/**
- * 取单个桶配置并解密凭据（管理端校验连通性用）。
- */
-export async function getBucketCredentials(
-  env: Env,
-  id: string
-): Promise<{ row: R2BucketRow; analyticsToken: string | null }> {
-  const row = await env.DB.prepare("SELECT * FROM r2_buckets WHERE id = ?")
-    .bind(id)
-    .first<R2BucketRow>()
-  if (!row) throw new ApiError(404, "桶不存在", "NOT_FOUND")
-
-  let analyticsToken: string | null = null
-  if (row.analytics_token_enc && env.SESSION_SECRET) {
-    try {
-      analyticsToken = await decryptSecret(row.analytics_token_enc, env.SESSION_SECRET)
-    } catch {
-      analyticsToken = null
-    }
-  }
-  return { row, analyticsToken }
-}
-
-/**
- * 自动均衡分配：选一个「剩余容量最多」的桶（共享池模型）。
- *
- * - 只在启用中的用户网盘桶里选（平台数据桶不参与）
- * - 按（容量 - 已用）剩余空间降序，优先填最空的桶
- * - 桶满（剩余 ≤ 0）则跳过 ⇒ 第一个满了自然落到第二个
- */
-export async function pickBucketForNewUser(
-  env: Env
-): Promise<{ id: string; quotaPerUser: number } | null> {
-  const buckets = await env.DB.prepare(
-    "SELECT * FROM r2_buckets WHERE enabled = 1 AND kind = 'user' ORDER BY sort_order ASC, created_at ASC"
-  ).all<R2BucketRow>()
-  const list = buckets.results ?? []
-  if (list.length === 0) return null
-
-  // 一次查清各桶已用字节数，避免 N 次往返
-  const usedRes = await env.DB.prepare(
-    `SELECT bucket_id, COALESCE(SUM(used_bytes), 0) AS bytes FROM storage_accounts
-      WHERE bucket_id IS NOT NULL GROUP BY bucket_id`
-  ).all<{ bucket_id: string; bytes: number }>()
-  const usedMap = new Map((usedRes.results ?? []).map((r) => [r.bucket_id, r.bytes]))
-
-  let best: R2BucketRow | null = null
-  let bestFree = -1
-  for (const b of list) {
-    const free = (b.capacity_bytes ?? 0) - (usedMap.get(b.id) ?? 0)
-    if (free <= 0) continue // 满桶跳过
-    if (free > bestFree) {
-      best = b
-      bestFree = free
-    }
-  }
-  return best ? { id: best.id, quotaPerUser: best.quota_per_user } : null
-}
-
-/**
  * 该账号**可能**存放文件的桶，**主桶优先**（2026-10-12 网盘跨桶改造）。
  *
  * ## 为什么需要
@@ -365,24 +296,6 @@ export async function candidateBucketIds(
     return [preferredId, ...ids.filter((i) => i !== preferredId)]
   }
   return ids
-}
-
-/**
- * 跨桶找这个 key 落在哪个桶；都不在返回 `null`。
- *
- * 读 / 写前判断「这个文件有没有、在哪个桶」统一走这里（改前是直接 `headObject(key, 主桶)`
- * —— 一旦账号溢出过，就会在主桶里「查不到」，把已有文件误判成新文件）。
- */
-export async function findKeyBucket(
-  env: Env,
-  key: string,
-  preferredId?: string | null
-): Promise<string | null> {
-  for (const id of await candidateBucketIds(env, preferredId)) {
-    const head = await headObject(env, key, id)
-    if (head) return id
-  }
-  return null
 }
 
 /**
@@ -437,42 +350,6 @@ export async function pickBucketForWrite(
     }
   }
   return best ?? fallback
-}
-
-/**
- * 跨桶删除单个 key（2026-10-12 跨桶改造）。
- *
- * 先找它在哪个桶再删；**都不在就返回 `false`** —— 调用方按幂等处理
- * （删一个本来就不存在的文件不该报错，与改前 `deleteObject` 的语义一致）。
- */
-export async function deleteObjectAcrossBuckets(
-  env: Env,
-  key: string,
-  preferredId?: string | null
-): Promise<boolean> {
-  const bucketId = await findKeyBucket(env, key, preferredId)
-  if (!bucketId) return false
-  await deleteObject(env, key, bucketId)
-  return true
-}
-
-/**
- * 跨桶删除一个前缀下的对象（目录级清理 / 注销账号清盘）。
- *
- * **每个可能的桶都扫一遍再删** —— 跨桶后同一个用户前缀下的东西可能散在多个桶里。
- * 返回累计删除的对象数。
- */
-export async function deletePrefixAcrossBuckets(
-  env: Env,
-  prefix: string,
-  preferredId?: string | null,
-  limitPerBucket = 60
-): Promise<number> {
-  let removed = 0
-  for (const bucketId of await candidateBucketIds(env, preferredId)) {
-    removed += await deletePrefix(env, prefix, limitPerBucket, bucketId)
-  }
-  return removed
 }
 
 // ---- 基础工具 ----
@@ -810,43 +687,6 @@ export async function getObject(
     throw new ApiError(404, "文件不存在", "NOT_FOUND")
   }
   return r2OrError(res, "下载")
-}
-
-/**
- * 获取对象元信息（不拉正文）。
- *
- * ⚠️ 2026-09-27 线上故障修复：Cloudflare REST API（token 模式）的对象端点**不支持 HEAD**
- * —— 对它发 HEAD 直接返回 `405 Method Not Allowed`，于是所有 HEAD 直链都变成 502
- * 「R2 读取元信息失败（上游状态 405）」。（同一个坑早在本仓库里记过两次：
- * `worker/scripts/migrate-r2.mjs:85` 写着「R2 REST API 没有 HEAD，用 GET 只读头」，
- * 审计报告 P3-4 / 路线图 M11 也预警过 headObject 在 token 模式下会失效。）
- *
- * token 模式因此改用「按精确 key 列一条」替代：
- *   - REST 的 list 直接带 `size`，不像 GET 那样可能以 chunked 返回、拿不到 content-length
- *   - REST 的 list 还带 `http_metadata`，正好就是我们要的 contentType
- * prefix 精确等于 key 时，字典序最小的必然是它自己 ⇒ 取第一条并比对 key 即可。
- */
-export async function headObject(
-  env: Env,
-  key: string,
-  bucketId?: string | null
-): Promise<{ size: number; contentType: string | null } | null> {
-  const cfg = await resolveBucket(env, bucketId)
-
-  if (cfg.mode === "token") {
-    const { objects } = await listObjects(env, key, { limit: 1, bucketId })
-    const hit = objects[0]?.key === key ? objects[0] : null
-    if (!hit) return null
-    return { size: hit.size, contentType: hit.contentType }
-  }
-
-  const res = await r2Fetch(env, "HEAD", key, {}, {}, bucketId)
-  if (res.status === 404) return null
-  await r2OrError(res, "读取元信息")
-  return {
-    size: Number(res.headers.get("content-length") ?? 0),
-    contentType: res.headers.get("content-type"),
-  }
 }
 
 export async function putObject(

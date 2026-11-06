@@ -1,7 +1,7 @@
 import { ApiError } from "./http"
 import type { Env } from "./env"
 import { hashToken, generateToken, uuid } from "./crypto"
-import { parsePermissions, requireFeature, hasFeature, isFeatureOpen, type Feature } from "./permissions"
+import { parsePermissions } from "./permissions"
 
 export interface UserRow {
   id: string
@@ -34,6 +34,8 @@ export interface UserRow {
   avatar_key?: string | null
   /** 用户 UID（按注册顺序从 1 开始；迁移 0070，老数据可能为 NULL） */
   uid?: number | null
+  /** 会员等级（迁移 0169；0=普通 1=黄金 2=白金 3=黑金，只升不降） */
+  member_level?: number | null
   /**
    * 每用户 DNS 记录数上限的**用户级覆盖**（迁移 0161；NULL = 沿用全局设置项
    * `dns_records_per_user`）。与 `max_subdomains` 是同一套「用户级覆盖 > 全局设置」
@@ -185,6 +187,8 @@ export function toPublicUser(row: UserRow) {
     hasAvatar: Boolean(row.avatar_key),
     /** 用户 UID（按注册顺序，001 起）；展示层补零 */
     uid: row.uid ?? null,
+    /** 会员等级（0=普通 1=黄金 2=白金 3=黑金，2026-11-06 等级体系） */
+    memberLevel: row.member_level ?? 0,
     createdAt: row.created_at,
   }
 }
@@ -383,33 +387,6 @@ export function getSessionTokens(request: Request): string[] {
 
 /** 单次请求最多参与校验的同名 cookie 数（见 getSessionTokens 注释） */
 const MAX_SESSION_TOKENS = 16
-
-/**
- * 要求登录 + 具备指定功能权限。
- * 所有与某个受限功能相关的接口都应走这里，
- * 而不是只调 requireUser —— 权限必须由服务端强制，绝不信任前端。
- *
- * 管理员可把模块设为「免权限访问」（管理面板，存 app_settings.open_features），
- * 此时该模块不再检查用户权限。注意这与管理员角色放行是两件事：前者对所有人放行，
- * 后者只放行管理员自己。
- */
-export async function requireFeatureUser(
-  env: Env,
-  request: Request,
-  feature: Feature
-): Promise<UserRow> {
-  const user = await requireUser(env, request)
-  // 管理员/站长始终放行，便于排查问题
-  if (isPrivileged(user.role)) return user
-  const perms = parsePermissions(user.permissions)
-  if (!hasFeature(perms, feature)) {
-    // 只在「被卡住」时才读免权限总开关：有权限的用户（绝大多数）走不到这里，
-    // 因此这条查询不构成热点路径的额外开销，也就不需要缓存。
-    if (await isFeatureOpen(env, feature)) return user
-    requireFeature(perms, feature)
-  }
-  return user
-}
 
 /** 管理员对申诉的回复，以及用户是否已确认看过（供强制弹窗使用） */
 export interface PendingAppealReply {

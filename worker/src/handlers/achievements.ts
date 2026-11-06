@@ -1,7 +1,6 @@
 import { json } from "../http"
 import { requireUser } from "../auth"
 import { grantAchievementRewards } from "../achievement-rewards"
-import { getSettingBool } from "../settings"
 import type { Env } from "../env"
 
 /**
@@ -62,45 +61,19 @@ interface AchievementDef {
  */
 export const ACHIEVEMENT_GROUPS: { id: string; label: string; desc: string }[] = [
   { id: "start", label: "起步", desc: "开通与身份" },
-  { id: "resource", label: "资源", desc: "邮箱 / 网盘 / AI" },
+  { id: "resource", label: "资源", desc: "积分与参与" },
   { id: "usage", label: "使用", desc: "访问与分享" },
   { id: "social", label: "社交", desc: "社区 / 聊天" },
-  { id: "contribute", label: "贡献", desc: "邀请与捐献" },
+  { id: "contribute", label: "贡献", desc: "邀请与活动" },
   { id: "special", label: "特殊", desc: "时间与元老" },
 ]
 
 /** 「元老」判定：注册时间排在前 N 名 */
 const VETERAN_TOP_N = 20
 
-const MB = 1024 * 1024
-
 /** 成就定义表。新增成就只需在此追加（记得同时给前端 ICONS 加图标映射）。 */
 const ACHIEVEMENTS: AchievementDef[] = [
   // ---- 起步 ----
-  {
-    id: "storage_enable",
-    name: "云端仓库",
-    desc: "开通直链网盘",
-    icon: "hard-drive",
-    group: "start",
-    how: "在「网盘」页面点击开通，同意使用协议即可解锁。",
-  },
-  {
-    id: "ai_enable",
-    name: "智核接入",
-    desc: "开通 AI 中转站",
-    icon: "sparkles",
-    group: "start",
-    how: "在「AI 中转站」页面绑定或创建账号（需已开通你的站内邮箱）。",
-  },
-  {
-    id: "profile_enable",
-    name: "数字名片",
-    desc: "开通个人名片",
-    icon: "contact",
-    group: "start",
-    how: "在「个人名片」页面点击开通。",
-  },
   {
     id: "identity",
     name: "名分已定",
@@ -111,63 +84,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
   },
 
   // ---- 资源积累 ----
-  {
-    id: "mailbox",
-    name: "信箱林立",
-    desc: "添加邮箱地址",
-    icon: "mail",
-    group: "resource",
-    how: "在「邮箱」页面添加地址（注册时的主邮箱计入）。",
-    tiers: [1, 3],
-    tierNames: ["首个信箱", "多线并行"],
-    tierReqs: ["拥有 1 个邮箱地址", "拥有 3 个邮箱地址"],
-  },
-  {
-    id: "storage_files",
-    name: "数字仓廪",
-    desc: "往网盘里存文件",
-    icon: "folder-open",
-    group: "resource",
-    how: "在「网盘」页面拖入文件上传（每个文件计一件）。",
-    tiers: [1, 5, 20],
-    tierNames: ["初次入库", "小有积蓄", "囤积如山"],
-    tierReqs: ["上传 1 个文件", "上传 5 个文件", "上传 20 个文件"],
-  },
-  {
-    id: "storage_bytes",
-    name: "空间占领",
-    desc: "累计占用的网盘容量",
-    icon: "database",
-    group: "resource",
-    how: "上传更大的文件即可推进（按当前占用总量算，删掉会回落）。",
-    // 第三档 1000 MB 而非 1 GB（1024 MB）：用户反馈（38011049）网盘每人
-    // 配额是 1 GB，占用到 1023 MB 时最后 1 MB 传不上去，永远够不到精确
-    // 1024 MB 的门槛。降到 1000 MB 让满配额用户也能完成。
-    tiers: [10 * MB, 200 * MB, 1000 * MB],
-    tierNames: ["十兆起步", "两百兆", "千兆"],
-    tierReqs: ["占用 10 MB", "占用 200 MB", "占用 1000 MB"],
-    valueFormat: "bytes",
-  },
-  {
-    id: "first_mail",
-    name: "见信如晤",
-    desc: "收到第一封邮件",
-    icon: "inbox",
-    group: "resource",
-    how: "有人向你的站内邮箱发信，或注册时收到验证码邮件即可解锁。",
-  },
-  {
-    id: "ai_key",
-    name: "密钥工坊",
-    desc: "在 AI 中转站创建 API Key",
-    icon: "key-round",
-    group: "resource",
-    how: "在「AI 中转站」页面创建一个 API Key，用于在任意客户端调用模型。",
-    tiers: [1, 3],
-    tierNames: ["第一把钥匙", "多端并用"],
-    tierReqs: ["创建 1 个 API Key", "创建 3 个 API Key"],
-  },
-
   // ---- 使用深度 ----
   {
     id: "visit",
@@ -180,45 +96,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
     tierNames: ["初来乍到", "熟门熟路", "常驻居民"],
     tierReqs: ["访问 10 次", "访问 100 次", "访问 1000 次"],
   },
-  {
-    id: "profile_view",
-    name: "声名远扬",
-    desc: "名片被访问",
-    icon: "eye",
-    group: "usage",
-    how: "分享你的个人名片，每次有人打开就 +1。",
-    tiers: [10, 100, 1000],
-    tierNames: ["小有名气", "广为人知", "名动四方"],
-    tierReqs: ["名片被访问 10 次", "名片被访问 100 次", "名片被访问 1000 次"],
-  },
-  {
-    id: "profile_publish",
-    name: "公之于众",
-    desc: "对外展示个人名片",
-    icon: "send",
-    group: "usage",
-    how: "开通个人名片后填上昵称 —— 名片默认就是对外可见的，填了名字才算真在展示。",
-  },
-  {
-    id: "profile_decor",
-    name: "精心装扮",
-    desc: "用图片或音乐装点名片",
-    icon: "palette",
-    group: "usage",
-    how: "给名片设置背景图或背景音乐（任意一项即可）。",
-  },
-  {
-    id: "tempbox",
-    name: "分享即达",
-    desc: "使用临时分享箱",
-    icon: "package",
-    group: "usage",
-    how: "在「临时分享箱」上传文件并把接收码发给别人 —— 适合传不给留底的东西。",
-    tiers: [1, 5, 20],
-    tierNames: ["初次投递", "顺手拈来", "分享达人"],
-    tierReqs: ["创建 1 个分享箱", "创建 5 个分享箱", "创建 20 个分享箱"],
-  },
-
   // ---- 社交 ----
   {
     id: "posts",
@@ -288,35 +165,8 @@ const ACHIEVEMENTS: AchievementDef[] = [
     tierNames: ["带来一个", "小有影响", "引荐之光"],
     tierReqs: ["邀请 1 人注册", "邀请 3 人注册", "邀请 10 人注册"],
   },
-  {
-    id: "donor",
-    name: "无私奉献",
-    desc: "捐献资源通过审核",
-    icon: "gift",
-    group: "contribute",
-    how: "在「捐献」页面贡献 AI 渠道 / 代理订阅 / 内网穿透 / 商汤 Key，通过审核后计数。",
-    tiers: [1, 3, 5],
-    tierNames: ["初次贡献", "慷慨解囊", "中流砥柱"],
-    tierReqs: ["捐献通过 1 次", "捐献通过 3 次", "捐献通过 5 次"],
-  },
-  {
-    id: "donor_all",
-    name: "全能贡献",
-    desc: "两类以上的资源都捐过",
-    icon: "layers",
-    group: "contribute",
-    how: "AI 渠道、代理订阅、商汤 Key 中，任意两种都成功捐献过一次。",
-  },
-
   // ---- 功能权限 ----
-  {
-    id: "proxy_enable",
-    name: "一路畅通",
-    desc: "开通代理节点",
-    icon: "route",
-    group: "start",
-    how: "在「代理节点」页面阅读并同意使用协议后开通。",
-  },
+  // proxy_enable（一路畅通）已随代理节点模块移除（2026-11-06 大裁撤）。
 
   // ---- 特殊 ----
   {
@@ -350,17 +200,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
     icon: "shield-check",
     group: "usage",
     how: "在「设置 → 安全」开启邮箱验证码或 TOTP 二次验证，登录多一层保护。",
-  },
-  {
-    id: "mail_count",
-    name: "邮路繁忙",
-    desc: "累计收到的邮件",
-    icon: "mail-check",
-    group: "resource",
-    how: "别人向你的站内邮箱发信都会累计（验证码、通知、往来邮件都算）。",
-    tiers: [10, 100, 500],
-    tierNames: ["十封往来", "百封不断", "千封大户"],
-    tierReqs: ["收到 10 封邮件", "收到 100 封邮件", "收到 500 封邮件"],
   },
   {
     id: "checkin",
@@ -433,17 +272,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
   // 这批成就继续复用已经存在的业务表，不引入新迁移。计数均为用户实际
   // 做过的事情：读信、参与活动、使用私信/OAuth/开放 API，以及把多个模块
   // 真正组合起来使用。这样成就数量增加的同时，每一枚都有清晰的来源。
-  {
-    id: "mail_read",
-    name: "阅信有道",
-    desc: "阅读收到的邮件",
-    icon: "mail-check",
-    group: "usage",
-    how: "打开收件箱阅读邮件，按**累计已读**封数计算（读过的信即使删掉也不会少）。",
-    tiers: [1, 10, 50],
-    tierNames: ["拆开第一封", "往来渐多", "阅信达人"],
-    tierReqs: ["累计读过 1 封邮件", "累计读过 10 封邮件", "累计读过 50 封邮件"],
-  },
   {
     id: "post_edits",
     name: "精益求精",
@@ -520,36 +348,6 @@ const ACHIEVEMENTS: AchievementDef[] = [
     tiers: [1, 2, 5],
     tierNames: ["首次授权", "多端通行", "身份中枢"],
     tierReqs: ["授权 1 个应用", "授权 2 个应用", "授权 5 个应用"],
-  },
-  {
-    id: "public_api",
-    name: "开放接口",
-    desc: "开通公开 API",
-    icon: "route",
-    group: "start",
-    how: "在账号设置里生成公开 API Key，用代码调用站点功能。",
-  },
-  {
-    id: "profile_modules",
-    name: "名片设计师",
-    desc: "编排个人名片模块",
-    icon: "palette",
-    group: "resource",
-    how: "在个人名片编辑器里启用并编排多个内容模块。",
-    tiers: [2, 4, 6],
-    tierNames: ["开始布置", "布局讲究", "名片大师"],
-    tierReqs: ["配置 2 个名片模块", "配置 4 个名片模块", "配置 6 个名片模块"],
-  },
-  {
-    id: "feature_count",
-    name: "多面手",
-    desc: "开通多个平台模块",
-    icon: "layers",
-    group: "start",
-    how: "实际开通网盘、AI、名片、内网穿透、代理节点中的多个模块。",
-    tiers: [2, 3, 5],
-    tierNames: ["两项上手", "三线并行", "全能用户"],
-    tierReqs: ["开通 2 个功能模块", "开通 3 个功能模块", "开通全部 5 个功能模块"],
   },
   {
     id: "points_earned",
@@ -824,29 +622,14 @@ export interface AchievementProgress {  id: string
 
 /** 合并计数查询返回的一行（列名与 SQL 里的别名一一对应） */
 export interface UserCounts {
-  mailbox: number
-  storage_files: number
-  storage_bytes: number
-  ai_keys: number
-  mails: number
   identity: number
-  published: number
-  decorated: number
-  profile_view: number
   visit: number
   posts: number
   comments: number
   likes_given: number
   likes_received: number
   chat: number
-  tempbox: number
   invited: number
-  donations: number
-  donation_kinds: number
-  proxy: number
-  storage_acc: number
-  ai_acc: number
-  profile_row: number
   veteran_rank: number
   /** 是否开启二次验证（0/1） */
   two_factor: number
@@ -863,7 +646,6 @@ export interface UserCounts {
   /** 已保存的表情包数 */
   stickers: number
   /** 累计已读邮件封数（读过的信删掉也不清减） */
-  mail_read: number
   /** 使用过的 DNS 记录类型数 */
   /** 编辑帖子次数 */
   post_edits: number
@@ -880,11 +662,8 @@ export interface UserCounts {
   /** 已授权的 OAuth 应用数 */
   oauth_grants: number
   /** 是否生成过公开 API Key */
-  public_api: number
   /** 名片中已启用的模块数 */
-  profile_modules: number
   /** 实际开通的平台功能数 */
-  feature_count: number
   /** 历史累计获得的正积分 */
   points_earned: number
   /** 历史累计消耗的积分（负流水取绝对值；「大方出手」用它） */
@@ -898,29 +677,14 @@ export interface UserCounts {
 /** 用户不存在 / 查不到时的全零计数（调用方不必到处写 `?.`） */
 function emptyCounts(): UserCounts {
   return {
-    mailbox: 0,
-    storage_files: 0,
-    storage_bytes: 0,
-    ai_keys: 0,
-    mails: 0,
     identity: 0,
-    published: 0,
-    decorated: 0,
-    profile_view: 0,
     visit: 0,
     posts: 0,
     comments: 0,
     likes_given: 0,
     likes_received: 0,
     chat: 0,
-    tempbox: 0,
     invited: 0,
-    donations: 0,
-    donation_kinds: 0,
-    proxy: 0,
-    storage_acc: 0,
-    ai_acc: 0,
-    profile_row: 0,
     veteran_rank: 999,
     two_factor: 0,
     checkin_count: 0,
@@ -929,7 +693,6 @@ function emptyCounts(): UserCounts {
     shop_orders: 0,
     shares_given: 0,
     stickers: 0,
-    mail_read: 0,
     post_edits: 0,
     post_images: 0,
     comment_replies: 0,
@@ -937,9 +700,6 @@ function emptyCounts(): UserCounts {
     direct_messages: 0,
     event_claims: 0,
     oauth_grants: 0,
-    public_api: 0,
-    profile_modules: 0,
-    feature_count: 0,
     points_earned: 0,
     points_spent: 0,
     checkin_streak: 0,
@@ -970,31 +730,16 @@ function emptyCounts(): UserCounts {
  * @param owner 指向「被统计的用户 id」那一列的表达式：
  *              单用户传 `me.uid`，全站传 `u.id`。
  */
-function countColumns(owner: string, excludeApi: boolean): string {
-  // 「API 计入成就」开关关闭时，排除通过公开 API 创建的记录（source='api'），
-  // 防止脚本刷成就点。只影响邮箱这个能被 API 创建的资源。
-  const mailboxSrc = excludeApi ? " AND source != 'api'" : ""
+function countColumns(owner: string): string {
   return `
-        (SELECT COUNT(*) FROM mailboxes WHERE user_id = {OWNER}${mailboxSrc}) AS mailbox,
-       (SELECT COUNT(*) FROM storage_objects WHERE user_id = {OWNER}) AS storage_files,
-       (SELECT COALESCE(SUM(size), 0) FROM storage_objects WHERE user_id = {OWNER}) AS storage_bytes,
-       (SELECT COUNT(*) FROM newapi_keys WHERE user_id = {OWNER}) AS ai_keys,
-       (SELECT COUNT(*) FROM messages m JOIN mailboxes mb ON m.mailbox_id = mb.id
-         WHERE mb.user_id = {OWNER}) AS mails,
        (SELECT COUNT(*) FROM users WHERE id = {OWNER}
           AND nickname IS NOT NULL AND nickname != '' AND avatar_key IS NOT NULL) AS identity,
-       -- 「已发布」这一项**不能只看 published**：2026-09-28 起开通名片就默认
-       -- published=1，光看它会让「公之于众」变成和「数字名片」重复的白送成就
-       -- （成就点会换成 NewAPI 订阅，是真金白银）。所以要求同时填了昵称。
-       (SELECT COUNT(*) FROM profiles WHERE user_id = {OWNER} AND published = 1
-          AND display_name IS NOT NULL AND TRIM(display_name) <> '') AS published,
        (SELECT COUNT(*) FROM profiles WHERE user_id = {OWNER} AND (
           (background_key IS NOT NULL AND background_key != '')
           OR (background_url IS NOT NULL AND background_url != '')
           OR (music_key IS NOT NULL AND music_key != '')
           OR (music_url IS NOT NULL AND music_url != '')
        )) AS decorated,
-       (SELECT COALESCE(view_count, 0) FROM profiles WHERE user_id = {OWNER}) AS profile_view,
        (SELECT COALESCE(visit_count, 0) FROM user_stats WHERE user_id = {OWNER}) AS visit,
        (SELECT COUNT(*) FROM posts WHERE user_id = {OWNER} AND deleted_at IS NULL) AS posts,
        (SELECT COUNT(*) FROM post_comments WHERE user_id = {OWNER} AND deleted_at IS NULL) AS comments,
@@ -1004,16 +749,10 @@ function countColumns(owner: string, excludeApi: boolean): string {
              + COALESCE((SELECT SUM(like_count) FROM post_comments
                           WHERE user_id = {OWNER} AND deleted_at IS NULL), 0)) AS likes_received,
        (SELECT COUNT(*) FROM chat_messages WHERE user_id = {OWNER}) AS chat,
-       (SELECT COALESCE(tempbox_created, 0) FROM user_stats WHERE user_id = {OWNER}) AS tempbox,
        (SELECT COUNT(*) FROM users u JOIN invite_codes c ON u.invite_code_id = c.id
          WHERE c.created_by = {OWNER}) AS invited,
-       (SELECT COUNT(*) FROM donations WHERE user_id = {OWNER} AND status = 'approved') AS donations,
        (SELECT COUNT(DISTINCT type) FROM donations
          WHERE user_id = {OWNER} AND status = 'approved') AS donation_kinds,
-       (SELECT COUNT(*) FROM proxy_activation WHERE user_id = {OWNER}) AS proxy,
-       (SELECT COUNT(*) FROM storage_accounts WHERE user_id = {OWNER}) AS storage_acc,
-       (SELECT COUNT(*) FROM newapi_accounts WHERE user_id = {OWNER}) AS ai_acc,
-       (SELECT COUNT(*) FROM profiles WHERE user_id = {OWNER}) AS profile_row,
        (SELECT COUNT(*) FROM users WHERE created_at <
          (SELECT created_at FROM users WHERE id = {OWNER})) AS veteran_rank,
        -- ---- 2026-10-03 新增：真实行为类计数 ----
@@ -1032,8 +771,6 @@ function countColumns(owner: string, excludeApi: boolean): string {
              AND reason = 'redeem' AND delta < 0)) AS shop_orders,
        (SELECT COUNT(*) FROM post_shares WHERE user_id = {OWNER}) AS shares_given,
        (SELECT COUNT(*) FROM user_stickers WHERE user_id = {OWNER}) AS stickers,
-       -- ---- 2026-10-04 新增：深度使用与平台探索 ----
-       (SELECT COALESCE(mail_read_count, 0) FROM user_stats WHERE user_id = {OWNER}) AS mail_read,
        (SELECT COUNT(*) FROM post_edits e JOIN posts p ON e.post_id = p.id
          WHERE e.editor_id = {OWNER} AND p.deleted_at IS NULL) AS post_edits,
        (SELECT COUNT(*) FROM posts
@@ -1056,7 +793,6 @@ function countColumns(owner: string, excludeApi: boolean): string {
        (SELECT COUNT(*) FROM event_claims
          WHERE user_id = {OWNER} AND reward_status != 'failed') AS event_claims,
        (SELECT COUNT(*) FROM oauth_grants WHERE user_id = {OWNER}) AS oauth_grants,
-       (SELECT COUNT(*) FROM user_api_keys WHERE user_id = {OWNER}) AS public_api,
        (SELECT COUNT(*) FROM profiles p, json_each(
           CASE WHEN json_valid(p.modules) THEN p.modules ELSE '[]' END
         ) WHERE p.user_id = {OWNER}
@@ -1066,7 +802,6 @@ function countColumns(owner: string, excludeApi: boolean): string {
           UNION ALL SELECT user_id FROM newapi_accounts WHERE user_id = {OWNER}
           UNION ALL SELECT user_id FROM profiles WHERE user_id = {OWNER}
           UNION ALL SELECT user_id FROM frp_accounts WHERE user_id = {OWNER} AND enabled = 1
-          UNION ALL SELECT user_id FROM proxy_activation WHERE user_id = {OWNER} AND enabled = 1
        )) AS feature_count,
        (SELECT COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0)
           FROM point_transactions WHERE user_id = {OWNER}) AS points_earned,
@@ -1078,9 +813,8 @@ function countColumns(owner: string, excludeApi: boolean): string {
 }
 
 export async function loadUserCounts(env: Env, userId: string): Promise<UserCounts> {
-  const excludeApi = !(await getSettingBool(env, "api_count_achievements"))
   const row = await env.DB.prepare(
-    `SELECT ${countColumns("me.uid", excludeApi)}
+    `SELECT ${countColumns("me.uid")}
      FROM (SELECT ? AS uid) me`
   )
     .bind(userId)
@@ -1107,11 +841,10 @@ export interface AllUserCounts extends UserCounts {
  * 新增依赖前先 `SELECT name FROM sqlite_master` 确认一次，否则整页 500。
  */
 export async function loadAllUserCounts(env: Env): Promise<AllUserCounts[]> {
-  const excludeApi = !(await getSettingBool(env, "api_count_achievements"))
   const res = await env.DB.prepare(
     `SELECT u.id AS uid, u.username AS username, u.nickname AS nickname,
             u.avatar_key AS avatar_key,
-            ${countColumns("u.id", excludeApi)}
+            ${countColumns("u.id")}
        FROM users u
       WHERE u.status = 'active'`
   ).all<AllUserCounts>()
@@ -1134,42 +867,25 @@ export function computeAchievements(counts: UserCounts): {
 
   // 每个成就的原始进度值（未列出的按 0 处理）
   const values: Record<string, number> = {
-    storage_enable: (c?.storage_acc ?? 0) > 0 ? 1 : 0,
-    ai_enable: (c?.ai_acc ?? 0) > 0 ? 1 : 0,
-    profile_enable: (c?.profile_row ?? 0) > 0 ? 1 : 0,
     identity: (c?.identity ?? 0) > 0 ? 1 : 0,
-    mailbox: c?.mailbox ?? 0,
-    storage_files: c?.storage_files ?? 0,
-    storage_bytes: c?.storage_bytes ?? 0,
-    first_mail: (c?.mails ?? 0) > 0 ? 1 : 0,
-    ai_key: c?.ai_keys ?? 0,
     visit: c?.visit ?? 0,
-    profile_view: c?.profile_view ?? 0,
-    profile_publish: (c?.published ?? 0) > 0 ? 1 : 0,
-    profile_decor: (c?.decorated ?? 0) > 0 ? 1 : 0,
-    tempbox: c?.tempbox ?? 0,
     posts: c?.posts ?? 0,
     comments: c?.comments ?? 0,
     likes_received: c?.likes_received ?? 0,
     likes_given: c?.likes_given ?? 0,
     chat: c?.chat ?? 0,
     inviter: c?.invited ?? 0,
-    donor: c?.donations ?? 0,
     // 「全能贡献」= AI / 代理 / 内网穿透 / 商汤 里任意三种都捐过
-    donor_all: (c?.donation_kinds ?? 0) >= 2 ? 1 : 0,
-    proxy_enable: (c?.proxy ?? 0) > 0 ? 1 : 0,
     veteran: (c?.veteran_rank ?? 999) < VETERAN_TOP_N ? 1 : 0,
     loyal: daysSinceRegister,
     // ---- 2026-10-03 新增：真实行为类 ----
     two_factor: c?.two_factor ?? 0,
-    mail_count: c?.mails ?? 0,
     checkin: c?.checkin_count ?? 0,
     points_balance: c?.points_balance ?? 0,
     feedback: c?.feedback_count ?? 0,
     shop_orders: c?.shop_orders ?? 0,
     post_shares: c?.shares_given ?? 0,
     stickers: c?.stickers ?? 0,
-    mail_read: c?.mail_read ?? 0,
     post_edits: c?.post_edits ?? 0,
     post_images: c?.post_images ?? 0,
     comment_replies: c?.comment_replies ?? 0,
@@ -1177,9 +893,6 @@ export function computeAchievements(counts: UserCounts): {
     direct_messages: c?.direct_messages ?? 0,
     event_claims: c?.event_claims ?? 0,
     oauth_grants: c?.oauth_grants ?? 0,
-    public_api: c?.public_api ?? 0,
-    profile_modules: c?.profile_modules ?? 0,
-    feature_count: c?.feature_count ?? 0,
     points_earned: c?.points_earned ?? 0,
     points_spent: c?.points_spent ?? 0,
     checkin_streak: c?.checkin_streak ?? 0,

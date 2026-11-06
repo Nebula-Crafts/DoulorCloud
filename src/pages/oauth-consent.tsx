@@ -9,7 +9,7 @@
  */
 import * as React from "react"
 import { useSearchParams } from "react-router-dom"
-import { Loader2, ShieldCheck, AlertTriangle, Globe } from "lucide-react"
+import { Crown, Loader2, ShieldCheck, AlertTriangle, Globe } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -53,6 +53,10 @@ export default function OAuthConsentPage() {
     clientName: string
     scopes: string[]
     redirectHosts: string[]
+    /** 授权门槛（0=不限）；>0 且用户等级不够时整个页面换成拦截态 */
+    minLevel: number
+    /** 当前用户的会员等级（0=普通 1=黄金 2=白金 3=黑金） */
+    userLevel: number
   } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
@@ -73,6 +77,8 @@ export default function OAuthConsentPage() {
           clientName: c.clientName,
           scopes: c.scopes,
           redirectHosts: c.redirectHosts ?? [],
+          minLevel: c.minLevel ?? 0,
+          userLevel: c.userLevel ?? 0,
         })
       )
       .catch((err) => {
@@ -125,6 +131,36 @@ export default function OAuthConsentPage() {
     return (
       <div className="flex min-h-[70vh] items-center justify-center p-6">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // 授权门槛（2026-11-06 会员等级）：等级不够时直接给拦截态，
+  // 不给「允许」按钮 —— 服务端本来也会拒（authorize 与 decision 双兜底），这里只是把
+  // 「为什么被拒」讲清楚，免得用户以为站点坏了。
+  if (ctx && ctx.minLevel > 0 && ctx.userLevel < ctx.minLevel) {
+    return (
+      <div className="flex min-h-[70vh] items-center justify-center p-6">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Crown className="h-4 w-4 text-amber-500" />
+              {t("oc.level.title")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {t("oc.level.desc", {
+                name: ctx.clientName,
+                need: t("lvl." + ctx.minLevel),
+                have: t("lvl." + ctx.userLevel),
+              })}
+            </p>
+            <Button variant="outline" className="w-full" onClick={() => window.history.back()}>
+              {t("oc.back")}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     )
   }

@@ -15,57 +15,21 @@ import {
   type SpaceData,
   type SpaceCardData,
   type MySpaceSettings,
-  type RootDomainOption,
   type LeaderboardBoard,
   type LeaderboardResponse,
   type CommunityMetric,
   type LeaderboardRange,
-  type Donation,
-  type DonationChannel,
-  type DonationOverview,
-  type DonationProvisionResult,
-  type DonationSubmitResult,
-  type AiProbeResult,
-  type VoucherOverview,
-  type RedeemResult,
-  type Mailbox,
   type EmailSettings,
   type MailMessage,
   type Permissions,
   type MeResponse,
-  type NewApiKey,
-  type NewApiPreflight,
-  type NewApiModels,
-  type NewApiStatus,
-  type NewApiUsage,
-  type StorageAccount,
-  type StorageList,
-  type StorageShare,
-  type StorageOverview,
-  type StoragePrefixCreated,
 
   type AdminInviteQuotasResponse,
   type AdminUserInviteQuotaResponse,
-  type MyInvite,
-  type MyInvitesOverview,
-  type UserQuota,
   type FeatureCounts,
-  type Profile,
-  type ProfileContact,
-  type ProfileModule,
-  type ProfileMusicTrack,
-  type ProfileOverview,
-  type R2BucketsResponse,
-  type R2Operations,
-  type ProxyOverview,
-  type ProxyLatencyBatch,
   type CfQuotaOverview,
   type BrevoQuotaOverview,
   type MailSecrets,
-  type AdminProxySubscription,
-  type TempboxBatch,
-  type TempboxConfig,
-  type TempboxCreated,
   type User,
   type Post,
   type CommentNode,
@@ -79,20 +43,6 @@ import {
   type CommunityStats,
   type CommunityConfig,
   type AdminCommunityPost,
-  type AdminNewApiConfig,
-  type AdminNewApiCredentialSource,
-  type Wb2ApiStatus,
-  type Wb2ApiLoginStart,
-  type Wb2ApiLoginPoll,
-  type AdminWb2ApiBinding,
-  type AdminWb2ApiConfig,
-  type AdminWb2ApiPool,
-  type Qoder2ApiStatus,
-  type Qoder2ApiLoginStart,
-  type Qoder2ApiLoginPoll,
-  type AdminQoder2ApiBinding,
-  type AdminQoder2ApiConfig,
-  type AdminQoder2ApiPool,
   type FeedbackOverview,
   type AdminFeedbackList,
   type FeedbackDetail,
@@ -131,10 +81,6 @@ import {
   type DmPeer,
   type DmMessage,
   type DmConversation,
-  type AdminMailbox,
-  type AdminMailboxListResponse,
-  type AdminMailboxMessage,
-  type AdminMailboxMessageDetail,
   type Sticker,
 } from "@/types"
 import type { FunLinkCategory } from "@/lib/fun-links"
@@ -519,6 +465,8 @@ export const adminApi = {
       nickname?: string | null
       emailVerified?: boolean
       notifyEnabled?: boolean
+      /** 会员等级（0=普通 1=黄金 2=白金 3=黑金）；运营兜底，可下调 */
+      memberLevel?: number
       /**
        * 封禁原因：status 改成 suspended 时写入，**用户下次登录会在登录页看到**。
        * 解封（status=active）时后端会自动清空，不用传。
@@ -659,56 +607,6 @@ export const adminApi = {
     }),
 
   /** AI 实验室配置：模型来源、统一 Key、免费额度、提示词、免费渠道 */
-  getApiConfig: () =>
-    request<{
-      features: { feature: string; enabled: boolean; tierLimits: number[]; ipLimit: number }[]
-      countAchievements: boolean
-    }>("/admin/api-config"),
-
-  saveApiConfig: (payload: {
-    countAchievements: boolean
-    features: { feature: string; enabled: boolean; tierLimits: number[]; ipLimit: number }[]
-  }) =>
-    request<{ ok: boolean }>("/admin/api-config", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  recalculateStorage: () =>
-    request<{ accounts: number; totalBytes: number }>("/admin/storage/recalculate", {
-      method: "POST",
-    }),
-
-  purgeStorage: (username: string) =>
-    request<{ deleted: number }>(
-      `/admin/storage/purge/${encodeURIComponent(username)}`,
-      { method: "POST" }
-    ),
-
-  /**
-   * 改单个用户的网盘配额（字节）。
-   * `storage_accounts.quota_bytes` 是开通那一刻写死的快照 ⇒ 改桶的「每人配额」只影响之后新开通的人。
-   */
-  updateStorageQuota: (username: string, quotaBytes: number) =>
-    request<{ quotaBytes: number; usedBytes: number; overQuota: boolean }>(
-      `/admin/storage/quota/${encodeURIComponent(username)}`,
-      { method: "PUT", body: JSON.stringify({ quotaBytes }) }
-    ),
-
-  listProxySubscriptions: () =>
-    request<{ subscriptions: AdminProxySubscription[] }>("/admin/proxy/subscriptions"),
-
-  upsertProxySubscription: (payload: Record<string, unknown>) =>
-    request<{ subscription: AdminProxySubscription }>("/admin/proxy/subscriptions", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  deleteProxySubscription: (id: string) =>
-    request<void>(`/admin/proxy/subscriptions/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-
   // 社区管理
   listCommunityPosts: (params?: { user?: string; includeDeleted?: boolean }) => {
     const sp = new URLSearchParams()
@@ -721,42 +619,6 @@ export const adminApi = {
     request<{ ok: boolean }>(`/admin/community/posts/${encodeURIComponent(id)}`, { method: "DELETE" }),
   restoreCommunityPost: (id: string) =>
     request<{ ok: boolean }>(`/admin/community/posts/${encodeURIComponent(id)}/restore`, { method: "POST" }),
-
-  // 中转站管理员凭据（令牌轮换后可在网页上直接更新）
-  getNewApiConfig: () => request<AdminNewApiConfig>("/admin/newapi/config"),
-
-  /**
-   * 中转站「请求失败重试次数」（NewAPI 系统设置 RetryTimes）。
-   * 用户反馈（yuan）想改这个，但原来只能去中转站后台手点 —— 2026-10-17 加的站内入口。
-   * available=false 表示对方版本没有这个设置项或读取失败，此时前端只展示原因、不给改。
-   */
-  getRelayRetryTimes: () =>
-    request<{ available: boolean; retryTimes: number | null; reason?: string }>(
-      "/admin/newapi/retry-times"
-    ),
-  setRelayRetryTimes: (retryTimes: number) =>
-    request<{ retryTimes: number }>("/admin/newapi/retry-times", {
-      method: "PUT",
-      body: JSON.stringify({ retryTimes }),
-    }),
-
-  updateNewApiConfig: (payload: { token: string; adminUserId?: string }) =>
-    request<{
-      ok: boolean
-      source: AdminNewApiCredentialSource
-      maskedToken: string | null
-      adminUserId: string
-      updatedAt: string | null
-      /** 顺带修复的本站绑定条数（管理员令牌与 root 用户令牌在 NewAPI 侧是同一份） */
-      healedAccounts: number
-      message: string
-    }>("/admin/newapi/config", {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 中转站全部模型名（推荐模型编辑器下拉用；失败返回空数组） */
-  listNewApiModels: () => request<{ models: string[] }>("/admin/newapi/models"),
 
   /**
    * 对齐中转站账号的启用/禁用状态（服务端按「该不该有 ai 权限」自行判断方向）。
@@ -836,15 +698,6 @@ export const adminApi = {
       body: JSON.stringify(payload),
     }),
 
-  /** 把存量用户的配额刷成「所属桶的每人配额」（没有桶归属则回落全局默认）；admin/root 会被跳过 */
-  syncStorageQuota: () =>
-    request<{
-      updated: number
-      skippedAdmins: number
-      failed: number
-      overQuota: number
-      changed: { username: string; from: number; to: number; overQuota: boolean }[]
-    }>("/admin/storage/sync-quota", { method: "POST" }),
 }
 
 // ---- 账户设置（真实邮箱验证 / 改名 / 改邮箱 / 通知开关）----
@@ -906,641 +759,19 @@ export const settingsApi = {
 
 // ---- R2 直链网盘 ----
 
-export const storageApi = {
-  overview: () => request<StorageOverview>("/storage"),
-
-  /** 开通网盘；必须传协议版本，服务端会校验是否已同意 */
-  enable: (consentVersion: number) =>
-    request<{ account: StorageAccount }>("/storage/enable", {
-      method: "POST",
-      body: JSON.stringify({ consent: true, consentVersion }),
-    }),
-
-  disable: () => request<{ ok: boolean }>("/storage/disable", { method: "POST" }),
-
-  /** 列出某一层（子目录 + 文件）；不传 path 即根目录 */
-  list: (path = "") =>
-    request<StorageList>(
-      path ? `/storage/objects?path=${encodeURIComponent(path)}` : "/storage/objects"
-    ),
-
-  /** 新建目录（path 可含 `/` 建多级） */
-  createFolder: (path: string) =>
-    request<{ path: string }>("/storage/folder", {
-      method: "POST",
-      body: JSON.stringify({ path }),
-    }),
-
-  /** 递归删除目录及其下全部文件（不可逆） */
-  deleteFolder: (path: string) =>
-    request<{ removed: number }>("/storage/folder/delete", {
-      method: "POST",
-      body: JSON.stringify({ path }),
-    }),
-
-  /** 列出我创建的目录分享 */
-  shares: () => request<{ shares: StorageShare[] }>("/storage/shares"),
-
-  /** 为某个目录创建分享（同一目录已有启用中的分享时直接复用） */
-  createShare: (path: string, title?: string) =>
-    request<{ share: StorageShare; reused: boolean }>("/storage/shares", {
-      method: "POST",
-      body: JSON.stringify({ path, title }),
-    }),
-
-  deleteShare: (id: string) =>
-    request<{ ok: boolean }>("/storage/shares/delete", {
-      method: "POST",
-      body: JSON.stringify({ id }),
-    }),
-
-  toggleShare: (id: string, enabled: boolean) =>
-    request<{ enabled: boolean }>("/storage/shares/toggle", {
-      method: "POST",
-      body: JSON.stringify({ id, enabled }),
-    }),
-
-  /** 申请预签名上传地址（浏览器直传 R2，可显示真实上传进度） */
-  uploadUrl: (payload: {
-    filename: string
-    size: number
-    contentType?: string
-    /** 目标目录（相对账号根目录）；不传 = 根目录 */
-    folder?: string
-  }) =>
-    request<{
-      uploadUrl: string
-      key: string
-      filename: string
-      path: string
-      directLink: string
-    }>("/storage/upload-url", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 上传完成后登记（服务端以 R2 实际大小记账，不信任前端） */
-  commit: (payload: { key: string; contentType?: string }) =>
-    request<{
-      object: { key: string; filename: string; size: number }
-      usedBytes: number
-      quotaBytes: number
-    }>("/storage/commit", { method: "POST", body: JSON.stringify(payload) }),
-
-  remove: (key: string) =>
-    request<void>(`/storage/object?key=${encodeURIComponent(key)}`, {
-      method: "DELETE",
-    }),
-
-  /** 批量删除（一次最多 200 个） */
-  removeMany: (keys: string[]) =>
-    request<{ deleted: number }>("/storage/objects/delete", {
-      method: "POST",
-      body: JSON.stringify({ keys }),
-    }),
-
-  bindDomain: (subdomainId: string) =>
-    request<{ prefix: StoragePrefixCreated }>("/storage/domain", {
-      method: "POST",
-      body: JSON.stringify({ subdomainId, action: "bind" }),
-    }),
-
-  unbindDomain: (id: string) =>
-    request<{ ok: boolean }>("/storage/domain", {
-      method: "POST",
-      body: JSON.stringify({ subdomainId: id, action: "unbind" }),
-    }),
-
-  /** 设置默认分享前缀；传 null 恢复为 /dl/<用户名>/ */
-  setDefaultPrefix: (prefixId: string | null) =>
-    request<{ defaultPrefixId: string | null }>("/storage/default-prefix", {
-      method: "POST",
-      body: JSON.stringify({ prefixId }),
-    }),
-}
-
 // ---- AI 中转站（NewAPI） ----
-
-export const newapiApi = {
-  status: () => request<NewApiStatus>("/dev/status"),
-
-  /**
-   * 「实时部分」懒加载：健康徽章 / 币种 / 订阅（都要读上游，慢）。
-   * 首屏先渲染 status（只读 D1），随后用这个接口补数据。
-   */
-  usage: () => request<NewApiUsage>("/dev/usage"),
-
-  /**
-   * 「全部可用模型」清单 —— **懒加载**，只在用户展开那张卡片时才调。
-   * 拉全量模型很慢（上游无缓存 + 一趟隧道往返），不能放在首屏的 status 里。
-   */
-  models: () => request<NewApiModels>("/dev/models"),
-
-  /** 开通前探测：该用户名在中转站是否已存在 */
-  preflight: () => request<NewApiPreflight>("/dev/preflight"),
-
-  bind: (password: string) =>
-    request<{ account: Record<string, unknown> }>("/dev/bind", {
-      method: "POST",
-      body: JSON.stringify({ password }),
-    }),
-
-  sync: () =>
-    request<{ account: Record<string, unknown> }>("/dev/sync", { method: "POST" }),
-
-  listKeys: () => request<{ keys: NewApiKey[] }>("/dev/keys"),
-
-  syncKeys: () =>
-    request<{
-      added: number
-      /** 上游已经不在、这次被清掉的条数 */
-      removed: number
-      /** 上游列表可能被截断（≥100 条）⇒ 本次只新增、未移除 */
-      truncated: boolean
-      keys: NewApiKey[]
-    }>("/dev/keys/sync", {
-      method: "POST",
-    }),
-
-  /** 创建 Key —— 随响应返回完整 key（之后仍可用 revealKey 随时再取） */
-  createKey: (name: string, group?: string) =>
-    request<{ key: NewApiKey & { fullKey: string } }>("/dev/key", {
-      method: "POST",
-      body: JSON.stringify({ name, group }),
-    }),
-
-  /**
-   * 读取某个 Key 的完整内容 —— 供「随时复制」。
-   * 每次现取现复制（服务端不缓存明文），失败时按统一错误映射处理。
-   */
-  revealKey: (id: string) =>
-    request<{ key: string }>(`/dev/key/${encodeURIComponent(id)}/reveal`, {
-      method: "POST",
-    }),
-
-  /** 用兑换码（邀请码）充值额度 */
-  redeem: (code: string) =>
-    request<{
-      added: number
-      addedDisplay: number
-      currencySymbol: string
-      quota: number
-      message: string
-    }>("/dev/redeem", { method: "POST", body: JSON.stringify({ code }) }),
-
-  /** 领取免费订阅（免费套餐，周期发放额度） */
-  subscribe: () =>
-    request<{ message: string }>("/dev/subscribe", { method: "POST" }),
-
-  /** 修改中转站密码 */
-  changePassword: (payload: { currentPassword: string; newPassword: string }) =>
-    request<{ ok: boolean; message: string }>("/dev/password", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  removeKey: (id: string) =>
-    request<void>(`/dev/key/${encodeURIComponent(id)}`, { method: "DELETE" }),
-}
 
 // ---- 临时分享箱 ----
 
-export const tempboxApi = {
-  config: () => request<TempboxConfig>("/tempbox/config"),
-
-  /** 创建批次；传 text 时为纯文本互传（文字存 D1，不走 R2） */
-  create: (text?: string) =>
-    request<TempboxCreated>("/tempbox/create", {
-      method: "POST",
-      body: JSON.stringify({ text: text ?? "" }),
-    }),
-
-  get: (code: string) =>
-    request<TempboxBatch>(`/tempbox/${encodeURIComponent(code)}`),
-
-  /** 申请预签名上传地址（浏览器直传 R2） */
-  uploadUrl: (code: string, filename: string, size: number) =>
-    request<{ uploadUrl: string; key: string; filename: string; code: string }>(
-      `/tempbox/${encodeURIComponent(code)}/upload-url`,
-      { method: "POST", body: JSON.stringify({ filename, size }) }
-    ),
-
-  commit: (code: string, key: string) =>
-    request<{ filename: string; size: number; fileCount: number; totalBytes: number }>(
-      `/tempbox/${encodeURIComponent(code)}/commit`,
-      { method: "POST", body: JSON.stringify({ key }) }
-    ),
-
-  remove: (code: string) =>
-    request<void>(`/tempbox/${encodeURIComponent(code)}`, { method: "DELETE" }),
-
-  /** 删除批次里的单个文件（创建者本人或管理员） */
-  removeFile: (code: string, filename: string) =>
-    request<{ fileCount: number; totalBytes: number }>(
-      `/tempbox/${encodeURIComponent(code)}/${encodeURIComponent(filename)}`,
-      { method: "DELETE" }
-    ),
-}
-
 // ---- 代理节点 ----
-
-export const proxyApi = {
-  overview: (offset = 0, limit = 10) =>
-    request<ProxyOverview>(`/proxy?offset=${offset}&limit=${limit}`),
-
-  /** 启用（须携带同意标记 + 协议版本） */
-  enable: (consentVersion: number) =>
-    request<{ activated: boolean }>("/proxy/enable", {
-      method: "POST",
-      body: JSON.stringify({ consent: true, consentVersion }),
-    }),
-
-  disable: () =>
-    request<{ activated: boolean }>("/proxy/disable", { method: "POST" }),
-
-  /**
-   * 获取某个订阅源的**原始链接**（内嵌机场服务商的订阅 token）。
-   *
-   * ⚠️ 列表接口 `overview()` 不再下发 url，必须显式调这个接口拿，
-   * 服务端按用户限流（每天 3 次），返回 `remaining` 供界面提示。
-   */
-  revealSubscription: (id: string) =>
-    request<{ id: string; url: string; remaining: number }>(
-      `/proxy/subscriptions/${encodeURIComponent(id)}/reveal`,
-      { method: "POST" }
-    ),
-
-  /** 对**订阅地址**做探活测延迟（不是节点） */
-  check: (id: string) =>
-    request<{ latencyMs: number | null; ok: boolean; message?: string }>(
-      "/proxy/check",
-      { method: "POST", body: JSON.stringify({ id }) }
-    ),
-
-  /**
-   * 对订阅里的**逐个节点**测延迟（服务端做 TCP 握手）。
-   *
-   * 一次只能测一批：Cloudflare 限制每次请求最多 6 个并发连接，
-   * 所以服务端每次最多测十几个，前端按 `offset` 循环调用。
-   */
-  latency: (id: string, offset = 0, limit = 16) =>
-    request<ProxyLatencyBatch>("/proxy/latency", {
-      method: "POST",
-      body: JSON.stringify({ id, offset, limit }),
-    }),
-}
 
 // ---- Email（收件箱） ----
 
-export const emailApi = {
-  list: () =>
-    request<{
-      mailboxes: Mailbox[]
-      limit: number
-      /** 临时邮箱的独立额度（与 limit 互不占用） */
-      tempLimit: number
-      tempUsed: number
-      /** 可选的根域（后端按权限筛过） */
-      rootDomains: RootDomainOption[]
-    }>("/mailbox"),
-
-  create: (payload: { localPart: string; domain?: string }) =>
-    request<{ mailbox: Mailbox }>("/mailbox", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 生成一个临时邮箱（随机地址，独立额度，不支持转发） */
-  createTemp: () => request<{ mailbox: Mailbox }>("/mailbox/temp", { method: "POST" }),
-
-  /** 换一个临时邮箱地址：旧地址立即作废，其收到的邮件随之清除 */
-  refreshTemp: (id: string) =>
-    request<{ mailbox: Mailbox }>(`/mailbox/temp/${id}/refresh`, { method: "POST" }),
-
-  updateForwarding: (id: string, forwardingTo: string[]) =>
-    request<{
-      mailbox: Mailbox
-      forwardingStatus: { email: string; verified: boolean }[]
-    }>(`/mailbox/${id}`, {
-      method: "PUT",
-      body: JSON.stringify({ forwardingTo }),
-    }),
-
-  /** 发起 / 确认转发目标验证（action 省略=发验证码，confirm=回填） */
-  verifyForwardTarget: (email: string, action?: "confirm", code?: string) =>
-    request<{ email: string; verified: boolean; message?: string }>(
-      "/mailbox/forward-verify",
-      {
-        method: "POST",
-        body: JSON.stringify(
-          action === "confirm" ? { email, action, code } : { email }
-        ),
-      }
-    ),
-
-  remove: (id: string) =>
-    request<void>(`/mailbox/${id}`, { method: "DELETE" }),
-
-  // M16：邮件列表改为游标分页。不传 cursor 时行为与修复前一致（第一页 100 条），
-  // 但会额外返回 nextCursor —— 非 null 表示还有更旧的邮件可以继续取。
-  //   limit：收件箱轮询时传个小值（只关心「有没有新邮件」），不传则后端默认 100。
-  listMessages: (mailboxId: string, cursor?: string | null, limit?: number) => {
-    const qs = new URLSearchParams()
-    if (cursor) qs.set("cursor", cursor)
-    if (limit) qs.set("limit", String(limit))
-    const query = qs.toString()
-    return request<{ messages: MailMessage[]; nextCursor: string | null }>(
-      `/mailbox/${mailboxId}/messages${query ? `?${query}` : ""}`
-    )
-  },
-
-  getMessage: (mailboxId: string, messageId: string) =>
-    request<{ message: MailMessage }>(`/mailbox/${mailboxId}/messages/${messageId}`),
-
-  markRead: (mailboxId: string, messageId: string, read: boolean) =>
-    request<void>(`/mailbox/${mailboxId}/messages/${messageId}/read`, {
-      method: "POST",
-      body: JSON.stringify({ read }),
-    }),
-
-  /** 一键全部已读：把该用户所有 mailbox 的未读标已读 */
-  markAllRead: () =>
-    request<{ updated: number }>("/mailbox/read-all", { method: "POST" }),
-
-  deleteMessage: (mailboxId: string, messageId: string) =>
-    request<void>(`/mailbox/${mailboxId}/messages/${messageId}`, {
-      method: "DELETE",
-    }),
-
-  /** 批量删除邮件（收件箱多选删除） */
-  batchDeleteMessages: (mailboxId: string, ids: string[]) =>
-    request<{ deleted: number }>(`/mailbox/${mailboxId}/messages/batch-delete`, {
-      method: "POST",
-      body: JSON.stringify({ ids }),
-    }),
-
-  /**
-   * 站内互发：以指定邮箱身份发给**本站另一个邮箱**（收件人必须是本站根域邮箱）。
-   * 直接落对方收件箱，不需要付费的 Cloudflare Email Sending。
-   * 发件地址由服务端从邮箱推导，前端只传收件人/主题/正文。
-   */
-  sendInternal: (mailboxId: string, payload: { to: string; subject: string; text: string }) =>
-    request<{ ok: boolean; to: string }>(`/mailbox/${mailboxId}/send`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-}
-
 // ---- 个人名片 ----
-
-export const profileApi = {
-  get: () => request<ProfileOverview>("/profile"),
-
-  /** 开通名片（与网盘/中转站一致：点击开通才创建记录） */
-  enable: () =>
-    request<{ enabled: boolean; published?: boolean; slug?: string }>("/profile/enable", {
-      method: "POST",
-    }),
-
-  update: (payload: Partial<{
-    slug: string
-    displayName: string
-    bio: string
-    avatarUrl: string
-    backgroundUrl: string
-    musicUrl: string
-    musicTitle: string
-    musicAutoplay: boolean
-    theme: string
-    accent: string
-    effects: string[]
-    intro: string
-    font: string
-    cjkFont: string
-    layout: string
-    musicCoverUrl: string
-    /** 搜索来的音乐来源标记（'netease:<id>'）；传空串表示改回自定义 */
-    musicSource: string
-    /** 歌词（LRC 文本） */
-    musicLyrics: string
-    contacts: ProfileContact[]
-    modules: ProfileModule[]
-    /** 设计系统参数（全量 JSON，服务端 sanitizeDesign 白名单清洗） */
-    design: Record<string, unknown>
-  }>) =>
-    request<{ profile: Profile }>("/profile", {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 实时预览：把未保存的表单渲染成公开页 HTML（不落库、不计访客数） */
-  preview: (payload: Record<string, unknown>) =>
-    request<{ html: string }>("/profile/preview", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  publish: (published: boolean) =>
-    request<{ published: boolean }>("/profile/publish", {
-      method: "POST",
-      body: JSON.stringify({ published }),
-    }),
-
-  /**
-   * 按歌名搜索歌曲（需登录 + 服务端限流）。
-   *
-   * 返回的候选项里**没有播放地址** —— 音频源给的是带时效签名的地址，
-   * 只能由服务端在播放时实时解析。这里存下来的只能是 `source`。
-   *
-   * 搜索服务不可用时服务端返回 502，前端要区别于「没搜到」来提示。
-   */
-  searchMusic: (q: string) =>
-    request<{ tracks: ProfileMusicTrack[] }>(
-      `/profile/music/search?q=${encodeURIComponent(q)}`
-    ),
-
-  /**
-   * 按「歌名 + 歌手」取歌词（LRC 文本）。
-   *
-   * 歌名和歌手直接来自 `searchMusic` 的结果 —— 歌词库与音频源是两套曲库，
-   * 没有共同 id，只能靠这两个字段对上。取不到返回 null。
-   */
-  fetchLyrics: (title: string, artist: string) =>
-    request<{ lyrics: string | null }>(
-      `/profile/music/lyrics?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`
-    ),
-
-  /** 上传头像 / 背景 / 音乐 / 音乐封面 / 图片墙单张（原始字节直传，Content-Type 决定扩展名） */
-  uploadAsset: async (
-    kind: "avatar" | "background" | "music" | "music-cover" | "gallery",
-    file: File
-  ) => {
-    const res = await fetch(`/api/profile/asset?kind=${kind}`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-    })
-    const data = await res.json().catch(() => null)
-    if (!res.ok) {
-      const raw = (data as ApiError | null)?.error
-      throw new HttpError(
-        res.status,
-        raw ? translateApiMessage(raw) : tStatic("api.uploadFailed", { status: res.status }),
-        (data as ApiError | null)?.code
-      )
-    }
-    // gallery 额外返回 { id, url }，其余只返回 { key, kind }
-    return data as { key: string; kind: string; id?: string; url?: string }
-  },
-
-  deleteAsset: (kind: "avatar" | "background" | "music" | "music-cover") =>
-    request<{ ok: boolean }>(`/profile/asset?kind=${kind}`, { method: "DELETE" }),
-
-  bindDomain: (subdomainId: string) =>
-    request<{ fqdn: string; dnsCreated: boolean }>("/profile/domain", {
-      method: "POST",
-      body: JSON.stringify({ subdomainId, action: "bind" }),
-    }),
-
-  unbindDomain: () =>
-    request<{ ok: boolean }>("/profile/domain", {
-      method: "POST",
-      body: JSON.stringify({ action: "unbind" }),
-    }),
-}
 
 // ---- 捐献 ----
 
-export const donationApi = {
-  list: () => request<DonationOverview>("/donations"),
-
-  create: (payload: {
-    type: "ai" | "frp" | "proxy" | "sensenova"
-    payload: unknown
-    remark?: string
-  }) =>
-    request<DonationSubmitResult>("/donations", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /**
-   * 探测 AI 捐献的上游，取回可选模型列表。
-   * 服务端会真的去请求该地址的 `/v1/models`，所以它同时也是「地址与密钥是否可用」的校验。
-   * `format` 控制按哪种接口格式探测：auto 两种都试，也可强制只试其中一种
-   * （上游可能只实现了 Anthropic 原生接口，OpenAI 格式必然失败）。
-   */
-  probeAi: (payload: { baseUrl: string; apiKey: string; format?: string }) =>
-    request<AiProbeResult>("/donations/ai/probe", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  cancel: (id: string) =>
-    request<void>(`/donations/${encodeURIComponent(id)}`, { method: "DELETE" }),
-
-  /**
-   * 管理端：全部申请（含完整 payload，管理页核验资源用）。
-   * 不传参数 = 旧的全量模式；传 limit/offset/type/status = 服务端分页筛选，
-   * 响应带 total 与 counts（两层筛选徽标的计数，按 type/status 分组）。
-   */
-  listAll: (opts?: {
-    limit?: number
-    offset?: number
-    type?: string
-    status?: string
-  }) => {
-    const p = new URLSearchParams()
-    if (opts?.limit != null) p.set("limit", String(opts.limit))
-    if (opts?.offset != null) p.set("offset", String(opts.offset))
-    if (opts?.type) p.set("type", opts.type)
-    if (opts?.status) p.set("status", opts.status)
-    const qs = p.toString()
-    return request<{
-      donations: Donation[]
-      typeLabels: Record<string, string>
-      total?: number
-      limit?: number
-      offset?: number
-      /** counts[type][status]：type/status 为空串表示「合计」。分页模式才有。 */
-      counts?: Record<string, Record<string, number>>
-    }>(`/admin/donations${qs ? `?${qs}` : ""}`)
-  },
-
-  review: (id: string, action: "approve" | "reject", note?: string) =>
-    request<{ ok: boolean; status: string }>("/admin/donations/review", {
-      method: "POST",
-      body: JSON.stringify({ id, action, note }),
-    }),
-
-  revoke: (id: string) =>
-    request<{
-      ok: boolean
-      revokedPermission: boolean
-      releasedChannel?: boolean
-      /**
-       * 商汤通道：说明有没有真的从渠道里摘掉那把 Key。
-       * 关键信息 —— 它是共享渠道，摘不掉时要提示管理员手工处理。
-       */
-      releaseMessage?: string | null
-      /** 撤销代理捐献时移出节点池的订阅源数量 */
-      releasedSubscriptions?: number
-    }>(`/admin/donations/${encodeURIComponent(id)}/revoke`, { method: "POST" }),
-
-  /**
-   * 人工复核：用同一份 payload 重试把 AI 捐献的渠道接进中转站。
-   * 不改单据状态 —— 放行与否仍由 `review` 决定。
-   */
-  provision: (id: string) =>
-    request<DonationProvisionResult>(
-      `/admin/donations/${encodeURIComponent(id)}/provision`,
-      { method: "POST" }
-    ),
-
-  /**
-   * 重试该单里「没通过测试」的模型（限流/超时的可能已恢复）。
-   * 与定时任务跑同一逻辑，只是限定在本单且忽略退避时间。
-   */
-  retryModels: (id: string) =>
-    request<{
-      ok: boolean
-      recovered: string[]
-      stillUncertain: number
-      exhausted: number
-      message: string
-      detail: string
-    }>(`/admin/donations/${encodeURIComponent(id)}/retry-models`, { method: "POST" }),
-
-  /**
-   * 重新拉取上游模型列表，把渠道里缺的模型补上。
-   * 用于救「失败模型没落库」的历史单（那时模型名只留在 review_note 文本里）。
-   */
-  refetchModels: (id: string) =>
-    request<{
-      ok: boolean
-      added: string[]
-      stillMissing: { model: string; reason: string }[]
-      message: string
-    }>(`/admin/donations/${encodeURIComponent(id)}/refetch-models`, { method: "POST" }),
-}
-
 // ---- 权限兑换码 ----
-
-export const voucherApi = {
-  /** 我持有的未使用券 + 可选模块（含是否已拥有） */
-  list: () => request<VoucherOverview>("/vouchers"),
-
-  /**
-   * 兑换。`code` 既可以是券码，也可以是别人给的邀请码
-   * （服务端先当券查、再当邀请码查）；`feature` 只在「自选券」时需要。
-   */
-  redeem: (payload: { code: string; feature?: string }) =>
-    request<RedeemResult>("/vouchers/redeem", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-}
 
 // ---- WorkBuddy 反代账号捐献（登录即解锁 AI 权限，免审核）----
 
@@ -1576,103 +807,6 @@ export interface Wb2ApiImportResult {
   }
 }
 
-export const wb2apiApi = {
-  /** 通道状态 + 当前用户的绑定列表 */
-  status: () => request<Wb2ApiStatus>("/wb2api/status"),
-
-  /**
-   * 上传 cockpit 导出的 JSON，批量导入账号并绑定（2026-10-10）。
-   *
-   * ⚠️ **不能用 `request()`** —— 它见 body 就塞 `Content-Type: application/json`，
-   * 会把 multipart 的 boundary 冲掉，服务端就收不到文件了。这里直接用 fetch，
-   * 让浏览器自己带 multipart 头。
-   */
-  importAccounts: async (file: File): Promise<Wb2ApiImportResult> => {
-    const fd = new FormData()
-    fd.append("file", file)
-    const res = await fetch(`${BASE}/wb2api/import`, {
-      method: "POST",
-      body: fd,
-      credentials: "include",
-    })
-    if (!res.ok) await throwHttpError(res)
-    return (await res.json()) as Wb2ApiImportResult
-  },
-
-  /**
-   * 发起登录，拿到授权链接。
-   * 服务端强制要求 acknowledged=true —— 它是「用户已被明确告知账号会进共享池」的证据。
-   */
-  /**
-   * 发起登录。
-   * `realm` 是用户自选的上游域：'cn' 国内版 / 'global' 国际版；不传则用管理员设的默认。
-   */
-  loginStart: (realm?: "cn" | "global") =>
-    request<Wb2ApiLoginStart>("/wb2api/login/start", {
-      method: "POST",
-      body: JSON.stringify(realm ? { acknowledged: true, realm } : { acknowledged: true }),
-    }),
-
-  /** 轮询登录结果（前端每 3 秒调一次） */
-  loginPoll: (sessionId: string) =>
-    request<Wb2ApiLoginPoll>(
-      `/wb2api/login/poll?session=${encodeURIComponent(sessionId)}`
-    ),
-
-  // 管理端
-  listBindings: () =>
-    request<{ bindings: AdminWb2ApiBinding[] }>("/admin/wb2api/bindings"),
-
-  /**
-   * 被上游判死、需要捐献者重新登录的绑定（2026-10-10，11140 检测）。
-   * 返回里带 uid / 禁用原因 / 对应的本站用户。
-   */
-  listInvalid: () =>
-    request<{
-      invalid: {
-        uid: string
-        reason: string
-        bindingId: string
-        userId: string
-        username: string | null
-        email: string | null
-      }[]
-    }>("/admin/wb2api/invalid"),
-
-  /**
-   * 给失效账号的捐献者发「强制通知 + 收回 ai 权限」（连带禁用 NewAPI 侧用户）。
-   * `dryRun=true` 只统计不落库 —— 先看规模再决定要不要真发。
-   */
-  notifyInvalid: (dryRun = false) =>
-    request<{ candidates: number; users: number; notified: number; skipped: number }>(
-      "/admin/wb2api/invalid/notify",
-      { method: "POST", body: JSON.stringify({ dryRun }) }
-    ),
-
-  /**
-   * 摘掉一个绑定。`revokeAi` 省略时由服务端按「有其他依据就保留」自动判定；
-   * 显式传布尔值可覆盖（用于处理邀请码那种无法溯源的情况）。
-   */
-  removeBinding: (id: string, revokeAi?: boolean) =>
-    request<{ ok: boolean; aiRevoked: boolean; upstreamWarning: string | null }>(
-      `/admin/wb2api/bindings/${encodeURIComponent(id)}/remove`,
-      {
-        method: "POST",
-        body: JSON.stringify(revokeAi === undefined ? {} : { revokeAi }),
-      }
-    ),
-
-  getConfig: () => request<AdminWb2ApiConfig>("/admin/wb2api/config"),
-
-  saveConfig: (apiKey: string) =>
-    request<{ ok: boolean; message: string }>("/admin/wb2api/config", {
-      method: "PUT",
-      body: JSON.stringify({ apiKey }),
-    }),
-
-  getPool: () => request<{ pool: AdminWb2ApiPool }>("/admin/wb2api/pool"),
-}
-
 // ---- Qoder2API 反代账号捐献（第二条，登录即解锁 AI 权限，免审核）----
 
 export interface Qoder2ApiImportResult {
@@ -1695,68 +829,6 @@ export interface Qoder2ApiImportResult {
     skipped: number | null
     errors: string[]
   }
-}
-
-export const qoder2apiApi = {
-  /** 通道状态 + 当前用户的绑定列表 */
-  status: () => request<Qoder2ApiStatus>("/qoder2api/status"),
-
-  /**
-   * 上传账号 JSON 批量导入并绑定（2026-10-10）。
-   * ⚠️ 同 `wb2apiApi.importAccounts`：必须绕过 `request()` —— 它会塞
-   * `Content-Type: application/json`，把 multipart 的 boundary 冲掉。
-   */
-  importAccounts: async (file: File, realm?: string): Promise<Qoder2ApiImportResult> => {
-    const fd = new FormData()
-    fd.append("file", file)
-    if (realm) fd.append("realm", realm)
-    const res = await fetch(`${BASE}/qoder2api/import`, {
-      method: "POST",
-      body: fd,
-      credentials: "include",
-    })
-    if (!res.ok) await throwHttpError(res)
-    return (await res.json()) as Qoder2ApiImportResult
-  },
-
-  /**
-   * 发起登录（服务端建上游账号 + 落会话，立即返回 sessionId）。
-   * `realm` 是捐献者自选的版本（cn / intl，2026-10-10 起）；不传则用管理员设的默认。
-   */
-  loginStart: (realm?: string) =>
-    request<Qoder2ApiLoginStart>("/qoder2api/login/start", {
-      method: "POST",
-      body: JSON.stringify(realm ? { acknowledged: true, realm } : { acknowledged: true }),
-    }),
-
-  /** 轮询登录结果（第一次会顺带返回授权链接） */
-  loginPoll: (sessionId: string) =>
-    request<Qoder2ApiLoginPoll>(
-      `/qoder2api/login/poll?session=${encodeURIComponent(sessionId)}`
-    ),
-
-  // 管理端
-  listBindings: () =>
-    request<{ bindings: AdminQoder2ApiBinding[] }>("/admin/qoder2api/bindings"),
-
-  removeBinding: (id: string, revokeAi?: boolean) =>
-    request<{ ok: boolean; aiRevoked: boolean; upstreamWarning: string | null }>(
-      `/admin/qoder2api/bindings/${encodeURIComponent(id)}/remove`,
-      {
-        method: "POST",
-        body: JSON.stringify(revokeAi === undefined ? {} : { revokeAi }),
-      }
-    ),
-
-  getConfig: () => request<AdminQoder2ApiConfig>("/admin/qoder2api/config"),
-
-  saveConfig: (panelPassword: string) =>
-    request<{ ok: boolean }>("/admin/qoder2api/config", {
-      method: "PUT",
-      body: JSON.stringify({ panelPassword }),
-    }),
-
-  getPool: () => request<AdminQoder2ApiPool>("/admin/qoder2api/pool"),
 }
 
 // ---- 公告 / 网站动态 ----
@@ -1845,58 +917,6 @@ export const achievementApi = {
 
 // ---- 积分（余额 / 流水 / 兑换中转站余额）----
 
-/**
- * 每日签到。
- *
- * `status` 只读（未签到时的当前状态），`do` 执行签到（幂等，重复调用会拿到「已签」错误）。
- */
-/**
- * 公开 API：用户用 API Key 调用站点功能。
- *
- * Key 管理走 session（设置页），调用走 Bearer（/v1/*）。
- */
-export const publicApi = {
-  /** 当前 Key 状态（明文永不回传） */
-  getKeyStatus: () =>
-    request<{
-      hasKey: boolean
-      prefix: string | null
-      createdAt: string | null
-      lastUsedAt: string | null
-      /** 当前这把 Key 是否带管理员权限（不受速率/数量限制） */
-      isAdmin: boolean
-      /** 当前用户能否生成管理员 Key（只有管理员能） */
-      canCreateAdminKey: boolean
-    }>("/api-key"),
-
-  /**
-   * 生成新 Key（已有则覆盖，旧 Key 立即作废）。明文只返回这一次。
-   * `admin: true` = 管理员 Key（不受 API 速率、子域名速率、子域名数量、邮箱数量限制），仅管理员可用。
-   */
-  generateKey: (admin?: boolean) =>
-    request<{ apiKey: string; prefix: string; isAdmin: boolean }>("/api-key", {
-      method: "POST",
-      body: JSON.stringify({ admin: admin === true }),
-    }),
-
-  /** 删除 Key（禁用 API 调用） */
-  deleteKey: () => request<{ ok: boolean }>("/api-key", { method: "DELETE" }),
-
-  /** 用户视角的 API 文档（自己的层级/额度 + 各功能开放与否） */
-  getDoc: () =>
-    request<{
-      achievementPoints: number
-      tier: number
-      features: {
-        feature: string
-        enabled: boolean
-        tier: number
-        accountLimit: number
-        ipLimit: number
-      }[]
-    }>("/api-doc"),
-}
-
 export const checkinApi = {
   status: () =>
     request<{
@@ -1976,6 +996,14 @@ export const pointsApi = {
     request<{ ok: boolean; balance: number; to: string }>("/points/transfer", {
       method: "POST",
       body: JSON.stringify({ username, amount }),
+    }),
+  /**
+   * 消耗积分升到下一级会员（只升不降；价格由后台配置，0 = 未开放）。
+   * 返回新等级与扣完之后的余额。
+   */
+  upgradeLevel: () =>
+    request<{ level: number; levelName: string; balance: number }>("/points/upgrade-level", {
+      method: "POST",
     }),
   /** 购买商城里的某件商品（单价固定，积分在下单时立即扣除） */
   buy: (productId: string) =>
@@ -2099,30 +1127,6 @@ export const spaceApi = {
 
 // ---- 我的邀请码（用户自助）----
 
-export const myInviteApi = {
-  list: () => request<MyInvitesOverview>("/my-invites"),
-
-  /** features 省略 = 只含基础权限（个人名片），不消耗模块额度 */
-  create: (payload: { code?: string; features?: string[] }) =>
-    request<{ invite: MyInvite; quota: UserQuota }>("/my-invites", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  remove: (id: string) =>
-    request<{ quota: UserQuota; refunded: boolean }>(
-      `/my-invites/${encodeURIComponent(id)}`,
-      { method: "DELETE" }
-    ),
-
-  /** 补填邀请码（注册时忘记填，7 天内可补） */
-  claim: (code: string) =>
-    request<{ ok: boolean; grantedPoints: number }>("/my-invites/claim", {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    }),
-}
-
 // ---- 身份资料（昵称 / 头像）----
 
 export const identityApi = {
@@ -2148,95 +1152,6 @@ export const identityApi = {
 }
 
 // ---- R2 多桶管理（管理员） ----
-
-export const r2AdminApi = {
-  /** 桶列表 + 用量概览 + 各桶用户 */
-  buckets: () => request<R2BucketsResponse>("/admin/r2/buckets"),
-
-  /** 用全局 token 自动发现所有账户及其桶 */
-  discover: () =>
-    request<{
-      available: boolean
-      reason?: string
-      accounts: {
-        id: string
-        name: string
-        buckets: { name: string; createdAt: string | null; imported: boolean }[]
-      }[]
-    }>("/admin/r2/discover"),
-
-  create: (payload: {
-    id: string
-    name: string
-    accountId?: string
-    endpoint: string
-    bucketName: string
-    accessKeyId: string
-    secretAccessKey: string
-    analyticsToken?: string
-    quotaPerUser?: number
-    sortOrder?: number
-    /** 'user' = 用户网盘桶；'platform' = 平台数据桶 */
-    kind?: string
-  }) =>
-    request<{ ok: boolean; id: string }>("/admin/r2/buckets", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  update: (id: string, payload: Partial<{
-    name: string
-    accountId: string
-    endpoint: string
-    bucketName: string
-    accessKeyId: string
-    secretAccessKey: string
-    analyticsToken: string
-    quotaPerUser: number
-    sortOrder: number
-    enabled: boolean
-    kind: string
-  }>) =>
-    request<{ ok: boolean }>(`/admin/r2/buckets/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-
-  remove: (id: string) =>
-    request<{ ok: boolean }>(`/admin/r2/buckets/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-
-  test: (id: string) =>
-    request<{ ok: boolean; message?: string; error?: string; objectCount?: number }>(
-      `/admin/r2/buckets/${encodeURIComponent(id)}/test`,
-      { method: "POST" }
-    ),
-
-  writeTest: (id: string) =>
-    request<{ ok: boolean; message?: string; error?: string }>(
-      `/admin/r2/buckets/${encodeURIComponent(id)}/write-test`,
-      { method: "POST" }
-    ),
-
-  /** A/B 类操作数（未配置 Analytics 令牌时 configured:false） */
-  operations: (id: string) =>
-    request<R2Operations>(`/admin/r2/buckets/${encodeURIComponent(id)}/operations`),
-
-  /** 改派用户到指定桶（bucketId 为空 = 回到默认桶） */
-  assign: (username: string, bucketId: string) =>
-    request<{ ok: boolean }>("/admin/r2/assign", {
-      method: "PUT",
-      body: JSON.stringify({ username, bucketId }),
-    }),
-
-  /** 把所有未分配桶的用户一次性迁入指定桶 */
-  assignAll: (bucketId: string, force = false) =>
-    request<{ ok: boolean; moved: number }>("/admin/r2/assign-all", {
-      method: "PUT",
-      body: JSON.stringify({ bucketId, force }),
-    }),
-}
 
 // ---- 社区广场 ----
 
@@ -2766,14 +1681,12 @@ export const noticeApi = {
   pending: () => request<{ notices: PendingNotice[] }>("/notice/pending"),
   /**
    * 确认收到。若该通知要求捐献而用户还没捐，后端返回 `ok:false` +
-   * 还缺哪些渠道（**不解锁、也不标记已读**，弹窗继续拦着）；
-   * 用户捐完再点同一个接口即通过。
+   * 通知的捐献门槛已随捐献模块移除，现在恒定成功。
    */
   ack: (id: string) =>
     request<{
       ok: boolean
       unlocked?: boolean
-      donationRequired?: { required: DonationChannel[]; missing: DonationChannel[] }
     }>("/notice/ack", {
       method: "POST",
       body: JSON.stringify({ id }),
@@ -2788,8 +1701,6 @@ export const adminNoticeApi = {
     title: string
     body: string
     restrictFeatures?: string[]
-    /** 要求用户捐献的渠道（任选其一解锁）；非空时后端强制一并禁用 ai */
-    requireDonation?: DonationChannel[]
   }) =>
     request<{
       sent: string[]
@@ -2797,9 +1708,6 @@ export const adminNoticeApi = {
       restricted: number
       /** 命中监管白名单、只发通知不改权限的用户 */
       whitelisted: string[]
-      /** 已满足捐献门槛、整条跳过的用户（名单过时） */
-      alreadyDonated: string[]
-      requireDonation: DonationChannel[]
     }>("/admin/notices", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -3036,6 +1944,8 @@ export interface OAuthClient {
   reviewStatus: string
   /** 审核意见（驳回原因），通过时为 null */
   reviewNote: string | null
+  /** 授权门槛：0=所有人可授权；1/2/3=黄金/白金/黑金会员及以上 */
+  minLevel: number
   /** 管理端列表才带：创建者用户名 */
   ownerName?: string | null
   createdAt: string
@@ -3050,6 +1960,10 @@ export interface OAuthAuthorizeContext {
   /** 回调地址的站点域名（用户据此判断这是哪个网站） */
   redirectHosts: string[]
   alreadyGranted: boolean
+  /** 授权门槛（0=不限）；>0 时同意页展示等级要求 */
+  minLevel: number
+  /** 当前用户的会员等级（0=普通 1=黄金 2=白金 3=黑金） */
+  userLevel: number
 }
 
 /** 我授权过的应用 */
@@ -3111,6 +2025,7 @@ export const oauthApi = {
     redirectUris: string[]
     scopes?: string
     allowHttp?: boolean
+    minLevel?: number
   }) =>
     request<{ client: OAuthClient; clientSecret: string; pending: boolean }>(
       "/oauth/my-clients",
@@ -3125,6 +2040,7 @@ export const oauthApi = {
       redirectUris?: string[]
       scopes?: string
       allowHttp?: boolean
+      minLevel?: number
     }
   ) =>
     request<{ client: OAuthClient | null }>(
@@ -3165,6 +2081,7 @@ export const oauthAdminApi = {
     redirectUris: string[]
     scopes?: string
     allowHttp?: boolean
+    minLevel?: number
   }) =>
     request<{ client: OAuthClient; clientSecret: string }>("/admin/oauth/clients", {
       method: "POST",
@@ -3179,6 +2096,7 @@ export const oauthAdminApi = {
       scopes?: string
       disabled?: boolean
       allowHttp?: boolean
+      minLevel?: number
     }
   ) =>
     request<{ client: OAuthClient | null }>(
@@ -3497,11 +2415,6 @@ export interface FunLinkProbe {
   finalUrl: string
 }
 
-/** 工具箱用：只回上架的 */
-export const funLinksApi = {
-  list: () => request<{ links: FunLink[] }>("/fun-links"),
-}
-
 /**
  * 图标的展示地址。
  *
@@ -3594,341 +2507,8 @@ export const adminTitlesApi = {
     }),
 }
 
-export const adminMailboxesApi = {
-  /** 全站列表（可按地址/用户名/邮箱搜索） */
-  list: (params: { q?: string; page?: number; pageSize?: number } = {}) => {
-    const sp = new URLSearchParams()
-    if (params.q) sp.set("q", params.q)
-    if (params.page) sp.set("page", String(params.page))
-    if (params.pageSize) sp.set("pageSize", String(params.pageSize))
-    const qs = sp.toString()
-    return request<AdminMailboxListResponse>(`/admin/mailboxes${qs ? "?" + qs : ""}`)
-  },
-
-  /** 归属用户联想搜索（按用户名/邮箱，最多 20 条） */
-  searchOwners: (q: string) =>
-    request<{ owners: { id: string; username: string; email: string; status: string }[] }>(
-      `/admin/mailboxes/owners?q=${encodeURIComponent(q)}`
-    ),
-
-  /** 代替指定用户创建邮箱（不占用户名额；根域仍须已启用） */
-  create: (payload: { userId?: string; username?: string; localPart: string; domain?: string }) =>
-    request<{ mailbox: AdminMailbox }>("/admin/mailboxes", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 改名（前缀/域）与转发目标；`forwardingTo` 传 `[]` = 清空转发 */
-  update: (
-    id: string,
-    payload: { localPart?: string; domain?: string; forwardingTo?: string[] | null }
-  ) =>
-    request<{ mailbox: AdminMailbox }>(`/admin/mailboxes/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 删除（含邮件；与用户侧同一条清理路径。⚠️ 主邮箱也能删） */
-  remove: (id: string) =>
-    request<{ ok: boolean; address: string }>(`/admin/mailboxes/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-
-  /** 邮件列表（不含正文，游标翻页）。⚠️ 只读，不会把邮件标成已读 */
-  messages: (id: string, params: { cursor?: string; limit?: number } = {}) => {
-    const sp = new URLSearchParams()
-    if (params.cursor) sp.set("cursor", params.cursor)
-    if (params.limit) sp.set("limit", String(params.limit))
-    const qs = sp.toString()
-    return request<{
-      mailbox: { id: string; address: string; ownerUsername: string }
-      messages: AdminMailboxMessage[]
-      nextCursor: string | null
-    }>(`/admin/mailboxes/${encodeURIComponent(id)}/messages${qs ? "?" + qs : ""}`)
-  },
-
-  /** 单封邮件详情（含正文；同样不会标已读，但会记一条审计） */
-  message: (id: string, messageId: string) =>
-    request<{
-      mailbox: { id: string; address: string; ownerUsername: string }
-      message: AdminMailboxMessageDetail
-    }>(
-      `/admin/mailboxes/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}`
-    ),
-}
-
 // ---- AI实验室 ----
 
-
-/** 作品摘要（列表用，不含文件内容） */
-export interface CollectionPlugin {
-  slug: string
-  name: string
-  icon: string
-  tagline: string
-  description: string
-  /** 卡片强调色（hex）；空串 = 用站点默认灰 */
-  accent: string
-  /** builtin（官方）/ user（用户作品，v1 还没有） */
-  kind: string
-  runtime: string
-  status: string
-  /** 前端入口路径（服务端给的，别在前端拼） */
-  entry: string
-  capabilities: string[]
-  /** 仅管理员可见：插件自己的配置 */
-  config?: Record<string, unknown>
-}
-
-export const collectionApi = {
-  /** 大厅清单：已上架的插件（管理员额外拿到未上架的，便于处理下架项） */
-  plugins: () =>
-    request<{ plugins: CollectionPlugin[]; canManage: boolean }>("/collection/plugins"),
-}
-
-/** 一根 K 线（含正在走的那根，形状一致） */
-export interface GameCandle {
-  openAt: string
-  openPrice: number
-  highPrice: number
-  lowPrice: number
-  closePrice: number
-  volume: number
-  trades: number
-}
-
-export interface GameMarket {
-  symbol: string
-  quote: string
-  price: number
-  /** 均值回复的目标价，画图上当「慢均线」用 */
-  anchor: number
-  candle: GameCandle
-  dayOpen: number
-  dayHigh: number
-  dayLow: number
-  change24hAbs: number
-  change24hPct: number
-  tickSeq: number
-  lastTickAt: string
-  baseIntervalSeconds: number
-}
-
-export interface GamePosition {
-  id: string
-  side: "long" | "short"
-  /**
-   * 保证金模式。同一方向下逐仓与全仓是**两行独立仓位**（不会互相合并）：
-   * 逐仓亏损上限 = 本仓保证金；全仓会把可用余额一起押进去。
-   */
-  marginMode: "isolated" | "cross"
-  leverage: number
-  margin: number
-  entryPrice: number
-  /** 名义规模 = margin × leverage */
-  size: number
-  liqPrice: number
-  openedAt: string
-  markPrice: number
-  unrealizedPnl: number
-  /** 保证金回报率（%），已含杠杆 */
-  roePct: number
-  /** 标记价离爆仓价还有多少 %；负 = 已经在爆仓价之外（通常已被强平扫掉） */
-  liqDistancePct: number
-  feeOpen: number
-}
-
-export interface GameConfig {
-  maxLeverage: number
-  minMargin: number
-  feeOpenBps: number
-  feeCloseBps: number
-  maintenanceBps: number
-  /** 订单流冲击系数：净成交额等于池子余额时价格变动多少 bps */
-  impactBps: number
-  /** 单笔冲击上限（bps） */
-  maxImpactBps: number
-  tickMs: number
-  candleMs: number
-  baseIntervalSeconds: number
-}
-
-export interface GameState {
-  enabled: boolean
-  /**
-   * 星币兑换柜台（2026-10-25 星币体系）：
-   * 汇率（星币/积分）与玩家当前积分余额——兑换卡直接展示。
-   */
-  exchange: {
-    rate: number
-    points: number
-  }
-  market: GameMarket
-  pool: {
-    /** 做市池余额 = 全服可赚取的上限 */
-    balance: number
-    /** 池子见底时禁止开仓 */
-    canOpen: boolean
-    /** 这一单最多能赚多少（= 池子余额），必须在下单面板上显示 */
-    maxPayout: number
-  }
-  config: GameConfig
-  me: {
-    balance: number
-    positions: GamePosition[]
-    unrealizedTotal: number
-  }
-  /**
-   * 全仓账户汇总。
-   *
-   * 全仓的强平判据是**账户级**的（权益 < 维持保证金），不是单看某个仓位的价格 ——
-   * 所以面板必须拿这几个数才讲得清「离强平还有多远」。
-   */
-  cross: {
-    positions: number
-    /** 已托管保证金合计 */
-    escrow: number
-    /** 浮动盈亏合计 */
-    pnl: number
-    /** 维持保证金合计 */
-    maintenance: number
-    /** 账户权益 = 可用余额 + 托管保证金 + 浮动盈亏 */
-    equity: number
-    /** 是否已触发强平（正常情况下会被扫描即时处理掉） */
-    liquidatable: boolean
-    /** 触发强平会从可用余额里追缴多少 */
-    shortfall: number
-  }
-  /** 本次轮询顺手强平的仓位数（>0 时前端提示一下，比静默消失好） */
-  liquidatedInThisPoll: number
-}
-
-export interface GameTrade {
-  id: string
-  kind: string
-  /**
-   * 所属仓位 id。前端用它把「一次开仓」和「一次平仓」配成同一条记录 ——
-   * 一次开仓只有一条 open 流水，对应最多一条 close/liquidate 流水。
-   */
-  positionId: string
-  side: string
-  leverage: number
-  price: number
-  size: number
-  margin: number
-  fee: number
-  pnl: number
-  balanceAfter: number | null
-  createdAt: string
-}
-
-export interface GameLeaderItem {
-  rank: number
-  username: string
-  nickname: string | null
-  hasAvatar: boolean
-  profit: number
-  trades: number
-  isMe: boolean
-}
-
-/** 「在线投资」的玩家侧接口 */
-export const investApi = {
-  /** 行情 + 我的持仓。**服务端会在这次调用里推进行情并强平**，所以轮询它就是「行情在走」 */
-  state: () => request<GameState>("/collection/invest/state"),
-  /** 领取测试币（每人一次；不是测试币模式会 400） */
-  /** 星币兑换柜台：in = 积分兑入（铸星币）/ out = 星币兑出（解封积分） */
-  exchange: (direction: "in" | "out", payload: { points?: number; stars?: number }) =>
-    request<{ direction: string; applied: boolean; stars: number; points: number }>(
-      "/collection/invest/exchange",
-      { method: "POST", body: JSON.stringify({ direction, ...payload }) }
-    ),
-
-  candles: (interval: string, limit = 300) =>
-    request<{ interval: string; candles: GameCandle[] }>(
-      `/collection/invest/candles?interval=${encodeURIComponent(interval)}&limit=${limit}`
-    ),
-
-  open: (payload: {
-    side: "long" | "short"
-    leverage: number
-    margin: number
-    orderNo: string
-    /** 保证金模式：逐仓（默认，亏损上限=本仓保证金）/ 全仓（余额共同担保） */
-    marginMode?: "isolated" | "cross"
-  }) =>
-    request<{
-      position: GamePosition
-      price: number
-      /** 幂等命中（重放同一下单号）：前端不要重复提示「开仓成功」 */
-      duplicated: boolean
-      balance: number
-    }>("/collection/invest/open", { method: "POST", body: JSON.stringify(payload) }),
-
-  close: (positionId: string) =>
-    request<{
-      position: {
-        id: string
-        side: string
-        leverage: number
-        margin: number
-        entryPrice: number
-        size: number
-        liqPrice: number
-        status: string
-        pnl: number | null
-        closePrice: number | null
-        closedAt: string | null
-        note: string | null
-      }
-      credit: number
-      fee: number
-      pnl: number
-      /** 盈利受对手盘上限限制（没赔满）—— 必须明确告诉用户 */
-      capped: boolean
-      balance: number
-      alreadyClosed: boolean
-    }>("/collection/invest/close", { method: "POST", body: JSON.stringify({ positionId }) }),
-
-  history: (limit = 50) =>
-    request<{ trades: GameTrade[] }>(`/collection/invest/history?limit=${limit}`),
-
-  leaderboard: (range: "today" | "week" | "all") =>
-    request<{
-      range: string
-      items: GameLeaderItem[]
-      me: { rank: number; profit: number; trades: number } | null
-    }>(`/collection/invest/leaderboard?range=${range}`),
-}
-
-/** 典藏设置（管理端）：参数 + 池子 + 统计 */
-export interface GameAdminData {
-  plugin: CollectionPlugin | null
-  /** 库里存的原始字符串（表单回显） */
-  raw: Record<string, string>
-  /** 实际生效的参数（已被服务端收口，可能与 raw 不同） */
-  effective: {
-    enabled: boolean
-    tickSeconds: number
-    candleSeconds: number
-    maxLeverage: number
-    minMargin: number
-    feeOpenBps: number
-    feeCloseBps: number
-    maintenanceBps: number
-    noiseBps: number
-    impactBps: number
-    meanReversionBps: number
-    anchorFollowBps: number
-    maxImpactBps: number
-    basePrice: number
-  }
-  market: { price: number; anchor: number; tickSeq: number; lastTickAt: string; candleOpenAt: string }
-  pool: { balance: number; /** 站长自己的星币钱包余额（划拨垫本从这里扣） */ myStars: number }
-  /** 星币汇率（星币/积分），存于插件 config.starRate */
-  starRate: number
-  stats: Record<string, number>
-}
 
 export interface PoolLedgerEntry {
   id: string
@@ -3939,57 +2519,4 @@ export interface PoolLedgerEntry {
   ref: string | null
   note: string | null
   createdAt: string
-}
-
-export const adminCollectionApi = {
-  getInvest: () => request<GameAdminData>("/admin/collection/invest"),
-
-  /**
-   * 改设置。**只提交改动过的字段** —— 服务端会把 patch 合到当前值上再清洗，
-   * 全量提交反而会把没动过的参数重置（见 collection-admin.ts 的注释）。
-   */
-  updateInvest: (payload: {
-    params?: Record<string, string | number>
-    plugin?: {
-      status?: string
-      accent?: string
-      name?: string
-      tagline?: string
-      description?: string
-      config?: { starRate?: number }
-    }
-  }) =>
-    request<GameAdminData>("/admin/collection/invest", {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-
-  /** 划拨垫本 / 抽回资金（池子的唯一资金来源） */
-  pool: (action: "deposit" | "withdraw", amount: number) =>
-    request<{ ok: boolean; action: string; pool: number; balance: number }>(
-      "/admin/collection/invest/pool",
-      { method: "POST", body: JSON.stringify({ action, amount }) }
-    ),
-
-  ledger: (limit = 50) =>
-    request<{ entries: PoolLedgerEntry[] }>(`/admin/collection/invest/ledger?limit=${limit}`),
-
-  /**
-   * 游戏仓库（2026-10-25）：**通用**插件上架/下架/改名。
-   * 任何游戏（含未来 sandbox 用户游戏）都用这一个接口，不再每游戏一份。
-   */
-  updatePlugin: (
-    slug: string,
-    patch: { status?: string; name?: string; icon?: string; tagline?: string; description?: string; accent?: string }
-  ) =>
-    request<{ plugin: CollectionPlugin }>(
-      `/admin/collection/plugins/${encodeURIComponent(slug)}`,
-      { method: "PUT", body: JSON.stringify(patch) }
-    ),
-
-  reset: () =>
-    request<{ ok: boolean; price: number }>("/admin/collection/invest/reset", {
-      method: "POST",
-      body: JSON.stringify({ confirm: "RESET" }),
-    }),
 }

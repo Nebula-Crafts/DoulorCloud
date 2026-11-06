@@ -9,13 +9,22 @@
  *   · `client_secret` 明文**只显示一次**，库里只有哈希，丢了只能删掉重建；
  *   · 用户创建的应用要站长在后台点通过后才能用（除非站长开着「免审」开关）。
  *
- * 权限（scope）固定为 `openid profile email`，不给用户选：普通用户接登录
- * 基本就是这三样，少一个选项少一类出错。要更细的权限走管理端。
+ * 权限（scope）默认 `openid profile email`；「积分消耗」按需勾选（2026-11-06）——
+ * 勾上后应用在用户同意后可以读取积分余额并消耗积分。
+ * 另可设置**用户等级门槛**：低于该等级的会员无法授权（服务端 authorize 兜底校验）。
  */
 import * as React from "react"
 import { toast } from "sonner"
-import { Loader2, Plus, Trash2, Pencil, Copy, ShieldAlert, KeyRound } from "lucide-react"
+import { Crown, Loader2, Plus, Trash2, Pencil, Copy, ShieldAlert, KeyRound } from "lucide-react"
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -40,8 +49,16 @@ import { oauthApi, errMsg, type OAuthClient } from "@/services/api"
 import { useT } from "@/i18n"
 import { fmtTime } from "@/lib/format"
 
-/** 用户侧固定的权限集合（见文件头注释） */
-const USER_SCOPES = "openid profile email"
+/** 用户侧的基础权限（登录身份三件套）；「积分消耗」由表单勾选追加 */
+const USER_BASE_SCOPES = "openid profile email"
+
+/** 等级门槛选项（0=所有人；1/2/3=黄金/白金/黑金及以上），值与 users.member_level 对应 */
+const MIN_LEVEL_OPTIONS = [
+  { value: "0", labelKey: "oapp.levelAny" },
+  { value: "1", labelKey: "lvl.1" },
+  { value: "2", labelKey: "lvl.2" },
+  { value: "3", labelKey: "lvl.3" },
+] as const
 
 export function OAuthAppsCard() {
   const { t } = useT()
@@ -56,6 +73,10 @@ export function OAuthAppsCard() {
   const [editing, setEditing] = React.useState<OAuthClient | null>(null)
   const [name, setName] = React.useState("")
   const [urisText, setUrisText] = React.useState("")
+  /** 积分消耗权限（scope=points）：应用可读余额 + 消耗积分 */
+  const [allowPoints, setAllowPoints] = React.useState(false)
+  /** 用户等级门槛（字符串走 Select；提交时转数字） */
+  const [minLevel, setMinLevel] = React.useState("0")
 
   // 一次性密钥展示
   const [secretDialog, setSecretDialog] = React.useState<{
@@ -88,6 +109,8 @@ export function OAuthAppsCard() {
     setEditing(null)
     setName("")
     setUrisText("")
+    setAllowPoints(false)
+    setMinLevel("0")
     setFormOpen(true)
   }
 
@@ -95,6 +118,8 @@ export function OAuthAppsCard() {
     setEditing(c)
     setName(c.name)
     setUrisText(c.redirectUris.join("\n"))
+    setAllowPoints(c.scopes.split(/\s+/).includes("points"))
+    setMinLevel(String(c.minLevel ?? 0))
     setFormOpen(true)
   }
 
@@ -111,13 +136,15 @@ export function OAuthAppsCard() {
       toast.error(t("oapp.err.uriRequired"))
       return
     }
+    const scopes = allowPoints ? `${USER_BASE_SCOPES} points` : USER_BASE_SCOPES
     setBusy(true)
     try {
       if (editing) {
         await oauthApi.updateMyClient(editing.id, {
           name: name.trim(),
           redirectUris,
-          scopes: USER_SCOPES,
+          scopes,
+          minLevel: Number(minLevel) || 0,
         })
         toast.success(t("oapp.ok.updated"))
         setFormOpen(false)
@@ -125,7 +152,8 @@ export function OAuthAppsCard() {
         const res = await oauthApi.createMyClient({
           name: name.trim(),
           redirectUris,
-          scopes: USER_SCOPES,
+          scopes,
+          minLevel: Number(minLevel) || 0,
         })
         setFormOpen(false)
         setSecretDialog({
@@ -220,6 +248,13 @@ export function OAuthAppsCard() {
                     <Badge variant="secondary">{t("oapp.status.approved")}</Badge>
                   )}
                   {c.disabled && <Badge variant="secondary">{t("common.disabled")}</Badge>}
+                  {(c.minLevel ?? 0) > 0 && (
+                    <Badge variant="outline" className="border-amber-500 text-amber-600">
+                      <Crown className="mr-0.5 h-3 w-3" />
+                      {t("lvl." + (c.minLevel ?? 0))}
+                      {t("oapp.levelAboveSuffix")}
+                    </Badge>
+                  )}
                   <span className="ml-auto text-xs text-muted-foreground">
                     {fmtTime(c.createdAt)}
                   </span>
@@ -311,6 +346,33 @@ export function OAuthAppsCard() {
                 className="font-mono text-xs"
               />
               <p className="text-xs text-muted-foreground">{t("oapp.dlg.urisHint")}</p>
+            </div>
+            <div className="flex items-center justify-between gap-2 rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="oapp-points">{t("oapp.field.points")}</Label>
+                <p className="text-xs text-muted-foreground">{t("oapp.dlg.pointsHint")}</p>
+              </div>
+              <Switch
+                id="oapp-points"
+                checked={allowPoints}
+                onCheckedChange={setAllowPoints}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{t("oapp.dlg.minLevel")}</Label>
+              <Select value={minLevel} onValueChange={setMinLevel}>
+                <SelectTrigger className="w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MIN_LEVEL_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {t(o.labelKey)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{t("oapp.dlg.minLevelHint")}</p>
             </div>
             <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
               <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
