@@ -3820,24 +3820,6 @@ export default function AdminPage() {
                 </CardContent>
               </Card>
 
-              {/* 捐献是否授予权限：与「自动审核」并列的捐献侧开关，
-                  只管「通过后给不给权限」，不影响资源入库 / 额度 / 积分 */}
-
-              {/* 捐献发放「可转授的模块权限额度」：四个模块**各自一个开关**。
-                  ⚠️ 与上面那张「捐献授予权限」不是一回事，别合并：
-                  那张管「捐献者自己**能不能用**该模块」，这张管「**能不能把该模块
-                  转授给别人**」（建邀请码时勾选的额度）。站长 2026-10-08 要求：
-                  捐献了也不一定该换出可转授的额度，否则用户捐个 AI 渠道就能建成
-                  邀请码直接给别人开通中转站；且要能**逐模块**单独控制。 */}
-
-              {/* 自定义 AI 渠道捐献的 baseUrl 黑名单：**前缀匹配**，命中即不允许捐献。
-                  与上面两张捐献侧开关卡片放在一起。空 = 不启用（可清空）。 */}
-
-
-              {/* ⚠️ 商汤 Key 捐献的配置卡片已挪到「捐献通道」选项卡（三条通道合并），
-                  {t("adm.658")}
-                  改哪边会互相覆盖。 */}
-
               {/* ---- 2026-09-26 补齐的设置卡片 ---- */}
               <Card>
                 <CardHeader>
@@ -3907,6 +3889,8 @@ export default function AdminPage() {
                   （见 components/admin-lab-tab.tsx）—— 它的兄弟配置项
                   （模型来源、免费额度、免费渠道）都在那边，留在设置页会拆成两处。 */}
 
+              {/* 保存按钮：SectionedCards 会把非 Card 子元素固定在卡片下方，
+                  所以任何分区下都能直接保存，不必先切到「其他」标签。 */}
               <div className="flex justify-end">
                 <Button onClick={() => void handleSaveSettings()} disabled={settingsBusy}>
                   {settingsBusy && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -4023,9 +4007,14 @@ export default function AdminPage() {
                   ) : (
                     <div className="divide-y rounded-md border">
                       {quotaDetail.invites.map((inv) => {
-                        const extra = quotaDetail.quotaFeatures.filter(
-                          (f) => inv.permissions[f as keyof Permissions]
-                        )
+                        /**
+                         * ⚠️ 2026-11-06：模块级额度已下线，后端不再返回
+                         * `quotaFeatures` / `basicFeatures` / `featureLabels`。
+                         * 原先这里 `quotaDetail.quotaFeatures.filter(...)` 会在
+                         * undefined 上调用 .filter ⇒ 渲染抛错 ⇒ 整个弹窗卡死、
+                         * 点「关闭」也没反应（用户报的就是这个）。
+                         * 邀请码现在只剩「邀请码额度」一种配额，这里不再展示模块徽标。
+                         */
                         const used = inv.usedCount >= inv.maxUses
                         return (
                           <div
@@ -4034,18 +4023,6 @@ export default function AdminPage() {
                           >
                             <span className="font-mono">{inv.code}</span>
                             <Badge variant="outline">{t("adm.746")}</Badge>
-                            {extra.map((f) => (
-                              <Badge
-                                key={f}
-                                variant={
-                                  quotaDetail.basicFeatures?.includes(f)
-                                    ? "outline"
-                                    : "secondary"
-                                }
-                              >
-                                {quotaDetail.featureLabels[f]}
-                              </Badge>
-                            ))}
                             <Badge variant={used ? "destructive" : "success"}>
                               {used ? t("adm.1127") : t("adm.1128")}
                             </Badge>

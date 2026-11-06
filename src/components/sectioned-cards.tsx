@@ -1,5 +1,5 @@
 import * as React from "react"
-import { CardTitle } from "@/components/ui/card"
+import { Card, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 /**
@@ -14,10 +14,14 @@ import { cn } from "@/lib/utils"
  * 渲染函数执行时求值，{t("adm.xxx")} 传给 CardTitle 的已经是最终字符串，
  * 运行时提取是零维护的。
  *
- * 兜底（不需要拆页的场景一律自动退回原样渲染）：
- *   - children 里有效卡片数 ≤ 2（拆了反而多点一步）；
+* 兜底（不需要拆页的场景一律自动退回原样渲染）：
+ *   - 有效卡片数 ≤ 2（拆了反而多点一步）；
  *   - 任何一张卡提取不到标题（非 Card 结构 / 结构特殊）。
  * 这样调用方可以放心包：结构不合适时表现与原来完全一致。
+ *
+ * 非 Card 子元素（保存按钮、"刷新"工具条等）不参与分组，固定在选中卡下方常驻
+ * 渲染（2026-11-06）：这类元素没有标题，早先会被收进「其他」标签，导致改完某个
+ * 分区后找不到保存入口，还凭空多出一个只含一个按钮的标签。
  */
 export function SectionedCards({
   pageKey,
@@ -68,9 +72,13 @@ export function SectionedCards({
 
   // 提取不到标题的卡（结构特殊 / 无 CardTitle）统一收进「其他」标签，
   // 而不是让一张怪卡把整页的分组能力拖垮。
+  // 非 Card 子元素（保存按钮、工具条）不参与分组，固定常驻在卡片下方。
   const OTHER = "其他"
-  const titled = cards.map((card) => ({ card, title: titleOf(card) ?? OTHER }))
-  const namedCount = cards.length - titled.filter((x) => x.title === OTHER).length
+  const isCard = (node: React.ReactElement) => node.type === Card
+  const footer = cards.filter((card) => !isCard(card))
+  const grouped = cards.filter(isCard)
+  const titled = grouped.map((card) => ({ card, title: titleOf(card) ?? OTHER }))
+  const namedCount = titled.length - titled.filter((x) => x.title === OTHER).length
 
   // 兜底：可命名的卡片太少（≤2）→ 拆了反而多点一步，原样平铺
   if (titled.length <= 2 || namedCount <= 1) {
@@ -118,8 +126,9 @@ export function SectionedCards({
           </button>
         ))}
       </div>
-      {/* 只渲染选中的那张卡 */}
+      {/* 只渲染选中的那张卡；非 Card 子元素（保存按钮等）始终跟随在下方 */}
       {titled.find((x) => x.title === active)?.card ?? null}
+      {footer.length > 0 && <div className="mt-6">{footer}</div>}
     </div>
   )
 }
