@@ -1876,12 +1876,14 @@ function ShopTab() {
               <Label htmlFor="pdDesc">{t("pt.form.desc")}</Label>
               <Textarea
                 id="pdDesc"
-                rows={3}
-                maxLength={500}
+                rows={6}
+                maxLength={4000}
                 placeholder={t("ap.descPlaceholder")}
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               />
+              {/* 详情页用富文本渲染这段描述（Markdown + 受限 HTML），所以这里明确怎么写 */}
+              <p className="text-xs text-muted-foreground">{t("ap.descRichHint")}</p>
             </div>
 
             <div className="space-y-2">

@@ -42,6 +42,8 @@ const LeaderboardPage = page("/dashboard/leaderboard", () => import("@/pages/lea
 const PointsPage = page("/dashboard/points", () => import("@/pages/points"))
 // 商城（2026-11-06 自「积分与商城」拆出）：官方商城 / 用户商城 / 我的交易 / 上架
 const ShopPage = page("/dashboard/shop", () => import("@/pages/shop"))
+// 商品详情页：从商城卡片点进来（2026-11-06）；同一前缀下不单独登记预载（会互相覆盖）
+const ShopDetailPage = React.lazy(() => import("@/pages/shop-detail"))
 const MessagesPage = page("/dashboard/messages", () => import("@/pages/messages"))
 const DmPage = page("/dashboard/dm", () => import("@/pages/dm"))
 const CommunityPage = page("/dashboard/community", () => import("@/pages/community"))
@@ -197,6 +199,7 @@ function AppRoutes() {
         <Route path="leaderboard" element={<LeaderboardPage />} />
         <Route path="points" element={<PointsPage />} />
         <Route path="shop" element={<ShopPage />} />
+        <Route path="shop/:id" element={<ShopDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="messages" element={<MessagesPage />} />
         {/* 一对一私信：带用户名就是打开某个会话，不带就是纯列表 */}

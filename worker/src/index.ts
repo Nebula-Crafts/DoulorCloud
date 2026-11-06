@@ -1841,6 +1841,14 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
       ),
   },
   {
+    // 商城商品详情（2026-11-06 详情页用；content 已剥离）
+    kind: "regex",
+    match: (routePath: string) => routePath.match(/^\/points\/products\/([^/]+)$/),
+    methods: ["GET"],
+    handle: (shopProductMatch: RegExpMatchArray) =>
+      pointHandlers.getShopProduct(env, request, decodeURIComponent(shopProductMatch[1])),
+  },
+  {
     kind: "regex",
     match: (routePath: string) => routePath.match(/^\/points\/products\/([^/]+)\/purchases$/),
     methods: ["GET"],

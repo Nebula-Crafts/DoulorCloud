@@ -561,7 +561,9 @@ function sanitizeProductInput(raw: unknown, opts: { asUser?: boolean } = {}): Pr
   const name = typeof b.name === "string" ? b.name.trim().slice(0, 40) : ""
   if (!name) throw new ApiError(400, "请填写商品名称", "INVALID_INPUT")
 
-  const description = typeof b.description === "string" ? b.description.trim().slice(0, 500) : ""
+  // 详情页是富文本（Markdown + 受限 HTML，含图片 URL），500 字远不够用，
+  // 提到 4000：多图排版 + 说明文字的正常长度大约在 1~2k，4000 留足余量。
+  const description = typeof b.description === "string" ? b.description.trim().slice(0, 4000) : ""
 
   let imageUrl: string | null = null
   if (typeof b.imageUrl === "string" && b.imageUrl.trim()) {

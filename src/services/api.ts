@@ -985,6 +985,12 @@ export const pointsApi = {
   },
   /** 余额 + 兑换配置 + 商城商品 + 我的订单 + 最近流水（一次拿齐整页数据） */
   overview: () => request<PointsOverview>("/points"),
+  /**
+   * 单个商品详情（详情页用）。
+   * ⚠️ 返回体里 `deliveryParams.content` 已被服务端剥掉 —— 那是下单后才交付的东西。
+   */
+  product: (id: string) =>
+    request<{ product: PointProduct }>(`/points/products/${encodeURIComponent(id)}`),
   /** 用积分兑换中转站余额（每 1 积分值多少元由后台配置） */
   redeem: (points: number) =>
     request<PointsRedeemResult>("/points/redeem", {

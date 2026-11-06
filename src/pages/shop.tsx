@@ -1,6 +1,6 @@
 import * as React from "react"
 import { FeatureCardsSkeleton } from "@/components/skeletons"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import {
   CalendarClock,
   Check,
@@ -17,6 +17,7 @@ import { toast } from "sonner"
 import { PageHeader } from "@/components/page-header"
 import { AnchoredPanel } from "@/components/anchored-panel"
 import { EmptyState } from "@/components/empty-state"
+import { ShopBuyDialog } from "@/components/shop-buy-dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,7 +43,6 @@ import {
   AFTER_SALE_STATUS,
   ORDER_STATUS,
   DeliveryContentBlock,
-  buyHint,
   canEscalateAfterSale,
   canRejectDelivery,
   canRequestAfterSale,
@@ -50,7 +50,6 @@ import {
   isRentalExpired,
   needsNewapiBinding,
   orderStatusText,
-  rentalBuyHint,
   rentalOrderText,
   rentalTerm,
 } from "@/pages/pointshop-shared"
@@ -68,13 +67,13 @@ import {
  */
 export default function ShopPage() {
   const { t } = useT()
+  const navigate = useNavigate()
   const [data, setData] = React.useState<PointsOverview | null>(null)
   const [loading, setLoading] = React.useState(true)
 
   // 购买 / 详情
   const [buyTarget, setBuyTarget] = React.useState<PointProduct | null>(null)
   const [buyBusy, setBuyBusy] = React.useState(false)
-  const [detailTarget, setDetailTarget] = React.useState<PointProduct | null>(null)
 
   // 筛选
   const [cat, setCat] = React.useState<ProductCategory | "all">("all")
@@ -119,7 +118,6 @@ export default function ShopPage() {
     return list
   }, [products, cat, stockOnly, sortHot])
 
-  const buyIsUserProduct = !!buyTarget?.ownerId
   const buyTargetAffordable = !!buyTarget && buyTarget.price <= balance
   const buyTargetNeedsBind = !!buyTarget && needsNewapiBinding(buyTarget.delivery) && !data?.bound
   const canBuy = buyTargetAffordable && !buyTargetNeedsBind && !buyBusy
@@ -663,7 +661,7 @@ export default function ShopPage() {
                   <Card
                     key={p.id}
                     className="flex min-w-0 cursor-pointer flex-col overflow-hidden transition-shadow hover:shadow-md"
-                    onClick={() => setDetailTarget(p)}
+                    onClick={() => navigate(`/dashboard/shop/${p.id}`)}
                   >
                     {p.imageUrl ? (
                       <img
@@ -817,127 +815,15 @@ export default function ShopPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 商品详情 */}
-      <Dialog open={!!detailTarget} onOpenChange={(o) => !o && setDetailTarget(null)}>
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="break-all">{detailTarget?.name}</DialogTitle>
-            <DialogDescription>{t("pt.detailTitle")}</DialogDescription>
-          </DialogHeader>
-          {detailTarget && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-                <span className="text-lg font-semibold tabular-nums">{detailTarget.price}</span>
-                <span className="text-xs text-muted-foreground">
-                  {t("pt.unit")}
-                  {detailTarget.billingMode === "rental"
-                    ? ` / ${t("pt.days", { n: detailTarget.rentalDays ?? 0 })}`
-                    : ""}
-                  {detailTarget.perUserLimit
-                    ? ` · ${t("pt.perUserLimit", { n: detailTarget.perUserLimit })}`
-                    : ""}
-                  {detailTarget.stock !== null && detailTarget.stock <= 0
-                    ? ` · ${t("pt.soldOut")}`
-                    : detailTarget.dailyLimit != null
-                      ? ` · ${
-                          detailTarget.dailyLimit - (detailTarget.dailySold ?? 0) > 0
-                            ? t("pt.dailyLeft", {
-                                n: Math.max(
-                                  0,
-                                  detailTarget.dailyLimit - (detailTarget.dailySold ?? 0)
-                                ),
-                              })
-                            : t("pt.dailySoldOut")
-                        }`
-                      : ""}
-                </span>
-              </div>
-              {detailTarget.description ? (
-                <p className="whitespace-pre-wrap break-all text-sm text-muted-foreground">
-                  {detailTarget.description}
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">{t("pt.detailNoDesc")}</p>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDetailTarget(null)}>
-              {t("common.close")}
-            </Button>
-            <Button
-              onClick={() => {
-                if (detailTarget) {
-                  setBuyTarget(detailTarget)
-                  setDetailTarget(null)
-                }
-              }}
-            >
-              {t("pt.buy")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 购买确认 */}
-      <Dialog open={!!buyTarget} onOpenChange={(o) => !o && !buyBusy && setBuyTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {buyTarget?.billingMode === "rental" ? tStatic("pt.rental.rental") : t("pt.buy")} ·{" "}
-              {buyTarget?.name}
-            </DialogTitle>
-            <DialogDescription>
-              {buyHint(buyTarget?.delivery ?? "manual", buyIsUserProduct)}
-              {buyTarget?.billingMode === "rental" && (
-                <> {rentalBuyHint(buyTarget.rentalDays, buyIsUserProduct)}</>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">{t("pt.priceLabel")}</span>
-              <span className="font-medium tabular-nums">
-                {t("pt.pointsUnit", { n: buyTarget?.price ?? 0 })}
-                {buyTarget?.billingMode === "rental"
-                  ? ` / ${t("pt.days", { n: buyTarget.rentalDays ?? 0 })}`
-                  : ""}
-              </span>
-            </div>
-            {buyTarget?.delivery === "feature" && buyTarget.deliveryParams?.feature ? (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{t("pt.featureLabel")}</span>
-                <span className="font-medium">{buyTarget.deliveryParams.feature}</span>
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">{t("pt.balanceAfter")}</span>
-              <span className="font-medium tabular-nums">
-                {t("pt.pointsUnit", { n: balance - (buyTarget?.price ?? 0) })}
-              </span>
-            </div>
-            {buyTargetNeedsBind && (
-              <p className="text-xs text-destructive">
-                {buyTarget?.delivery === "subscription"
-                  ? t("pt.needBind.subscription")
-                  : t("pt.needBind.quota")}
-              </p>
-            )}
-            {!buyTargetAffordable && (
-              <p className="text-xs text-destructive">{t("pt.insufficient")}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBuyTarget(null)} disabled={buyBusy}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={() => void handleBuy()} disabled={!canBuy}>
-              {buyBusy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {t("pt.confirmBuy")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* 购买确认（与商品详情页共用同一个组件） */}
+      <ShopBuyDialog
+        product={buyTarget}
+        balance={balance}
+        bound={data?.bound ?? false}
+        busy={buyBusy}
+        onClose={() => setBuyTarget(null)}
+        onConfirm={() => void handleBuy()}
+      />
     </div>
   )
 }

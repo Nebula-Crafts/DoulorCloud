@@ -76,6 +76,7 @@ import {
   deleteProduct,
   deliverOrder,
   escalateAfterSale,
+  getProduct,
   getProductCodes,
   listAfterSaleOrders,
   listOrders,
@@ -350,6 +351,29 @@ export async function buyShopProduct(env: Env, request: Request): Promise<Respon
 }
 
 // ---- 用户商品（上架 / 编辑 / 删除 / 交付 / 确认）----
+
+/**
+ * GET /api/points/products/:id —— 商城里的单个商品（详情页用）。
+ *
+ * ⚠️ **剥掉 `deliveryParams.content`**：那是买家下单后才会拿到的东西
+ * （固定内容 / 网盘链接之类），详情页给出来等于不买也能白看。
+ * 其余字段照常给（描述、价格、库存、评分用的 soldCount 等）。
+ */
+export async function getShopProduct(
+  env: Env,
+  request: Request,
+  id: string
+): Promise<Response> {
+  await requireUser(env, request)
+  const product = await getProduct(env, id)
+  if (!product || !product.enabled) {
+    throw new ApiError(404, "商品不存在或已下架", "NOT_FOUND")
+  }
+  const safe = product.deliveryParams?.content
+    ? { ...product, deliveryParams: { ...product.deliveryParams, content: undefined } }
+    : product
+  return json({ product: safe })
+}
 
 /**
  * GET /api/points/products/:id/purchases —— 商品**公示出来的**购买记录（最近 10 条）。
