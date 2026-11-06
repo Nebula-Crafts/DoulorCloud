@@ -35,18 +35,19 @@ import {
   isReservedNickname,
   parseReservedNicknames,
 } from "../identity"
-import { getSettingNumber } from "../settings"
 import { revokeAllUserTokens } from "../oauth-provider"
 // 帖子分类的归一化：与读取侧（community.ts 的 postCategoryDefs）用同一份实现，
 // 避免「存进去的规则」和「读出来的规则」分家 —— 那种不一致极难排查。
 import { parsePostCategories } from "./community"
 import {
   QUOTA_FEATURES,
+  effectiveInviteBase,
   parseCounts,
   refundQuotaForInvite,
   quotaFeaturesFromStored,
 } from "../quotas"
 import { purgeUserExternalResources } from "../user-cleanup"
+import { ensureUserCardNo } from "../card-numbers"
 
 /**
  * 管理员接口。
@@ -80,6 +81,8 @@ interface AdminUserRow {
   uid?: number | null
   /** 会员等级（迁移 0169；0=普通 1=黄金 2=白金 3=黑金，老数据可能为 NULL） */
   member_level?: number | null
+  /** 会员银行卡号（迁移 0176；黄金及以上才有，16 位数字） */
+  card_no?: string | null
   /** 邀请码额度（捐献累计获得 / 已消耗） */
   invite_quota_bonus?: number | null
   invite_quota_used?: number | null
@@ -221,7 +224,7 @@ async function userDetail(env: Env, user: AdminUserRow) {
     newapi,
     profile,
     activity,
-    inviteBase,
+    inviteBaseInfo,
   ] = await Promise.all([
     env.DB.prepare(
       "SELECT id, address, forwarding_to, created_at FROM mailboxes WHERE user_id = ? ORDER BY created_at ASC"
@@ -292,10 +295,12 @@ async function userDetail(env: Env, user: AdminUserRow) {
     )
       .bind(user.id)
       .all<{ id: string; action: string; detail: string | null; created_at: string }>(),
-    getSettingNumber(env, "invite_quota_base"),
+    // 默认额度要按「限时开放注册是否开着」取实际生效值，见 quotas.effectiveInviteBase
+    effectiveInviteBase(env),
   ])
 
   // ---- 额度 ----
+  const inviteBase = inviteBaseInfo.base
   const inviteBonus = Math.max(0, user.invite_quota_bonus ?? 0)
   const inviteUsed = Math.max(0, user.invite_quota_used ?? 0)
   const featureQuota = parseCounts(user.feature_quota)
@@ -316,6 +321,11 @@ async function userDetail(env: Env, user: AdminUserRow) {
       status: user.status,
       /** 会员等级（0=普通 1=黄金 2=白金 3=黑金） */
       memberLevel: user.member_level ?? 0,
+      /**
+       * 会员银行卡号（黄金及以上才有）。这里**不**懒生成：后台看详情不该产生副作用，
+       * 未分配就显示空，管理员可以从靓号池里挑一个发给他。
+       */
+      cardNo: user.card_no ?? null,
       emailVerified: (user.email_verified ?? 0) === 1,
       notifyEnabled: (user.notify_enabled ?? 1) === 1,
       hasAvatar: Boolean(user.avatar_key),
@@ -367,6 +377,7 @@ async function userDetail(env: Env, user: AdminUserRow) {
       : null,
     quota: {
       inviteBase,
+      inviteBaseSuppressed: inviteBaseInfo.suppressed,
       inviteBonus,
       inviteTotal: inviteBase + inviteBonus,
       inviteUsed,
@@ -1010,6 +1021,9 @@ export async function updateUser(env: Env, request: Request, username: string): 
       await env.DB.prepare("UPDATE users SET member_level = ?, updated_at = ? WHERE id = ?")
         .bind(lv, new Date().toISOString(), user.id)
         .run()
+      // 管理员直接提到黄金及以上：同样要发卡号（存量/被手动调整的用户不会经过
+      // 用户侧的升级接口）。已经是黄金以上的，ensureUserCardNo 原样返回旧号。
+      if (lv >= 1) await ensureUserCardNo(env, user.id, lv, null)
       await recordAudit(
         env,
         // 与 permissions 同一口径：记在**被改的用户**名下，操作人写进 detail
@@ -2149,7 +2163,7 @@ export async function listInviteQuotas(
     invite_count: number
   }>()
 
-  const base = await getSettingNumber(env, "invite_quota_base")
+  const { base, suppressed } = await effectiveInviteBase(env)
 
   const users = []
   for (const r of rows.results ?? []) {
@@ -2181,6 +2195,8 @@ export async function listInviteQuotas(
      * 只是不再对外展示。
      */
     baseQuota: base,
+    /** 限时开放注册期间默认额度暂停生效（baseQuota 此时为 0） */
+    baseQuotaSuppressed: suppressed,
   })
 }
 
@@ -2203,12 +2219,13 @@ export async function getUserInviteQuota(
 
   const bonus = Math.max(0, user.invite_quota_bonus ?? 0)
   const used = Math.max(0, user.invite_quota_used ?? 0)
-  const base = await getSettingNumber(env, "invite_quota_base")
+  const { base, suppressed } = await effectiveInviteBase(env)
   const total = base + bonus
   return json({
     username: user.username,
     quota: {
       inviteBase: base,
+      inviteBaseSuppressed: suppressed,
       inviteBonus: bonus,
       inviteTotal: total,
       inviteUsed: used,

@@ -8,6 +8,7 @@
  */
 import { ApiError, json } from "../http"
 import { applyPoints, getPointsBalance } from "../points"
+import { ensureUserCardNo } from "../card-numbers"
 import { getSettingNumber } from "../settings"
 import { requireUser } from "../auth"
 import type { Env } from "../env"
@@ -74,9 +75,15 @@ export async function upgradeLevel(env: Env, request: Request): Promise<Response
     .bind(nextLevel, new Date().toISOString(), session.id)
     .run()
 
+  // 升到黄金（等级 ≥ 1）时分配「银行卡号」；之后继续升级号码不变
+  // （ensureUserCardNo 见到列已非空就直接返回原值）。
+  // 在这里接一下而不是只靠积分概览懒生成：升级完立刻就能在卡面上看到自己的号。
+  const cardNo = await ensureUserCardNo(env, session.id, nextLevel, session.card_no ?? null)
+
   return json({
     level: nextLevel,
     levelName: LEVEL_NAMES[nextLevel],
     balance: res.balance,
+    cardNo,
   })
 }

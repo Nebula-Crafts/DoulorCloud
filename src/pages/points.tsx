@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { PageHeader } from "@/components/page-header"
 import { EmptyState } from "@/components/empty-state"
 import { CheckinDialog } from "@/components/checkin-dialog"
+import { MemberLevelCards } from "@/components/member-level-cards"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -39,6 +40,8 @@ import { REASON_LABEL } from "@/pages/pointshop-shared"
 
 /** 会员等级 → 展示 key（0=普通 1=黄金 2=白金 3=黑金，与 users.member_level 对应） */
 const LEVEL_KEYS = ["lvl.0", "lvl.1", "lvl.2", "lvl.3"] as const
+/** 卡面顶部那行英文等级名（与银行卡实体上的 MEMBER 字样同构） */
+const LEVEL_EN_KEYS = ["pt.card.en0", "pt.card.en1", "pt.card.en2", "pt.card.en3"] as const
 
 export default function PointsPage() {
   const { t } = useT()
@@ -232,49 +235,18 @@ export default function PointsPage() {
               )}
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* 四级一览：当前高亮，后面的显示差多少积分 */}
-              <div className="grid gap-2 sm:grid-cols-4">
-                {LEVEL_KEYS.map((key, i) => {
-                  const isCurrent = i === level
-                  const reached = i <= level
-                  const price = i > 0 ? (levelPrices[i] ?? 0) : 0
-                  return (
-                    <div
-                      key={key}
-                      className={
-                        isCurrent
-                          ? "rounded-lg border border-primary/50 bg-primary/5 p-3"
-                          : "rounded-lg border p-3"
-                      }
-                    >
-                      <div className="flex items-center gap-1.5 text-sm font-medium">
-                        {i > 0 && (
-                          <Crown
-                            className={
-                              reached
-                                ? "h-3.5 w-3.5 text-amber-500"
-                                : "h-3.5 w-3.5 text-muted-foreground/50"
-                            }
-                          />
-                        )}
-                        {t(key)}
-                        {isCurrent && (
-                          <Badge variant="default" className="ml-auto text-[10px]">
-                            {t("pt.level.current")}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {i === 0
-                          ? t("pt.level.defaultHint")
-                          : price > 0
-                            ? t("pt.pointsUnit", { n: price })
-                            : t("pt.level.unavailable")}
-                      </p>
-                    </div>
-                  )
-                })}
-              </div>
+              {/* 四级一览：一张银行卡对应一个等级（居中一整张、两侧各露半张，可拖动） */}
+              <MemberLevelCards
+                balance={balance}
+                cardNo={data?.cardNo ?? null}
+                cards={LEVEL_KEYS.map((key, i) => ({
+                  nameKey: key,
+                  enKey: LEVEL_EN_KEYS[i],
+                  price: i === 0 ? 0 : (levelPrices[i] ?? 0),
+                  reached: i <= level,
+                  current: i === level,
+                }))}
+              />
               {nextLevel != null && nextPrice > 0 && balance < nextPrice && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Sparkles className="h-3.5 w-3.5" />

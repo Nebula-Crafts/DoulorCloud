@@ -1,4 +1,5 @@
 import {
+  type AdminCardNumber,
   type AdminInvite,
   type AdminInviteTrace,
   type AdminSettings,
@@ -492,6 +493,34 @@ export const adminApi = {
     request<void>(`/admin/users/${encodeURIComponent(username)}`, {
       method: "DELETE",
     }),
+
+  /**
+   * 会员「银行卡靓号」池（2026-11-06）。
+   * 池子里的号自动生成不会命中，只能由管理员指定发放给某个用户。
+   */
+  listCardNumbers: () =>
+    request<{ items: AdminCardNumber[]; reservedCount: number; issuedCount: number }>(
+      "/admin/card-numbers"
+    ),
+
+  /** 批量预留靓号（字符串可带空格分段，15 位会自动补 Luhn 校验位） */
+  reserveCardNumbers: (numbers: string[]) =>
+    request<{ added: string[]; skipped: { number: string; reason: string }[] }>(
+      "/admin/card-numbers",
+      { method: "POST", body: JSON.stringify({ numbers }) }
+    ),
+
+  deleteCardNumber: (number: string) =>
+    request<{ ok: boolean }>(`/admin/card-numbers/${encodeURIComponent(number)}`, {
+      method: "DELETE",
+    }),
+
+  /** 给用户发放靓号；传 null 清除（清除后打开积分页会重新生成一个普通号） */
+  setUserCardNo: (username: string, number: string | null) =>
+    request<{ cardNo: string | null; formatted?: string }>(
+      `/admin/users/${encodeURIComponent(username)}/card-number`,
+      { method: "PUT", body: JSON.stringify({ number }) }
+    ),
 
   getUserMessage: (username: string, messageId: string) =>
     request<{ message: MailMessage }>(

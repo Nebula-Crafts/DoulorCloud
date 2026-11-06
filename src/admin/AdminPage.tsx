@@ -64,6 +64,8 @@ import { NavItem, NavGroup } from "@/components/sub-nav"
 import { SectionedCards } from "@/components/sectioned-cards"
 import { SlidingPill } from "@/components/motion/sliding-pill"
 import { AdminPermissionsPanel } from "@/components/admin-permissions"
+import { AdminCardNumbersCard } from "@/components/admin-card-numbers-card"
+import { AdminUserCardNoDialog } from "@/components/admin-user-card-no"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -833,6 +835,9 @@ export default function AdminPage() {
   const [quotaDetail, setQuotaDetail] =
     React.useState<AdminUserInviteQuotaResponse | null>(null)
   const [quotaDetailBusy, setQuotaDetailBusy] = React.useState(false)
+
+  /** 会员银行卡号发放弹窗（null = 关闭；值是用户名） */
+  const [cardNoUser, setCardNoUser] = React.useState<string | null>(null)
 
   // 保留子域名
   // 昵称保留词（与保留域名同页管理）
@@ -2752,6 +2757,9 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* 会员银行卡靓号池：预留的号不会被自动分配，只能从用户详情里发放 */}
+      <AdminCardNumbersCard />
         </TabsContent>
 
         <TabsContent value="invites">
@@ -3775,6 +3783,24 @@ export default function AdminPage() {
                   </p>
 
                   <div className="space-y-2 border-t pt-4">
+                    <Label htmlFor="inviteQuotaBase">{t("adm.671")}</Label>
+                    <Input
+                      id="inviteQuotaBase"
+                      inputMode="numeric"
+                      value={inviteQuotaBase}
+                      onChange={(e) => setInviteQuotaBase(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("adm.672")}
+                    </p>
+                    {openRegistration && (
+                      <p className="text-xs text-amber-600">
+                        {t("adm.regQuotaPaused")}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 border-t pt-4">
                     <Label htmlFor="regEmailDomains">{t("adm.regEmailDomains")}</Label>
                     <Textarea
                       id="regEmailDomains"
@@ -3865,18 +3891,6 @@ export default function AdminPage() {
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {t("adm.670")}
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="inviteQuotaBase">{t("adm.671")}</Label>
-                    <Input
-                      id="inviteQuotaBase"
-                      inputMode="numeric"
-                      value={inviteQuotaBase}
-                      onChange={(e) => setInviteQuotaBase(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.672")}
                     </p>
                   </div>
                 </CardContent>
@@ -3981,6 +3995,9 @@ export default function AdminPage() {
                 <div className="rounded-md border p-3">
                   <p className="text-sm font-medium">{t("adm.740")}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{t("adm.1124", { v0: quotaDetail.quota.inviteRemaining, v1: " ", v2: quotaDetail.quota.inviteTotal, v3: " ", v4: quotaDetail.quota.inviteBase, v5: " ", v6: quotaDetail.quota.inviteBonus, v7: " ", v8: quotaDetail.quota.inviteUsed })}</p>
+                  {quotaDetail.quota.inviteBaseSuppressed && (
+                    <p className="mt-1 text-xs text-amber-600">{t("adm.regQuotaPaused")}</p>
+                  )}
                   <div className="mt-2 flex items-center gap-2">
                     <Label className="text-xs">{t("adm.741")}</Label>
                     <Input
@@ -5375,6 +5392,26 @@ export default function AdminPage() {
                       </Select>
                     </div>
 
+                    {/* 会员银行卡号：黄金及以上才有；号发给谁就是谁的，升级不变 */}
+                    <div className="flex items-center justify-between rounded-md border p-3">
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="text-sm font-medium">{t("adm.card.userTitle")}</p>
+                        <p className="truncate font-mono text-xs text-muted-foreground">
+                          {detail.user.cardNo
+                            ? detail.user.cardNo.replace(/(\d{4})(?=\d)/g, "$1 ")
+                            : t("adm.card.none")}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => setCardNoUser(detail.user.username)}
+                      >
+                        {t("adm.card.manage")}
+                      </Button>
+                    </div>
+
                     <div className="flex items-center justify-between rounded-md border p-3">
                       <div className="space-y-0.5">
                         <p className="text-sm font-medium">
@@ -5607,6 +5644,20 @@ export default function AdminPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 会员银行卡号：与用户详情分开的弹窗（避免详情里再套一层 Dialog） */}
+      {cardNoUser !== null && (
+        <AdminUserCardNoDialog
+          open
+          onOpenChange={(v) => {
+            if (!v) setCardNoUser(null)
+          }}
+          username={cardNoUser}
+          cardNo={detail?.user.cardNo ?? null}
+          memberLevel={detail?.user.memberLevel ?? 0}
+          onSaved={() => void openDetail(cardNoUser)}
+        />
+      )}
 
       {/*
         重置密码（rootOnly）。刻意与用户详情分成两个独立弹窗，

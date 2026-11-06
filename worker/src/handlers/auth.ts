@@ -5,6 +5,7 @@ import { isReservedName } from "../reserved-names"
 import { revokeAllUserTokens } from "../oauth-provider"
 import { sendMail, renderMail } from "../mailer"
 import { getSettings, getSettingBool } from "../settings"
+import { isOpenRegistration, isOpenRegistrationIn } from "../registration-window"
 import {
   isBasicOnlyInvitePermissions,
   permissionsFromFeatures,
@@ -93,28 +94,9 @@ function isValidEmail(email: string): boolean {
 }
 
 /**
- * 当前是否处于「限时开放注册」状态（注册无需邀请码）。
- *
- * 判定：总开关 `open_registration` 开着，且（未设截止时间 或 当前未过截止时间）。
- * 截止时间解析失败（管理员填了脏值）时**忽略截止时间** —— 总开关仍开着说明
- * 管理员本意就是开放，不该因为一个格式错误把注册全关掉。
- *
- * 放在 handler 层而不是 settings.ts：项目有 check-settings.mjs 护栏，
- * 要求每个设置项都在 handler 里被真正读一次，否则判为「假开关」。
+ * 「限时开放注册」判定（是否无需邀请码即可注册）。
+ * 判定逻辑在 `registration-window.ts` —— 邀请码额度那边要用同一口径。
  */
-function isOpenRegistrationIn(s: Record<string, string>): boolean {
-  const raw = s.open_registration ?? ""
-  if (!(raw === "1" || raw.toLowerCase() === "true")) return false
-  const until = (s.open_registration_until ?? "").trim()
-  if (!until) return true
-  const t = Date.parse(until)
-  if (!Number.isFinite(t)) return true
-  return Date.now() < t
-}
-
-async function isOpenRegistration(env: Env): Promise<boolean> {
-  return isOpenRegistrationIn(await getSettings(env))
-}
 
 /**
  * GET /api/register-status —— 注册页需要的公开信息（无需登录）。

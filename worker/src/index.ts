@@ -4,6 +4,7 @@ import type { Env } from "./env"
 import * as authHandlers from "./handlers/auth"
 import * as stickerHandlers from "./handlers/stickers"
 import * as adminHandlers from "./handlers/admin"
+import * as adminCardHandlers from "./handlers/admin-card-numbers"
 import * as adminUsersStatusHandlers from "./handlers/admin-users-status"
 import * as adminPermHandlers from "./handlers/admin-perms"
 import * as noticeHandlers from "./handlers/notices"
@@ -639,6 +640,37 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     method: "GET",
     handle: () =>
       adminHandlers.listInviteQuotas(env, request),
+  },
+
+  // ---- 会员银行卡靓号（2026-11-06）----
+  {
+    kind: "exact",
+    path: "/admin/card-numbers",
+    method: "GET",
+    handle: () => adminCardHandlers.listCardNumbers(env, request),
+  },
+
+  {
+    kind: "exact",
+    path: "/admin/card-numbers",
+    method: "POST",
+    handle: () => adminCardHandlers.reserveCardNumbers(env, request),
+  },
+
+  {
+    kind: "regex",
+    match: (routePath: string) => routePath.match(/^\/admin\/card-numbers\/([^/]+)$/),
+    methods: ["DELETE"],
+    handle: (cardNoMatch: RegExpMatchArray) =>
+      adminCardHandlers.deleteCardNumber(env, request, decodeURIComponent(cardNoMatch[1])),
+  },
+
+  {
+    kind: "regex",
+    match: (routePath: string) => routePath.match(/^\/admin\/users\/([^/]+)\/card-number$/),
+    methods: ["PUT"],
+    handle: (cardUserMatch: RegExpMatchArray) =>
+      adminCardHandlers.setUserCardNo(env, request, decodeURIComponent(cardUserMatch[1])),
   },
 
   {

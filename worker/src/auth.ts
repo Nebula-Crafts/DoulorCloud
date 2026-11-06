@@ -37,6 +37,11 @@ export interface UserRow {
   /** 会员等级（迁移 0169；0=普通 1=黄金 2=白金 3=黑金，只升不降） */
   member_level?: number | null
   /**
+   * 会员银行卡号（迁移 0176；16 位数字，黄金及以上才有）。
+   * 升到黄金时分配，之后继续升级**不变**，见 card-numbers.ts。
+   */
+  card_no?: string | null
+  /**
    * 每用户 DNS 记录数上限的**用户级覆盖**（迁移 0161；NULL = 沿用全局设置项
    * `dns_records_per_user`）。与 `max_subdomains` 是同一套「用户级覆盖 > 全局设置」
    * 机制，见 handlers/dns.ts 的 dnsRecordLimit。
@@ -189,6 +194,8 @@ export function toPublicUser(row: UserRow) {
     uid: row.uid ?? null,
     /** 会员等级（0=普通 1=黄金 2=白金 3=黑金，2026-11-06 等级体系） */
     memberLevel: row.member_level ?? 0,
+    /** 会员银行卡号（黄金及以上才有；16 位数字，展示时 4-4-4-4 分段） */
+    cardNo: row.card_no ?? null,
     createdAt: row.created_at,
   }
 }

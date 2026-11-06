@@ -39,6 +39,7 @@ import { requireAdminScope } from "./admin"
 import { guardRateLimit } from "../ratelimit"
 import { uuid } from "../crypto"
 import { levelPriceMap } from "./member-level"
+import { ensureUserCardNo } from "../card-numbers"
 import {
   isStorageConfigured,
   putObject,
@@ -124,6 +125,12 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
     bound: Boolean(boundRow),
     /** 当前会员等级（0=普通 1=黄金 2=白金 3=黑金） */
     memberLevel: user.member_level ?? 0,
+    /**
+     * 会员银行卡号（黄金及以上才有，16 位数字，前端按 4-4-4-4 展示）。
+     * 等级 ≥ 1 但列还没值时在这里补发一次 —— 存量黄金会员（等级体系上线时就
+     * 已经是黄金的用户）不会经过升级接口，只能靠这条读路径补齐。
+     */
+    cardNo: await ensureUserCardNo(env, user.id, user.member_level ?? 0, user.card_no ?? null),
     /** 各级升级价格（0 = 该等级未开放升级；键与 users.member_level 对应） */
     levelPrices: await levelPriceMap(env),
   })

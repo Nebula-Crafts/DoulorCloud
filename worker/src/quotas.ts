@@ -15,6 +15,7 @@
  */
 import { ApiError } from "./http"
 import { getSetting, getSettingNumber } from "./settings"
+import { isOpenRegistration } from "./registration-window"
 import type { Env } from "./env"
 
 /**
@@ -106,6 +107,8 @@ export function parseCounts(raw: string | null | undefined): FeatureCounts {
 export interface UserQuota {
   /** 基础额度（来自全局设置） */
   inviteBase: number
+  /** 默认额度是否被「限时开放注册」窗口临时压掉（此时 inviteBase 为 0） */
+  inviteBaseSuppressed: boolean
   /** 捐献累计获得 */
   inviteBonus: number
   /** 合计可创建数 */
@@ -129,6 +132,21 @@ interface QuotaRow {
   feature_quota_used: string | null
 }
 
+/**
+ * 每人默认邀请额度（`invite_quota_base`）的**实际生效值**。
+ *
+ * 站长 2026-11-06：「限时开放注册」开着时不生效 —— 那时注册本来就不需要邀请码，
+ * 默认额度继续发放只会被拿去批量开码；窗口关闭、恢复邀请制后才重新生效。
+ * 只压「默认额度」，`invite_quota_bonus`（管理员手动加 / 捐献获批）照常可用。
+ */
+export async function effectiveInviteBase(
+  env: Env
+): Promise<{ base: number; suppressed: boolean }> {
+  const configured = await getSettingNumber(env, "invite_quota_base")
+  if (await isOpenRegistration(env)) return { base: 0, suppressed: true }
+  return { base: configured, suppressed: false }
+}
+
 export async function loadUserQuota(env: Env, userId: string): Promise<UserQuota> {
   const row = await env.DB.prepare(
     "SELECT invite_quota_bonus, invite_quota_used, feature_quota, feature_quota_used FROM users WHERE id = ?"
@@ -136,7 +154,7 @@ export async function loadUserQuota(env: Env, userId: string): Promise<UserQuota
     .bind(userId)
     .first<QuotaRow>()
 
-  const inviteBase = await getSettingNumber(env, "invite_quota_base")
+  const { base: inviteBase, suppressed: inviteBaseSuppressed } = await effectiveInviteBase(env)
   const inviteBonus = Math.max(0, row?.invite_quota_bonus ?? 0)
   const inviteUsed = Math.max(0, row?.invite_quota_used ?? 0)
   const inviteTotal = inviteBase + inviteBonus
@@ -150,6 +168,7 @@ export async function loadUserQuota(env: Env, userId: string): Promise<UserQuota
 
   return {
     inviteBase,
+    inviteBaseSuppressed,
     inviteBonus,
     inviteTotal,
     inviteUsed,
@@ -251,9 +270,14 @@ export async function consumeQuotaForInvite(
 }
 
 function inviteQuotaError(quota: UserQuota): ApiError {
+  // 开放注册窗口内默认额度被暂停，剩余额度可能为 0 —— 报错要说清原因，
+  // 否则用户会以为自己额度被吞了。
+  const hint = quota.inviteBaseSuppressed
+    ? "当前处于「限时开放注册」期间，每人默认邀请额度暂停生效；等开放注册关闭后会恢复"
+    : "捐献资源可获得更多额度"
   return new ApiError(
     400,
-    `邀请码额度已用完（共 ${quota.inviteTotal} 个，已用 ${quota.inviteUsed} 个）。捐献资源可获得更多额度`,
+    `邀请码额度已用完（共 ${quota.inviteTotal} 个，已用 ${quota.inviteUsed} 个）。${hint}`,
     "INVITE_QUOTA_EXCEEDED"
   )
 }

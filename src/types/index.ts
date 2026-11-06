@@ -462,6 +462,8 @@ export interface AdminUserDetail {
     status: string
     /** 会员等级：0=普通 1=黄金 2=白金 3=黑金 */
     memberLevel: number
+    /** 会员银行卡号（黄金及以上才有；16 位数字，null = 尚未分配） */
+    cardNo: string | null
     /** 邮箱是否已验证 */
     emailVerified: boolean
     /** 是否接收平台通知邮件 */
@@ -541,6 +543,20 @@ export interface AdminUserQuota {
   featureUsed: Record<string, number>
   featureRemaining: Record<string, number>
   featureLabels: Record<string, string>
+}
+
+/**
+ * 会员银行卡靓号池条目（后台「靓号预留 / 发放」，2026-11-06）。
+ * `number` 是归一化的 16 位数字串，`formatted` 是 4-4-4-4 展示形式。
+ */
+export interface AdminCardNumber {
+  number: string
+  formatted: string
+  status: "reserved" | "issued"
+  userId: string | null
+  username: string | null
+  note: string | null
+  createdAt: string
 }
 
 export interface ApiError {
@@ -2350,6 +2366,8 @@ export interface FeatureCounts {
 export interface UserQuota {
   /** 基础额度（全局设置） */
   inviteBase: number
+  /** 默认额度是否被「限时开放注册」窗口临时压掉（此时 inviteBase 为 0） */
+  inviteBaseSuppressed?: boolean
   /** 捐献累计获得 */
   inviteBonus: number
   /** 合计可创建数 */
@@ -3399,6 +3417,8 @@ export interface PointsOverview {
   bound: boolean
   /** 当前会员等级（0=普通 1=黄金 2=白金 3=黑金） */
   memberLevel: number
+  /** 会员银行卡号（黄金及以上才有，16 位数字；前端按 4-4-4-4 展示） */
+  cardNo: string | null
   /** 各级升级价格（键 1/2/3；0 = 该等级未开放升级） */
   levelPrices: Record<number, number>
 }
