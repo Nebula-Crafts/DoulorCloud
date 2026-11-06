@@ -19,6 +19,7 @@ import * as achievementHandlers from "./handlers/achievements"
 import * as memberLevelHandlers from "./handlers/member-level"
 import * as leaderboardHandlers from "./handlers/leaderboard"
 import * as communityHandlers from "./handlers/community"
+import * as reportHandlers from "./handlers/community-reports"
 import * as spaceHandlers from "./handlers/space"
 import * as analyticsHandlers from "./handlers/analytics"
 import * as auditHandlers from "./handlers/audit"
@@ -1003,6 +1004,23 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
   },
 
   {
+    // 举报列表（status=pending|all）
+    kind: "exact",
+    path: "/admin/reports",
+    method: "GET",
+    handle: () => reportHandlers.adminListReports(env, request),
+  },
+
+  {
+    // 处理举报：ignore（保留内容）/ remove（软删内容）
+    kind: "regex",
+    match: (routePath: string) => routePath.match(/^\/admin\/reports\/([^/]+)\/decide$/),
+    methods: ["POST"],
+    handle: (reportMatch: RegExpMatchArray) =>
+      reportHandlers.adminDecideReport(env, request, decodeURIComponent(reportMatch[1])),
+  },
+
+  {
     kind: "regex",
     match: (routePath: string) => routePath.match(/^\/admin\/community\/posts\/([^/]+)\/restore$/),
     methods: ["POST"],
@@ -1451,6 +1469,14 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     methods: ["POST"],
     handle: (communityShareMatch: RegExpMatchArray) =>
       communityHandlers.sharePost(env, request, decodeURIComponent(communityShareMatch[1])),
+  },
+
+  {
+    // 举报一条帖子 / 评论（2026-11-06）
+    kind: "exact",
+    path: "/community/reports",
+    method: "POST",
+    handle: () => reportHandlers.createReport(env, request),
   },
 
   {

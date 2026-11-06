@@ -2,6 +2,7 @@ import * as React from "react"
 import {
   AlertTriangle,
   CheckCircle2,
+  Flag,
   Loader2,
   Network,
   Plus,
@@ -18,6 +19,7 @@ import {
 import { toast } from "sonner"
 
 import { EmptyState } from "@/components/empty-state"
+import { ReportsAdminPanel } from "@/components/admin-reports-tab"
 import { LoadingBlock } from "@/components/loading-block"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -360,7 +362,16 @@ export function ModerationAdminPanel() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="reports" className="gap-1.5">
+            <Flag className="h-3.5 w-3.5" />
+            {t("mod.tab.reports")}
+          </TabsTrigger>
         </TabsList>
+
+        {/* ---- 举报（2026-11-06）---- */}
+        <TabsContent value="reports" className="mt-4">
+          <ReportsAdminPanel />
+        </TabsContent>
 
         {/* ---- 风险账户 ---- */}
         <TabsContent value="risk" className="mt-4">

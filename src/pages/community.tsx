@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Link, useParams, useNavigate, useLocation } from "react-router-dom"
-import { AlertCircle, ArrowLeft, Bell, Eye, FileQuestion, Flame, Heart, Image as ImageIcon, ImageOff, ImagePlus, Loader2, MessageCircle, MessagesSquare, PenSquare, Pin, RotateCw, Send, Share2, Trash2, TrendingUp, Users, WifiOff, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, Bell, Eye, FileQuestion, Flag, Flame, Heart, Image as ImageIcon, ImageOff, ImagePlus, Loader2, MessageCircle, MessagesSquare, PenSquare, Pin, RotateCw, Send, Share2, Trash2, TrendingUp, Users, WifiOff, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageHeader } from "@/components/page-header"
@@ -13,6 +13,7 @@ import { UserCardPopover } from "@/components/user-card"
 import { RoleBadge } from "@/components/role-badge"
 import { CustomTitleBadge } from "@/components/custom-title-badge"
 import { Markdown } from "@/components/markdown"
+import { ReportDialog } from "@/components/report-dialog"
 import { useStickerSaveMenu } from "@/components/sticker-save-menu"
 import { DraftImagePreview } from "@/components/draft-image-preview"
 import { MdComposer } from "@/components/md-composer"
@@ -252,6 +253,7 @@ function PostActions({
   onLike,
   onShare,
   onDelete,
+  onReport,
   onPin,
   detail,
   basePath,
@@ -260,6 +262,8 @@ function PostActions({
   onLike: () => void
   onShare: () => void
   onDelete?: () => void
+  /** 举报这条帖子（2026-11-06；自己的帖子不显示） */
+  onReport?: () => void
   /** 管理员 / 站长才有：置顶或取消置顶（2026-10-01） */
   onPin?: () => void
   detail?: boolean
@@ -323,6 +327,19 @@ function PostActions({
           {t("cm.pinned")}
         </span>
       )}
+      {onReport && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onReport()
+          }}
+          className="flex items-center gap-1.5 rounded-md px-2.5 py-1 transition-colors hover:bg-accent hover:text-destructive"
+          aria-label={t("report.action")}
+          title={t("report.action")}
+        >
+          <Flag className="h-4 w-4" aria-hidden="true" />
+        </button>
+      )}
       {onPin && (
         <button
           onClick={(e) => {
@@ -362,6 +379,7 @@ function PostCard({
   onLike,
   onShare,
   onDelete,
+  onReport,
   onPin,
   canPin,
   basePath,
@@ -371,6 +389,8 @@ function PostCard({
   onLike: (p: Post) => void
   onShare: (p: Post) => void
   onDelete: (p: Post) => void
+  /** 举报（自己的帖子不传） */
+  onReport?: (p: Post) => void
   /** 管理员 / 站长：置顶能力（传 undefined 就不渲染按钮） */
   onPin?: (p: Post) => void
   canPin?: boolean
@@ -443,6 +463,7 @@ function PostCard({
           onLike={() => onLike(post)}
           onShare={() => onShare(post)}
           onDelete={post.isMine ? () => onDelete(post) : undefined}
+          onReport={!post.isMine && onReport ? () => onReport(post) : undefined}
           onPin={canPin && onPin ? () => onPin(post) : undefined}
           basePath={basePath}
         />
@@ -472,6 +493,7 @@ function CommentItem({
   basePath,
   onReplied,
   editLimit,
+  onReport,
   lineUp = false,
   lineDown = false,
   parentAuthor = null,
@@ -483,6 +505,8 @@ function CommentItem({
   onReplied: () => void
   /** 站点允许的最大修改次数（0 = 不允许修改），来自 /community/config */
   editLimit: number
+  /** 举报这条评论（2026-11-06；自己的评论不显示入口） */
+  onReport?: () => void
   /** 上方是否需要补一小段竖线（自己是别人的回复） */
   lineUp?: boolean
   /** 头像下方是否需要画竖线（自己还有下级回复） */
@@ -779,6 +803,17 @@ function CommentItem({
                 {t("common.delete")}
               </button>
             )}
+            {/* 举报别人的评论（自己的评论只有编辑/删除，没有举报） */}
+            {user && !isMine && (
+              <button
+                onClick={() => onReport?.()}
+                className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
+                title={t("report.action")}
+              >
+                <Flag className="h-3.5 w-3.5" />
+                {t("report.action")}
+              </button>
+            )}
           </div>
         )}
 
@@ -874,12 +909,14 @@ function CommentTree({
   basePath,
   onReplied,
   editLimit,
+  onReportComment,
 }: {
   comments: CommentNode[]
   postId: string
   basePath: string
   onReplied: () => void
   editLimit: number
+  onReportComment?: (commentId: string) => void
 }) {
   const { t } = useT()
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set())
@@ -903,6 +940,7 @@ function CommentTree({
             basePath={basePath}
             onReplied={onReplied}
             editLimit={editLimit}
+            onReport={onReportComment ? () => onReportComment(row.node.id) : undefined}
             parentAuthor={row.parentAuthor}
             lineUp={row.lineUp}
             lineDown={row.lineDown}
@@ -981,11 +1019,17 @@ function PostDetail({
   id,
   inDashboard,
   commentEditLimit,
+  onReportPost,
+  onReportComment,
 }: {
   id: string
   inDashboard: boolean
   /** 评论最多可修改次数（来自 /community/config，默认 2） */
   commentEditLimit: number
+  /** 举报当前帖子（自己的帖子上不渲染入口） */
+  onReportPost?: () => void
+  /** 举报某条评论 */
+  onReportComment?: (commentId: string) => void
 }) {
   const { t } = useT()
   const [post, setPost] = React.useState<Post | null>(null)
@@ -1332,6 +1376,7 @@ function PostDetail({
             onLike={handleLike}
             onShare={handleShare}
             onDelete={post.isMine ? handleDelete : undefined}
+            onReport={!post.isMine && onReportPost ? () => onReportPost() : undefined}
             detail
             basePath={basePath}
           />
@@ -1357,6 +1402,7 @@ function PostDetail({
             basePath={basePath}
             onReplied={reloadComments}
             editLimit={commentEditLimit}
+            onReportComment={onReportComment}
           />
         )}
       </div>
@@ -1858,6 +1904,13 @@ export default function CommunityPage({ inDashboard = false }: { inDashboard?: b
   const { user } = useAuth()
   const basePath = inDashboard ? "/dashboard/community" : "/community"
   const { id } = useParams<{ id: string }>()
+  /**
+   * 举报目标（2026-11-06）。null = 弹窗关闭。
+   * 帖子与评论共用同一个弹窗，只是 targetType 不同。
+   */
+  const [reportTarget, setReportTarget] = React.useState<
+    { type: "post" | "comment"; id: string } | null
+  >(null)
   const [posts, setPosts] = React.useState<Post[]>([])
   const [cursor, setCursor] = React.useState<string | undefined>(undefined)
   /** 生效中的分类（管理面板可配）：发帖框、帖子卡片、筛选下拉都从这里取名字 */
@@ -2192,10 +2245,36 @@ export default function CommunityPage({ inDashboard = false }: { inDashboard?: b
     }
   }
 
-  if (id) return <PostDetail id={id} inDashboard={inDashboard} commentEditLimit={commentEditLimit} />
+  /**
+   * 举报弹窗（列表页与详情页共用同一个实例）。
+   * ⚠️ 必须两个分支都渲染：只放在详情分支里的话，在列表页点举报什么都不会发生。
+   */
+  const reportDialog = (
+    <ReportDialog
+      open={reportTarget !== null}
+      onOpenChange={(v) => !v && setReportTarget(null)}
+      targetType={reportTarget?.type ?? "post"}
+      targetId={reportTarget?.id ?? ""}
+    />
+  )
+
+  if (id)
+    return (
+      <>
+        <PostDetail
+          id={id}
+          inDashboard={inDashboard}
+          commentEditLimit={commentEditLimit}
+          onReportPost={() => setReportTarget({ type: "post", id })}
+          onReportComment={(commentId) => setReportTarget({ type: "comment", id: commentId })}
+        />
+        {reportDialog}
+      </>
+    )
 
   return (
     <div>
+      {reportDialog}
       {!inDashboard && (
         <PageHeader title={t("cm.title")} description={t("cm.subtitle")} />
       )}
@@ -2313,6 +2392,7 @@ export default function CommunityPage({ inDashboard = false }: { inDashboard?: b
                   onLike={handleLike}
                   onShare={handleShare}
                   onDelete={handleDelete}
+                  onReport={(p) => setReportTarget({ type: "post", id: p.id })}
                   onPin={handlePin}
                   canPin={user?.role === "admin" || user?.role === "superadmin" || user?.role === "root"}
                   basePath={basePath}

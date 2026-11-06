@@ -13,7 +13,8 @@
  *                 feedback（待处理反馈）、donations（待审核捐献）、
  *                 pointProducts（用户商品待审核）、
  *                 eventClaims（活动奖励待人工发放）、
- *                 frpApplications（内网穿透申请待审核）、appeals（封禁申诉待处理）
+ *                 frpApplications（内网穿透申请待审核）、appeals（封禁申诉待处理）、
+ *                 reports（社区举报待处理）
  *
  * 2026-10-02 调整（站长要求）：**DNS 解析与「风险账户」不再挂角标** ——
  * 前者是扫描出来的体检报告、后者是自动观察名单，都不是「等你逐条动手」的队列，
@@ -30,6 +31,7 @@
 import { json } from "../http"
 import { requireUser, isPrivileged } from "../auth"
 import { countPendingAppeals } from "./moderation"
+import { countPendingReports } from "./community-reports"
 import type { Env } from "../env"
 
 /** 从没打开过时回落的窗口（与社区角标一致） */
@@ -94,6 +96,7 @@ export async function getAttention(env: Env, request: Request): Promise<Response
     eventClaims: number
     frpApplications: number
     appeals: number
+    reports: number
   } | null = null
 
   if (privileged) {
@@ -107,15 +110,18 @@ export async function getAttention(env: Env, request: Request): Promise<Response
     //    侧边栏角标与后台管理入口一起挂掉。countPendingAppeals 内部吞异常返回 0，
     //    表没建好时退化成「没有待办」。
     const appeals = await countPendingAppeals(env)
+    // 举报与申诉同一套兜底：表未迁移时 countPendingReports 返回 0，不影响其它角标
+    const reports = await countPendingReports(env)
     admin = {
       total:
-        feedback + donations + pointProducts + eventClaims + frpApplications + appeals,
+        feedback + donations + pointProducts + eventClaims + frpApplications + appeals + reports,
       feedback,
       donations,
       pointProducts,
       eventClaims,
       frpApplications,
       appeals,
+      reports,
     }
   }
 

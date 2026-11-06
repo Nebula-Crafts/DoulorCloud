@@ -66,22 +66,6 @@ export function extractTitle(html: string): string {
   return m ? tidy(m[1]).slice(0, 60) : ""
 }
 
-/** 描述：优先 `<meta name="description">`，其次 og:description */
-export function extractMetaDescription(html: string): string {
-  const metas = html.match(/<meta\b[^>]*>/gi) ?? []
-  let fallback = ""
-  for (const tag of metas) {
-    const attrs = parseAttrs(tag)
-    const key = (attrs.name ?? attrs.property ?? "").trim().toLowerCase()
-    if (key !== "description" && key !== "og:description") continue
-    const content = tidy(attrs.content ?? "")
-    if (!content) continue
-    if (key === "description") return content.slice(0, 200)
-    if (!fallback) fallback = content
-  }
-  return fallback.slice(0, 200)
-}
-
 /** 相对地址补齐成绝对地址；非 http/https（比如 `data:` 内联图标）一律丢掉 */
 export function resolveAbsolute(raw: string, baseUrl: string): string {
   try {

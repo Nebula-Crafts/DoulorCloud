@@ -18,6 +18,8 @@ import {
   type LeaderboardBoard,
   type LeaderboardResponse,
   type CommunityMetric,
+  type ReportReason,
+  type ReportItem,
   type LeaderboardRange,
   type EmailSettings,
   type MailMessage,
@@ -1166,6 +1168,21 @@ export const titleApi = {
 }
 
 export const communityApi = {
+  /**
+   * 举报一条帖子 / 评论（2026-11-06）。
+   * 同一目标只能有一条待处理举报，重复举报会返回 409 ALREADY_REPORTED。
+   */
+  report: (payload: {
+    targetType: "post" | "comment"
+    targetId: string
+    reason: ReportReason
+    note?: string
+  }) =>
+    request<{ ok: boolean; id: string }>("/community/reports", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   /** 管理员 / 站长置顶或取消置顶帖子（2026-10-01） */
   setPinned: (id: string, pinned: boolean) =>
     request<{ ok: boolean; pinned: boolean }>(
@@ -2398,6 +2415,20 @@ export interface AdminTitleInput {
   name: string
   colorFrom: string
   colorTo: string
+}
+
+/** 管理端：社区举报队列（2026-11-06） */
+export const adminReportApi = {
+  list: (status: "pending" | "all" = "pending") =>
+    request<{ reports: ReportItem[]; pending: number; status: string }>(
+      `/admin/reports?status=${status}`
+    ),
+  /** action: ignore = 保留内容；remove = 软删内容（与管理员手动删帖同一套语义） */
+  decide: (id: string, action: "ignore" | "remove") =>
+    request<{ ok: boolean; status: "ignored" | "removed" }>(
+      `/admin/reports/${encodeURIComponent(id)}/decide`,
+      { method: "POST", body: JSON.stringify({ action }) }
+    ),
 }
 
 export const adminTitlesApi = {

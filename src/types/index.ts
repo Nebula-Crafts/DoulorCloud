@@ -3609,7 +3609,34 @@ export interface AttentionCounts {
     frpApplications: number
     /** 待处理的封禁申诉（2026-10-02） */
     appeals: number
+    /** 待处理的社区举报（2026-11-06） */
+    reports: number
   } | null
+}
+
+/** 举报原因短键（与后端 REPORT_REASONS 一致） */
+export type ReportReason = "spam" | "abuse" | "illegal" | "copyright" | "other"
+
+/** 管理端的一条举报（内容摘要与是否已删由后端实时算） */
+export interface ReportItem {
+  id: string
+  targetType: "post" | "comment"
+  targetId: string
+  reporterId: string
+  reporterName: string | null
+  authorId: string | null
+  authorName: string | null
+  reason: ReportReason
+  note: string | null
+  status: "pending" | "ignored" | "removed"
+  handledAt: string | null
+  createdAt: string
+  /** 内容摘要（压成一行、最多 140 字）；内容已删时为 null */
+  excerpt: string | null
+  /** 内容是否已被删除（作者自删 / 已处理） */
+  targetDeleted: boolean
+  /** 举报的是评论时，它所属的帖子 id（用于跳转） */
+  postId: string | null
 }
 
 // ---- 一对一私信（2026-10-01）----
