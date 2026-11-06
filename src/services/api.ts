@@ -66,7 +66,6 @@ import {
   type RiskAccount,
   type PointsOverview,
   type PointsRedeemResult,
-  type PointsConfig,
   type PointTransaction,
   type PointOrder,
   type PointProduct,
@@ -1812,24 +1811,18 @@ export const adminPointsApi = {
       `/admin/points/shop${status ? `?status=${encodeURIComponent(status)}` : ""}`
     ),
   /**
-   * 保存兑换开关 / 比例（每 1 积分 = ? 元）/ 每日上限 / 捐献奖励 / 邀请奖励。
+   * 保存捐献奖励 / 邀请奖励配置。
    *
    * `donationRewards` 用 `{ 档位: 积分数 }` 提交（只提交要改的档位也行），
    * 返回的却是数组（带中文名与固定顺序）—— 见 DonationRewardItem 的说明。
    * `invitePoints` 同理：只提交要改的字段。
    */
   saveConfig: (payload: {
-    enabled?: boolean
-    yuanPerPoint?: number
-    dailyLimit?: number
-    /** 用户商城：卖家交付后多少天自动确认收货（0 = 关闭） */
-    autoConfirmDays?: number
     donationRewards?: Record<string, number>
     donationDailyLimit?: number
     invitePoints?: Partial<InvitePointsConfig>
   }) =>
     request<{
-      config: PointsConfig
       donationRewards: DonationRewardItem[]
       donationDailyLimit: number
       inviteConfig: InvitePointsConfig

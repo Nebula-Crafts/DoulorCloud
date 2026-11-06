@@ -1729,13 +1729,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     handle: () => memberLevelHandlers.upgradeLevel(env, request),
   },
 
-  {
-    kind: "exact",
-    path: "/points/redeem",
-    method: "POST",
-    handle: () => pointHandlers.redeem(env, request),
-  },
-
   // ---- 每日签到 ----
   {
     kind: "exact",
@@ -2477,13 +2470,6 @@ export default {
         if (report.warnings.length > 0) {
           console.warn("运维自检告警:", report.warnings.join(" | "))
         }
-      })
-    )
-    // 用户商城自动确认收货：卖家交付满 N 天自动结算给卖家（避免买家一直不点收货，
-    // 积分永远卡在托管里）。N 由设置项 shop_auto_confirm_days 控制，0 = 关闭。
-    ctx.waitUntil(
-      pointHandlers.runAutoConfirmDeliveries(env).then((n) => {
-        if (n > 0) console.log("自动确认收货:", n, "笔")
       })
     )
   },

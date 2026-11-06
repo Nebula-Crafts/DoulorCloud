@@ -49,7 +49,7 @@ import { useT } from "@/i18n"
 import { CheckinDialog } from "@/components/checkin-dialog"
 import { fmtDateTime } from "@/lib/format"
 import type { Announcement, EventItem, PointsOverview } from "@/types"
-import { REASON_LABEL, fmtMoney } from "@/pages/pointshop-shared"
+import { REASON_LABEL } from "@/pages/pointshop-shared"
 
 /**
  * 概览页（2026-11-06 改版）。
@@ -82,7 +82,6 @@ const PointsStatsCard = React.memo(function PointsStatsCard({
 }) {
   const { t } = useT()
   const { user } = useAuth()
-  const yuanPerPoint = data?.config.yuanPerPoint ?? 1
   const balance = data?.balance ?? 0
   const level = data?.memberLevel ?? user?.memberLevel ?? 0
 
@@ -121,7 +120,6 @@ const PointsStatsCard = React.memo(function PointsStatsCard({
               <Coins className="h-6 w-6 text-primary" />
               {balance}
             </span>
-            <span className="text-sm text-muted-foreground">≈ ¥{fmtMoney(balance * yuanPerPoint)}</span>
             {level > 0 && (
               <Badge variant="outline" className="border-amber-500 text-amber-600">
                 <Crown className="mr-1 h-3 w-3" />

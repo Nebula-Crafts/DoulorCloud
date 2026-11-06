@@ -15,7 +15,6 @@ import {
   SlidersHorizontal,
   Trash2,
   Users,
-  Wallet,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -50,7 +49,6 @@ import { PRODUCT_CATEGORY_LABELS, type ProductCategory } from "@/types"
 import { fmtDateTime, fmtUid } from "@/lib/format"
 import { notifyAttentionChanged } from "@/lib/attention-events"
 import { shopIcon } from "@/lib/shop-icons"
-import { FEATURE_LABELS } from "@/types"
 import { useT, tStatic } from "@/i18n"
 import type {
   AdminPointsOverview,
@@ -69,14 +67,15 @@ import type {
   PointTransaction,
 } from "@/types"
 
-/** 交付方式 → 短标签（按钮上显示） */
-const DELIVERY_LABELS: Record<PointDelivery, string> = {
+/**
+ * 可选的交付方式（2026-11-06 收敛为四种一次性发放）。
+ *
+ * 充值余额 / 模块权限 / 订阅 / 补签卡已下线（依赖已移除的中转站与权限模块）。
+ * ⚠️ 少一个键就少一个按钮，但必须与后端 `DELIVERIES` 一致，否则选了会被 400。
+ */
+const DELIVERY_LABELS: Record<string, string> = {
   manual: "pt.delivery.manual",
-  quota: "ap.dlv.quota",
-  feature: "ap.dlv.feature",
-  subscription: "ap.dlv.subscription",
   invite_quota: "ap.dlv.inviteQuota",
-  checkin_makeup: "ap.dlv.checkinMakeup",
   code: "ap.dlv.code",
   content: "ap.dlv.content",
 }
@@ -98,9 +97,6 @@ function deliveryText(delivery: string, quotaYuan?: number | null): string {
   if (delivery === "quota") return tStatic("ap.dlv.quotaShort", { v: fmtMoney(quotaYuan ?? 0) })
   return tStatic(DELIVERY_LABELS[delivery as PointDelivery] ?? "pt.delivery.manual")
 }
-
-/** 全部模块（下拉框选项顺序） */
-const FEATURE_KEYS: FeatureKey[] = ["ai", "r2", "proxy"]
 
 /** 流水来源 → 标签 */
 const REASON_LABEL: Record<string, string> = {
@@ -179,15 +175,6 @@ function draftOf(items: DonationRewardItem[]): Record<string, string> {
   return Object.fromEntries(items.map((d) => [d.key, String(d.points)]))
 }
 
-/**
- * 允许「租用」的交付方式。
- *
- * `quota`（自动充余额）与 `invite_quota`（邀请码额度）是**一次性消耗品**，
- * 发出去就收不回来，租用没有意义 —— 后端会直接拒绝（错误码 RENTAL_NOT_SUPPORTED），
- * 这里同步把它们置灰，免得管理员填完才被打回。
- */
-const RENTAL_DELIVERIES: readonly PointDelivery[] = ["manual", "feature", "subscription"]
-
 /** 租期展示：如「租用 30 天」 */
 function rentalTerm(days: number | null | undefined): string {
   return days && days > 0 ? tStatic("pt.rental.term", { n: days }) : tStatic("pt.rental.rental")
@@ -217,9 +204,6 @@ function rentalOrderText(o: PointOrder): string | null {
   }
   return tStatic("ap.rental.until", { time })
 }
-
-/** 租期快捷值（天） */
-const RENTAL_DAY_PRESETS = [7, 30, 90, 365] as const
 
 /**
  * 管理面板「积分」标签。
@@ -371,13 +355,10 @@ function payloadOf(f: FormState): PointProductPayload {
     deliveryParams = { planId: Math.trunc(Number(f.planId) || 0) }
   } else if (f.delivery === "invite_quota") {
     deliveryParams = { count: Math.trunc(Number(f.inviteCount) || 0) }
-  } else if (f.delivery === "checkin_makeup") {
-    deliveryParams = { count: Math.trunc(Number(f.inviteCount) || 0) }
   } else if (f.delivery === "content") {
     deliveryParams = { content: f.content }
   }
 
-  const isRental = f.billingMode === "rental"
   return {
     name: f.name.trim(),
     description: f.description.trim(),
@@ -392,10 +373,12 @@ function payloadOf(f: FormState): PointProductPayload {
     showPurchases: f.showPurchases,
     perUserLimit: f.perUserLimit.trim() === "" ? null : Math.trunc(Number(f.perUserLimit) || 0),
     delivery: f.delivery,
-    quotaYuan: f.delivery === "quota" ? Number(f.quotaYuan) || 0 : null,
+    // 2026-11-06：quota 交付已下线，该字段恒为 null
+    quotaYuan: null,
     deliveryParams,
-    billingMode: f.billingMode,
-    rentalDays: isRental ? Math.trunc(Number(f.rentalDays) || 0) : null,
+    // 2026-11-06：租用模式已下线，一律买断
+    billingMode: "one_time" as const,
+    rentalDays: null,
     enabled: f.enabled,
     sort: Math.trunc(Number(f.sort) || 0),
   }
@@ -521,14 +504,8 @@ function ShopTab() {
   // 用户商品审核弹窗
 
   // 兑换配置（比例语义：每 1 积分 = ? 元）
-  const [cfgEnabled, setCfgEnabled] = React.useState(true)
-  const [cfgRatio, setCfgRatio] = React.useState("1")
-  const [cfgDaily, setCfgDaily] = React.useState("5")
   /** 用户商城：卖家交付后多少天自动确认收货（0 = 关闭） */
-  const [cfgAutoConfirm, setCfgAutoConfirm] = React.useState("7")
-  const [cfgBusy, setCfgBusy] = React.useState(false)
   /** 「兑换中转站余额」这一行的编辑弹窗 */
-  const [redeemOpen, setRedeemOpen] = React.useState(false)
 
   // 捐献奖励：档位清单（服务端下发，带中文名与固定顺序）+ 输入框草稿（key → 字符串）
   const [donationList, setDonationList] = React.useState<DonationRewardItem[]>([])
@@ -617,10 +594,6 @@ function ShopTab() {
         setData(res)
         // 只有首次加载才把配置灌进输入框，免得用户正在改比例时被后台刷新覆盖
         if (!opts?.keepConfig) {
-          setCfgEnabled(res.config.enabled)
-          setCfgRatio(String(res.config.yuanPerPoint))
-          setCfgDaily(String(res.config.dailyLimit))
-          setCfgAutoConfirm(String(res.config.autoConfirmDays ?? 7))
           // `?? []` 是防御性的：老版本后端不下发这个字段，直接 .map 会让整页白屏
           setDonationList(res.donationRewards ?? [])
           setDonationDraft(draftOf(res.donationRewards ?? []))
@@ -669,40 +642,6 @@ function ShopTab() {
       toast.error(errMsg(err, t("ap.err.afterSale")))
     } finally {
       setResolveBusy(false)
-    }
-  }
-
-  const saveConfig = async () => {
-    const ratio = Number(cfgRatio)
-    if (!Number.isFinite(ratio) || ratio <= 0) {
-      toast.error(t("ap.err.ratePositive"))
-      return
-    }
-    const daily = Math.trunc(Number(cfgDaily))
-    if (!Number.isFinite(daily) || daily < 0) {
-      toast.error(t("ap.err.dailyLimitNegative"))
-      return
-    }
-    const autoConfirm = Math.trunc(Number(cfgAutoConfirm))
-    if (!Number.isFinite(autoConfirm) || autoConfirm < 0 || autoConfirm > 90) {
-      toast.error(t("ap.err.autoConfirmRange"))
-      return
-    }
-    setCfgBusy(true)
-    try {
-      const res = await adminPointsApi.saveConfig({
-        enabled: cfgEnabled,
-        yuanPerPoint: ratio,
-        dailyLimit: daily,
-        autoConfirmDays: autoConfirm,
-      })
-      toast.success(t("ap.toast.rateSaved", { v: fmtMoney(res.config.yuanPerPoint) }))
-      setRedeemOpen(false)
-      await load()
-    } catch (err) {
-      toast.error(errMsg(err, t("ap.err.save")))
-    } finally {
-      setCfgBusy(false)
     }
   }
 
@@ -781,29 +720,7 @@ function ShopTab() {
     }
   }
 
-  /**
-   * 内置行「兑换中转站余额」的上架 / 下架。
-   *
-   * 直接用服务端当前值提交，而不是读表单 state —— 否则用户改了比例没保存，
-   * 点一下「下架」会连比例一起写进去，属于静默改数据。
-   */
-  const toggleRedeemEnabled = async () => {
-    const cfg = data?.config
-    if (!cfg) return
-    try {
-      await adminPointsApi.saveConfig({
-        enabled: !cfg.enabled,
-        yuanPerPoint: cfg.yuanPerPoint,
-        dailyLimit: cfg.dailyLimit,
-      })
-      toast.success(cfg.enabled ? t("ap.toast.redeemUnlisted") : t("ap.toast.redeemListed"))
-      await load({ keepConfig: true })
-    } catch (err) {
-      toast.error(errMsg(err, t("pt.err.op")))
-    }
-  }
-
-  const openCreate = () => {
+    const openCreate = () => {
     setEditingId(null)
     setForm(emptyForm())
     setDialogOpen(true)
@@ -837,23 +754,9 @@ function ShopTab() {
       toast.error(t("ap.err.inviteCountRequired"))
       return
     }
-    if (payload.delivery === "checkin_makeup" && !(Number(payload.deliveryParams?.count) > 0)) {
-      toast.error(t("ap.err.makeupCountRequired"))
-      return
-    }
     if (payload.delivery === "content" && !payload.deliveryParams?.content?.trim()) {
       toast.error(t("ap.err.contentRequired"))
       return
-    }
-    if (payload.billingMode === "rental") {
-      if (!(Number(payload.rentalDays) > 0)) {
-        toast.error(t("ap.err.rentalDaysRequired"))
-        return
-      }
-      if (!RENTAL_DELIVERIES.includes(payload.delivery)) {
-        toast.error(t("ap.err.rentalNotSupported"))
-        return
-      }
     }
     setFormBusy(true)
     try {
@@ -1018,77 +921,6 @@ function ShopTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {/*
-                    内置商品行：兑换中转站余额。
-                    它**不是** point_products 里的一条记录（金额由用户自选，走 redeemPoints()），
-                    所以没有删除按钮、也不会售罄；「下架」就是关掉 points_enabled。
-                  */}
-                  <tr className="border-t bg-primary/5">
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2.5">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
-                          <Wallet className="h-4 w-4 text-primary" />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-1.5 font-medium">
-                            {t("pt.redeemBalance")}
-                            <Badge variant="outline" className="text-[10px]">
-                              {t("ap.builtin")}
-                            </Badge>
-                          </p>
-                          <p className="max-w-xs text-xs text-muted-foreground">
-                            {t("ap.redeemRowDesc")}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <p className="tabular-nums">
-                        {t("ap.rateLine", { v: fmtMoney(data?.config.yuanPerPoint ?? 1) })}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{t("ap.amountFree")}</p>
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">{t("pt.form.unlimited")}</td>
-                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                      {(data?.config.dailyLimit ?? 0) > 0
-                        ? t("ap.timesPerDay", { n: data?.config.dailyLimit ?? 0 })
-                        : t("pt.form.unlimited")}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{t("ap.oneTime")}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{t("ap.dlv.quota")}</td>
-                    <td className="px-3 py-2">
-                      {data?.config.enabled ? (
-                        <Badge variant="success" className="text-[10px]">
-                          {t("ap.listed")}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px]">
-                          {t("ap.delisted")}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setCfgEnabled(data?.config.enabled ?? true)
-                            setCfgRatio(String(data?.config.yuanPerPoint ?? 1))
-                            setCfgDaily(String(data?.config.dailyLimit ?? 0))
-                            setRedeemOpen(true)
-                          }}
-                        >
-                          <Pencil className="mr-1 h-3.5 w-3.5" />
-                          {t("common.edit")}
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => void toggleRedeemEnabled()}>
-                          {data?.config.enabled ? t("ap.unlist") : t("ap.list")}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-
                   {products.length === 0 && (
                     <tr className="border-t">
                       <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">
@@ -1748,14 +1580,6 @@ function ShopTab() {
 
           <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
             <p>
-              <span className="font-medium text-foreground">{t("ap.toMoneyLabel")}</span>
-              {t("ap.toMoneyCurrent", { v: fmtMoney(data?.config.yuanPerPoint ?? 1) })}
-              {t("ap.toMoneyPerInvite")}
-              {fmtMoney((inviteForm.perFriend || 0) * (data?.config.yuanPerPoint ?? 1))}
-              {t("ap.period")}
-              {t("ap.toMoneyNote")}
-            </p>
-            <p>
               <span className="font-medium text-foreground">{t("ap.oneLevelLabel")}</span>
               {t("ap.oneLevelNote")}
             </p>
@@ -1777,80 +1601,6 @@ function ShopTab() {
         </DialogContent>
       </Dialog>
 
-      {/*
-        内置商品「兑换中转站余额」的编辑弹窗。
-        原先这块内容是单独一张卡片摆在商品表上面 —— 站长要求「兑换也当商品」，
-        所以改成从商品表第一行的「编辑」进来。
-      */}
-      <Dialog open={redeemOpen} onOpenChange={(o) => !cfgBusy && setRedeemOpen(o)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("ap.editRedeemTitle")}</DialogTitle>
-            <DialogDescription>
-              {t("ap.editRedeemDesc")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">{t("ap.redeemEnabledLabel")}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t("ap.redeemEnabledHint")}
-                </p>
-              </div>
-              <Switch checked={cfgEnabled} onCheckedChange={setCfgEnabled} />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="pointsYuanPerPoint">{t("ap.rateLabel")}</Label>
-              <Input
-                id="pointsYuanPerPoint"
-                inputMode="decimal"
-                value={cfgRatio}
-                onChange={(e) => setCfgRatio(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t("ap.rateHint")}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="pointsDailyLimit">{t("ap.redeemDailyLabel")}</Label>
-              <Input
-                id="pointsDailyLimit"
-                inputMode="numeric"
-                value={cfgDaily}
-                onChange={(e) => setCfgDaily(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t("ap.redeemDailyHint")}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="pointsAutoConfirm">{t("ap.autoConfirmLabel")}</Label>
-              <Input
-                id="pointsAutoConfirm"
-                inputMode="numeric"
-                value={cfgAutoConfirm}
-                onChange={(e) => setCfgAutoConfirm(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">{t("ap.autoConfirmHint")}</p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRedeemOpen(false)} disabled={cfgBusy}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={() => void saveConfig()} disabled={cfgBusy}>
-              {cfgBusy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* 新建 / 编辑商品 */}
       <Dialog open={dialogOpen} onOpenChange={(o) => !formBusy && setDialogOpen(o)}>
@@ -2001,107 +1751,25 @@ function ShopTab() {
               </div>
             </div>
 
-            {/* 计费方式：买断 / 租用。放在交付方式之前，因为租用会限制可选的交付方式 */}
-            <div className="space-y-3 rounded-md border p-3">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-medium">{t("pt.form.rentalMode")}</p>
-                  <p className="text-xs text-muted-foreground">{t("ap.rentalModeHint")}</p>
-                </div>
-                <Switch
-                  checked={form.billingMode === "rental"}
-                  onCheckedChange={(v) =>
-                    setForm((f) => {
-                      const billingMode: PointBillingMode = v ? "rental" : "one_time"
-                      // 打开租用时，如果当前交付方式不允许租用，自动切到「人工发放」，
-                      // 否则用户会带着一个不可用的组合去提交
-                      const delivery =
-                        v && !RENTAL_DELIVERIES.includes(f.delivery) ? "manual" : f.delivery
-                      return {
-                        ...f,
-                        billingMode,
-                        delivery,
-                        rentalDays: v && !f.rentalDays ? "30" : f.rentalDays,
-                      }
-                    })
-                  }
-                />
-              </div>
-
-              {form.billingMode === "rental" && (
-                <div className="space-y-2">
-                  <Label htmlFor="pdDays">{t("pt.form.rentalDays")}</Label>
-                  <Input
-                    id="pdDays"
-                    inputMode="numeric"
-                    placeholder={t("pt.form.rentalDaysPlaceholder")}
-                    value={form.rentalDays}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, rentalDays: e.target.value.replace(/\D/g, "") }))
-                    }
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {RENTAL_DAY_PRESETS.map((d) => (
-                      <Button
-                        key={d}
-                        type="button"
-                        size="sm"
-                        variant={form.rentalDays === String(d) ? "default" : "outline"}
-                        onClick={() => setForm((f) => ({ ...f, rentalDays: String(d) }))}
-                      >
-                        {t("pt.days", { n: d })}
-                      </Button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground">{t("ap.rentalDaysHint")}</p>
-                </div>
-              )}
-            </div>
+            {/* 2026-11-06：租用模式已下线，商品只剩买断。 */}
 
             <div className="space-y-2">
               <Label>{t("ap.deliveryLabel")}</Label>
               <div className="flex flex-wrap gap-2">
-                {(Object.keys(DELIVERY_LABELS) as PointDelivery[]).map((d) => {
-                  const blockedByRental =
-                    form.billingMode === "rental" && !RENTAL_DELIVERIES.includes(d)
-                  return (
-                    <Button
-                      key={d}
-                      type="button"
-                      variant={form.delivery === d ? "default" : "outline"}
-                      size="sm"
-                      disabled={blockedByRental}
-                      title={blockedByRental ? t("ap.rentalBlockedTip") : undefined}
-                      onClick={() => setForm((f) => ({ ...f, delivery: d }))}
-                    >
-                      {t(DELIVERY_LABELS[d])}
-                    </Button>
-                  )
-                })}
+                {(Object.keys(DELIVERY_LABELS) as PointDelivery[]).map((d) => (
+                  <Button
+                    key={d}
+                    type="button"
+                    variant={form.delivery === d ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setForm((f) => ({ ...f, delivery: d }))}
+                  >
+                    {t(DELIVERY_LABELS[d])}
+                  </Button>
+                ))}
               </div>
               <p className="text-xs text-muted-foreground">{t(DELIVERY_HINTS[form.delivery])}</p>
-              {form.billingMode === "rental" && (
-                <p className="text-xs text-muted-foreground">
-                  {t("ap.rentalBlockedNote")}
-                </p>
-              )}
             </div>
-
-            {form.delivery === "quota" && (
-              <div className="space-y-2">
-                <Label htmlFor="pdQuota">{t("ap.quotaYuanLabel")}</Label>
-                <Input
-                  id="pdQuota"
-                  inputMode="decimal"
-                  placeholder={t("ap.quotaYuanPlaceholder")}
-                  value={form.quotaYuan}
-                  onChange={(e) => setForm((f) => ({ ...f, quotaYuan: e.target.value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("ap.quotaHint")}
-                </p>
-              </div>
-            )}
 
             {form.delivery === "code" && (
               <div className="space-y-2">
@@ -2115,51 +1783,9 @@ function ShopTab() {
               </div>
             )}
 
-            {form.delivery === "feature" && (
+            {form.delivery === "invite_quota" && (
               <div className="space-y-2">
-                <Label htmlFor="pdFeature">{t("ap.featureLabel")}</Label>
-                <Select
-                  value={form.feature}
-                  onValueChange={(v) => setForm((f) => ({ ...f, feature: v as FeatureKey }))}
-                >
-                  <SelectTrigger id="pdFeature">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FEATURE_KEYS.map((k) => (
-                      <SelectItem key={k} value={k}>
-                        {t(FEATURE_LABELS[k])}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t("ap.featureHint")}
-                </p>
-              </div>
-            )}
-
-            {form.delivery === "subscription" && (
-              <div className="space-y-2">
-                <Label htmlFor="pdPlan">{t("ap.planIdLabel")}</Label>
-                <Input
-                  id="pdPlan"
-                  inputMode="numeric"
-                  placeholder={t("ap.numPlaceholder")}
-                  value={form.planId}
-                  onChange={(e) => setForm((f) => ({ ...f, planId: e.target.value }))}
-                />
-                <p className="text-xs text-muted-foreground">{t("ap.planIdHint")}</p>
-              </div>
-            )}
-
-            {(form.delivery === "invite_quota" || form.delivery === "checkin_makeup") && (
-              <div className="space-y-2">
-                <Label htmlFor="pdInvite">
-                  {form.delivery === "checkin_makeup"
-                    ? t("ap.makeupCountLabel")
-                    : t("ap.inviteCountLabel")}
-                </Label>
+                <Label htmlFor="pdInvite">{t("ap.inviteCountLabel")}</Label>
                 <Input
                   id="pdInvite"
                   inputMode="numeric"
@@ -2167,11 +1793,7 @@ function ShopTab() {
                   value={form.inviteCount}
                   onChange={(e) => setForm((f) => ({ ...f, inviteCount: e.target.value }))}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {form.delivery === "checkin_makeup"
-                    ? t("ap.makeupCountHint")
-                    : t("ap.inviteCountHint")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("ap.inviteCountHint")}</p>
               </div>
             )}
 

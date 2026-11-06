@@ -42,8 +42,6 @@ import { revokeAllUserTokens } from "../oauth-provider"
 import { parsePostCategories } from "./community"
 import {
   QUOTA_FEATURES,
-  QUOTA_FEATURE_LABELS,
-  parseBasicFeatures,
   parseCounts,
   refundQuotaForInvite,
   quotaFeaturesFromStored,
@@ -373,10 +371,15 @@ async function userDetail(env: Env, user: AdminUserRow) {
       inviteTotal: inviteBase + inviteBonus,
       inviteUsed,
       inviteRemaining: Math.max(0, inviteBase + inviteBonus - inviteUsed),
-      featureQuota,
-      featureUsed,
-      featureRemaining,
-      featureLabels: QUOTA_FEATURE_LABELS,
+      /**
+       * 2026-11-06：模块级额度已下线（r2/ai/proxy 随模块移除）。
+       * 三个字段保留为空对象 / 空数组，避免旧前端读 undefined 崩掉；
+       * 前端「用户邀请码」与新界面都不再渲染它们。
+       */
+      featureQuota: {},
+      featureUsed: {},
+      featureRemaining: {},
+      featureLabels: {},
     },
     activity: (activity.results ?? []).map((a) => ({
       id: a.id,
@@ -2132,7 +2135,6 @@ export async function listInviteQuotas(
   const rows = await env.DB.prepare(
     `SELECT u.id, u.uid, u.username, u.email, u.namespace,
             u.invite_quota_bonus, u.invite_quota_used,
-            u.feature_quota, u.feature_quota_used,
             (SELECT COUNT(*) FROM invite_codes ic WHERE ic.created_by = u.id) AS invite_count
        FROM users u
       ORDER BY u.created_at DESC`
@@ -2144,8 +2146,6 @@ export async function listInviteQuotas(
     namespace: string
     invite_quota_bonus: number | null
     invite_quota_used: number | null
-    feature_quota: string | null
-    feature_quota_used: string | null
     invite_count: number
   }>()
 
@@ -2156,10 +2156,6 @@ export async function listInviteQuotas(
     const bonus = Math.max(0, r.invite_quota_bonus ?? 0)
     const used = Math.max(0, r.invite_quota_used ?? 0)
     const total = base + bonus
-    const fq = parseCounts(r.feature_quota)
-    const fu = parseCounts(r.feature_quota_used)
-    const remaining: Record<string, number> = {}
-    for (const f of QUOTA_FEATURES) remaining[f] = Math.max(0, fq[f] - fu[f])
 
     users.push({
       id: r.id,
@@ -2173,18 +2169,17 @@ export async function listInviteQuotas(
       inviteTotal: total,
       inviteUsed: used,
       inviteRemaining: Math.max(0, total - used),
-      featureQuota: fq,
-      featureUsed: fu,
-      featureRemaining: remaining,
       inviteCount: r.invite_count,
     })
   }
 
   return json({
     users,
-    featureLabels: QUOTA_FEATURE_LABELS,
-    quotaFeatures: QUOTA_FEATURES,
-    basicFeatures: [...parseBasicFeatures(await getSetting(env, "invite_basic_features"))],
+    /**
+     * 2026-11-06：模块级额度（r2/ai/proxy 的可转授额度）随模块下线一并移除 ——
+     * 现在只剩「能建几个邀请码」这一种额度。历史 `users.feature_quota` 列保留不删，
+     * 只是不再对外展示。
+     */
     baseQuota: base,
   })
 }
@@ -2210,11 +2205,6 @@ export async function getUserInviteQuota(
   const used = Math.max(0, user.invite_quota_used ?? 0)
   const base = await getSettingNumber(env, "invite_quota_base")
   const total = base + bonus
-  const fq = parseCounts(user.feature_quota)
-  const fu = parseCounts(user.feature_quota_used)
-  const remaining: Record<string, number> = {}
-  for (const f of QUOTA_FEATURES) remaining[f] = Math.max(0, fq[f] - fu[f])
-
   return json({
     username: user.username,
     quota: {
@@ -2223,14 +2213,8 @@ export async function getUserInviteQuota(
       inviteTotal: total,
       inviteUsed: used,
       inviteRemaining: Math.max(0, total - used),
-      featureQuota: fq,
-      featureUsed: fu,
-      featureRemaining: remaining,
     },
     invites: (rows.results ?? []).map(toAdminInvite),
-    featureLabels: QUOTA_FEATURE_LABELS,
-    quotaFeatures: QUOTA_FEATURES,
-    basicFeatures: [...parseBasicFeatures(await getSetting(env, "invite_basic_features"))],
   })
 }
 
@@ -2272,25 +2256,8 @@ export async function updateUserInviteQuota(
     sets.push("invite_quota_used = ?")
     binds.push(asCount(body.inviteUsed, "已用邀请码额度"))
   }
-  // 模块额度：只覆盖传入的键，其余保留原值
-  if (body.featureQuota !== undefined) {
-    const cur = parseCounts(user.feature_quota)
-    for (const f of QUOTA_FEATURES) {
-      const raw = (body.featureQuota as Record<string, unknown>)[f]
-      if (raw !== undefined) cur[f] = asCount(raw, `${QUOTA_FEATURE_LABELS[f]}额度`)
-    }
-    sets.push("feature_quota = ?")
-    binds.push(JSON.stringify(cur))
-  }
-  if (body.featureUsed !== undefined) {
-    const cur = parseCounts(user.feature_quota_used)
-    for (const f of QUOTA_FEATURES) {
-      const raw = (body.featureUsed as Record<string, unknown>)[f]
-      if (raw !== undefined) cur[f] = asCount(raw, `已用${QUOTA_FEATURE_LABELS[f]}额度`)
-    }
-    sets.push("feature_quota_used = ?")
-    binds.push(JSON.stringify(cur))
-  }
+  // 2026-11-06：模块额度（featureQuota / featureUsed）已下线，不再接受写入。
+  // 历史列保留在库里，但管理端没有任何入口能改它。
 
   if (sets.length === 0) {
     throw new ApiError(400, "没有需要修改的字段", "INVALID_INPUT")

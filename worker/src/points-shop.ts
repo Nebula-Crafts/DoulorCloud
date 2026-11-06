@@ -354,37 +354,24 @@ const MAX_ICON_LEN = 40
  * 就能把别人的商品全挤到后面去（这是**刷屏**，不是「违规」，所以不靠人工审核兜底）。
  */
 
-/** 租期上限（天）：3650 天 ≈ 10 年。纯粹防手滑把 30 写成 30000000 */
-const MAX_RENTAL_DAYS = 3650
-
+/**
+ * **允许新建/编辑**的交付方式（2026-11-06 收敛）。
+ *
+ * 只留四种「一次性发放」的：人工发放、邀请码额度、卡密/Key、固定内容。
+ * 充值余额（quota）、模块权限（feature）、订阅（subscription）与补签卡
+ * （checkin_makeup）都不再可选 —— 前三者依赖已下线的中转站 / 权限模块。
+ *
+ * ⚠️ `ProductDelivery` 类型本身仍保留那几种值：历史商品与历史订单要能正常读取与
+ *    走完交付（`deliverAuto` 的历史分支刻意留着），只是不能再**新建**这类商品。
+ */
 const DELIVERIES: readonly ProductDelivery[] = [
   "manual",
-  "quota",
-  "feature",
-  "subscription",
   "invite_quota",
-  "checkin_makeup",
   "code",
   "content",
 ]
 
-/**
- * 允许搭配「租用」的交付方式。
- *
- * 排除 quota / invite_quota：额度是**一次性消耗品**，发出去就收不回来 ——
- * 到期既没法收回、也没法判断用户用了多少，「租用」只剩个日期好看。
- * （订阅可以：订阅本身就是有期限的；feature 可以：权限能收回；
- *   manual 可以：官方人工商品与用户商品都靠人工履约，平台只记账。）
- *
- * 同样排除 `code` / `content`：卡密和固定内容都是**一次性发出去的文字**，
- * 到期没有任何可收回的东西（用户早就抄走了），列进来只会让人误会「到期会失效」。
- */
-const RENTAL_DELIVERIES: readonly ProductDelivery[] = [
-  "manual",
-  "feature",
-  "subscription",
-]
-
+/* 2026-11-06：商品租用模式已下线（只保留买断）。 */
 function isDelivery(v: unknown): v is ProductDelivery {
   return typeof v === "string" && (DELIVERIES as readonly string[]).includes(v)
 }
@@ -623,8 +610,27 @@ function sanitizeProductInput(raw: unknown, opts: { asUser?: boolean } = {}): Pr
   //     code（卡密池）与 content（固定内容）交的是**卖家自己的一段文字**，
   //     不动用平台资源（权限 / 订阅 / 额度仍不开放），担保交易语义不变。
   //     传其它自动方式直接 400，让前端明确知道不支持，而不是静默降级成 manual。
+  /**
+   * 交付方式校验（2026-11-06 收敛）。
+   *
+   * ⚠️ 传了不认识的交付方式要**明确 400**，不能静默降级成「人工发放」——
+   *    降级会让管理员以为设了自动发货，实际每单都要自己点交付。
+   *    已下线的 quota / feature / subscription / checkin_makeup 也走这条：
+   *    它们不在 `DELIVERIES` 里，扩一个就自动被挡住。
+   */
   const USER_DELIVERIES: readonly ProductDelivery[] = ["manual", "code", "content"]
-  const rawDelivery = isDelivery(b.delivery) ? b.delivery : "manual"
+  const rawDelivery: ProductDelivery =
+    b.delivery === undefined || b.delivery === null || b.delivery === ""
+      ? "manual"
+      : isDelivery(b.delivery)
+        ? b.delivery
+        : (() => {
+            throw new ApiError(
+              400,
+              `不支持的交付方式：${String(b.delivery)}（可用：人工发放 / 邀请码额度 / 卡密 / 固定内容）`,
+              "INVALID_DELIVERY"
+            )
+          })()
   const delivery: ProductDelivery = asUser
     ? USER_DELIVERIES.includes(rawDelivery)
       ? rawDelivery
@@ -705,28 +711,15 @@ function sanitizeProductInput(raw: unknown, opts: { asUser?: boolean } = {}): Pr
     deliveryParams = { content: text }
   }
 
-  // 计费方式：买断 / 租用。租期是「天」，只在租用时有值。
-  const billingMode: BillingMode = isBillingMode(b.billingMode) ? b.billingMode : "one_time"
-  let rentalDays: number | null = null
-  if (billingMode === "rental") {
-    const n = Number(b.rentalDays)
-    if (!Number.isInteger(n) || n <= 0 || n > MAX_RENTAL_DAYS) {
-      throw new ApiError(
-        400,
-        `租期需为 1 ~ ${MAX_RENTAL_DAYS} 的整数（天）`,
-        "INVALID_INPUT"
-      )
-    }
-    // 一次性发放的交付不能租用：发出去就收不回来（见 RENTAL_DELIVERIES 的说明）
-    if (!(RENTAL_DELIVERIES as readonly string[]).includes(delivery)) {
-      throw new ApiError(
-        400,
-        "「自动充余额」「邀请码额度」「卡密」「固定内容」都是一次性发放的，不能设为租用。",
-        "RENTAL_NOT_SUPPORTED"
-      )
-    }
-    rentalDays = n
-  }
+  /**
+   * 计费方式：只有买断（2026-11-06 移除租用模式）。
+   *
+   * 租用原本只服务「可收回」的交付（权限 / 订阅 / 人工商品）；权限与订阅下线后，
+   * 剩下的四种交付**全是一次性发放**（文字 / 卡密 / 额度），租期无从收回，
+   * 留着只会让人误会「到期会失效」。前端也不再提供该开关。
+   */
+  const billingMode: BillingMode = "one_time"
+  const rentalDays: number | null = null
 
   const sort = asUser ? 0 : (nullableInt(b.sort, "排序", -100_000, 100_000) ?? 0)
 
@@ -2395,62 +2388,6 @@ export async function adminSettleOrder(
   const order = await getOrder(env, orderId)
   if (!order) throw new ApiError(404, "订单不存在", "NOT_FOUND")
   return settleEscrow(env, order, adminId, "管理员结算")
-}
-
-/**
- * 自动确认收货（2026-10-06 站长要求）。
- *
- * 背景：卖家点「已交付」后，买家可以一直不点「确认收货」—— 积分就永远卡在托管里、
- * 卖家拿不到，订单也一直悬着。这里由定时任务兜底：**交付满 N 天**的订单自动结算给卖家，
- * 与主流电商一致。
- *
- * 天数由设置项 `shop_auto_confirm_days` 控制（<=0 = 关闭自动收货）。
- *
- * 只挑**没有售后在处理**的单子（after_sale_status 为空 / 已被拒 / 已关闭）——
- * 正在争议的订单绝不能被自动结算掉。
- *
- * 用 limit 分批，避免一次扫出太多把定时任务的子请求额度打光；单笔失败只记日志不中断。
- */
-export async function autoConfirmDeliveries(env: Env): Promise<number> {
-  const days = Number(await getSetting(env, "shop_auto_confirm_days")) || 0
-  if (days <= 0) return 0
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-  const rows = await env.DB.prepare(
-    `SELECT id FROM point_orders
-      WHERE status = 'delivered' AND seller_id IS NOT NULL
-        AND delivered_at IS NOT NULL AND delivered_at <= ?
-        AND (after_sale_status IS NULL OR after_sale_status IN ('rejected', 'closed'))
-      ORDER BY delivered_at ASC LIMIT 200`
-  )
-    .bind(cutoff)
-    .all<{ id: string }>()
-
-  let n = 0
-  for (const row of rows.results ?? []) {
-    const order = await getOrder(env, row.id)
-    if (!order) continue
-    try {
-      await settleEscrow(
-        env,
-        order,
-        order.userId,
-        `系统自动确认收货（卖家交付已满 ${days} 天）`
-      )
-      // settleEscrow 内部只通知卖家，买家这边补一条，免得他一脸懵
-      await notifyOrder(env, order.userId, {
-        event: "settled",
-        title: `已自动确认收货：「${order.productName}」`,
-        body: `卖家交付已满 ${days} 天，系统已自动确认收货，${order.price} 积分已结算给卖家。若你实际没有收到货，请尽快联系管理员。`,
-        orderId: order.id,
-        peer: order.sellerName,
-      })
-      n++
-    } catch (err) {
-      console.error("自动确认收货失败:", order.id, err)
-    }
-  }
-  if (n > 0) console.log(`自动确认收货：本批结算 ${n} 笔`)
-  return n
 }
 
 // ---------------------------------------------------------------- 售后（退款）

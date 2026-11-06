@@ -3184,18 +3184,6 @@ export interface PointTransaction {
   createdAt: string
 }
 
-/** 兑换参数（管理端「商城」标签与用户端都用它展示比例） */
-export interface PointsConfig {
-  /** 兑换总开关（关闭后仍可看余额与流水，只是不能兑换） */
-  enabled: boolean
-  /** **每 1 积分值多少元**（默认 1，支持小数） */
-  yuanPerPoint: number
-  /** 每日兑换次数上限（0 = 不限） */
-  dailyLimit: number
-  /** 用户商城：卖家交付后多少天自动确认收货（0 = 关闭） */
-  autoConfirmDays: number
-}
-
 /**
  * 交付方式：
  *   · manual       —— 人工发放（下单后等管理员处理）
@@ -3400,7 +3388,6 @@ export interface PublicPurchase {
 /** GET /api/points 响应 */
 export interface PointsOverview {
   balance: number
-  config: PointsConfig
   transactions: PointTransaction[]
   /** 官方商品（已上架） */
   products: PointProduct[]
@@ -3483,7 +3470,6 @@ export interface AdminShopData {
   /** 官方商品（可编辑 / 上下架） */
   products: PointProduct[]
   orders: PointOrder[]
-  config: PointsConfig
   /** 各档位的捐献奖励积分数 */
   donationRewards: DonationRewardItem[]
   /** 捐献奖励的每人每日发放次数上限（0 = 不限） */

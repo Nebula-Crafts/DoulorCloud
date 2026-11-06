@@ -553,12 +553,16 @@ const EVENT_STATUS_OPTIONS: { value: EventStatus; label: string }[] = [
   { value: "archived", label: "adm.evStatus.archived" },
 ]
 
+/**
+ * 活动奖励类型（2026-11-06 收敛）。
+ *
+ * 去掉了 `newapi_quota`（充中转站余额）—— AI 中转站已下线，新活动不该再发这种奖励。
+ * 历史活动里若已有该类型，发放逻辑仍保留在 event-rewards.ts，不影响存量领取。
+ */
 const REWARD_TYPE_OPTIONS: { value: EventRewardType; label: string }[] = [
   { value: "none", label: "adm.reward.none" },
-  { value: "newapi_quota", label: "adm.reward.quota" },
   { value: "invite_quota", label: "adm.reward.inviteQuota" },
-  // 积分：记在用户积分余额上，任何用户都能领（不必先绑中转站），
-  // 之后由用户自己在「积分与商城」页兑换成中转站余额
+  // 积分：记在用户积分余额上，可在商城直接花
   { value: "points", label: "adm.reward.points" },
 ]
 
@@ -2971,8 +2975,6 @@ export default function AdminPage() {
                     <TableHead className="w-16">UID</TableHead>
                     <TableHead>{t("adm.379")}</TableHead>
                     <TableHead>{t("adm.380")}</TableHead>
-                    <TableHead>{t("adm.381")}</TableHead>
-                    <TableHead>{t("adm.382")}</TableHead>
                     <TableHead className="w-20" />
                   </TableRow>
                 </TableHeader>
@@ -2994,43 +2996,10 @@ export default function AdminPage() {
                         </span>
                         <span className="ml-2 text-xs text-muted-foreground">{t("adm.1008", { v0: u.inviteBase, v1: u.inviteBonus })}</span>
                       </TableCell>
-                      <TableCell className="text-xs">
-                        <div className="flex flex-wrap gap-x-3 gap-y-1">
-                          {inviteQuotas!.quotaFeatures.map((f) => {
-                            const remain =
-                              u.featureRemaining[
-                                f as keyof typeof u.featureRemaining
-                              ]
-                            const isBasic =
-                              inviteQuotas!.basicFeatures?.includes(f) ?? false
-                            return (
-                              <span key={f}>
-                                {inviteQuotas!.featureLabels[f]}{" "}
-                                {isBasic ? (
-                                  <Badge variant="outline">{t("adm.383")}</Badge>
-                                ) : (
-                                  <span
-                                    className={
-                                      remain > 0
-                                        ? "font-semibold text-emerald-600 dark:text-emerald-400"
-                                        : "text-muted-foreground"
-                                    }
-                                  >
-                                    {remain}
-                                  </span>
-                                )}
-                              </span>
-                            )
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm">{u.inviteCount}</TableCell>
                       <TableCell>
                         <Button
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
-                          className="h-8 text-xs"
-                          disabled={quotaDetailBusy}
                           onClick={() => void openQuotaDetail(u.username)}
                         >
                           {t("adm.384")}
@@ -4042,55 +4011,6 @@ export default function AdminPage() {
                         })
                       }
                     />
-                  </div>
-                </div>
-
-                <div className="rounded-md border p-3">
-                  <p className="text-sm font-medium">{t("adm.742")}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t("adm.743")}
-                  </p>
-                  <div className="mt-2 space-y-2">
-                    {quotaDetail.quotaFeatures.map((f) => {
-                      const isBasic =
-                        quotaDetail.basicFeatures?.includes(f) ?? false
-                      return (
-                        <div key={f} className="flex items-center gap-2">
-                          <Label className="w-24 text-xs">
-                            {quotaDetail.featureLabels[f]}
-                          </Label>
-                          {isBasic ? (
-                            <span className="text-xs text-muted-foreground">
-                              {t("adm.744")}
-                            </span>
-                          ) : (
-                            <>
-                              <Input
-                                type="number"
-                                min={0}
-                                className="h-8 w-24"
-                                disabled={quotaDetailBusy}
-                                defaultValue={
-                                  quotaDetail.quota.featureQuota[
-                                    f as keyof typeof quotaDetail.quota.featureQuota
-                                  ]
-                                }
-                                onBlur={(e) =>
-                                  void handleAdjustQuota(quotaDetail.username, {
-                                    featureQuota: {
-                                      [f]: Number(e.target.value),
-                                    } as Partial<FeatureCounts>,
-                                  })
-                                }
-                              />
-                              <span className="text-xs text-muted-foreground">{t("adm.1125", { v0: " ", v1: quotaDetail.quota.featureUsed[
-                                    f as keyof typeof quotaDetail.quota.featureUsed
-                                  ] })}</span>
-                            </>
-                          )}
-                        </div>
-                      )
-                    })}
                   </div>
                 </div>
 

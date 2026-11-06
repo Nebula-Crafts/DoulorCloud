@@ -17,8 +17,7 @@
  */
 import { ApiError } from "./http"
 import { uuid } from "./crypto"
-import { adminSetQuota, getCurrencyInfo } from "./newapi-client"
-import { audit, getSetting, getSettingBool, getSettingNumber, siteOffsetHours, siteDayStartUtc } from "./settings"
+import { getSettingBool, getSettingNumber, siteOffsetHours, siteDayStartUtc } from "./settings"
 import type { SettingKey } from "./settings"
 import type { Env } from "./env"
 
@@ -291,30 +290,6 @@ export async function listPointTransactions(
     detail: r.detail,
     createdAt: r.created_at,
   }))
-}
-
-/** 兑换参数（比例与开关），供前端展示「1 积分 = ? 元」 */
-export async function getRedeemConfig(env: Env): Promise<{
-  enabled: boolean
-  /** **每 1 积分值多少元**（默认 1，支持小数） */
-  yuanPerPoint: number
-  /** 每日兑换次数上限（0 = 不限） */
-  dailyLimit: number
-  /** 用户商城：卖家交付后多少天自动确认收货（0 = 关闭） */
-  autoConfirmDays: number
-}> {
-  // ⚠️ 用 getSettingBool 而不是 `=== "1"`：管理员保存过一次之后库里可能是 "true"
-  //   （见 updateSettingsHandler 的布尔归一化 / admin.tsx 的 isSettingOn 注释）。
-  const enabled = await getSettingBool(env, "points_enabled")
-  // 比例允许小数（0.5 = 1 积分换 5 毛），但不允许负数；上限 100000 元/积分只是防手滑
-  const raw = await getSettingNumber(env, "points_yuan_per_point")
-  const yuanPerPoint = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 100_000) : 1
-  const dailyLimit = Math.max(0, Math.round(await getSettingNumber(env, "points_redeem_daily_limit")))
-  const autoConfirmDays = Math.max(
-    0,
-    Math.round(await getSettingNumber(env, "shop_auto_confirm_days"))
-  )
-  return { enabled, yuanPerPoint, dailyLimit, autoConfirmDays }
 }
 
 // ---------------------------------------------------------------------------
@@ -672,132 +647,6 @@ export async function transferPoints(
   }
 
   return { ok: true, balance: out.balance }
-}
-
-/** 今日（站点时区日界）该用户已兑换次数 */
-async function countTodayRedeems(env: Env, userId: string): Promise<number> {
-  const dayStart = siteDayStartUtc(new Date(), await siteOffsetHours(env))
-  const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS c FROM point_transactions
-      WHERE user_id = ? AND reason = 'redeem' AND delta < 0 AND created_at >= ?`
-  )
-    .bind(userId, dayStart.toISOString())
-    .first<{ c: number }>()
-  return Number(row?.c ?? 0)
-}
-
-/**
- * 用积分兑换中转站余额。
- *
- * ⚠️ 顺序是**先扣积分、再调 NewAPI 加余额，失败则把积分退回**。
- * 反过来（先加余额再扣）会在扣减失败时白送钱；而「先扣后退」最坏情况
- * 只是用户积分短暂被占用几秒，不会丢。
- *
- * 未绑定中转站账号时直接拒绝（不像活动奖励那样转人工）—— 兑换是用户主动发起、
- * 有明确预期的操作，「扣了积分却说发放失败要等人工」体验更差，不如在扣分前拦住。
- */
-export async function redeemPoints(
-  env: Env,
-  userId: string,
-  username: string,
-  points: number
-): Promise<{ ok: true; balance: number; amount: number; symbol: string; detail: string }> {
-  const cfg = await getRedeemConfig(env)
-  if (!cfg.enabled) throw new ApiError(400, "积分兑换暂未开放", "POINTS_DISABLED")
-
-  const amountPoints = Math.floor(points)
-  if (!Number.isFinite(amountPoints) || amountPoints < 1) {
-    throw new ApiError(400, "兑换积分必须是正整数", "INVALID_INPUT")
-  }
-
-  // 绑定检查放在扣分之前（见函数注释）
-  const account = await env.DB.prepare(
-    "SELECT newapi_user_id FROM newapi_accounts WHERE user_id = ?"
-  )
-    .bind(userId)
-    .first<{ newapi_user_id: number }>()
-  if (!account?.newapi_user_id) {
-    throw new ApiError(
-      400,
-      "你还未开通 AI 中转站，无法兑换余额。请先在「AI 中转站」页面开通账号。",
-      "NOT_BOUND"
-    )
-  }
-
-  if (cfg.dailyLimit > 0) {
-    const used = await countTodayRedeems(env, userId)
-    if (used >= cfg.dailyLimit) {
-      throw new ApiError(
-        429,
-        `今日兑换次数已达上限（${cfg.dailyLimit} 次），请明天再来。`,
-        "REDEEM_LIMIT"
-      )
-    }
-  }
-
-  // 比例是「每 1 积分值多少元」，所以是乘法；保留两位小数，免得流水文案与
-  // 实际入账额度（按四舍五入后的金额换算）对不上。
-  const amount = Math.round(amountPoints * cfg.yuanPerPoint * 100) / 100
-  // 比例很小时（如 0.001 元/积分）兑 1 积分会被四舍五入成 0 元 —— 别白扣积分
-  if (amount <= 0) {
-    throw new ApiError(
-      400,
-      "当前兑换比例下这些积分换不到钱，请多攒一些再兑换。",
-      "AMOUNT_TOO_SMALL"
-    )
-  }
-  const perUnit = Number(await getSetting(env, "newapi_quota_per_unit")) || 500_000
-  const rawQuota = Math.round(amount * perUnit)
-  const { symbol } = await getCurrencyInfo(env)
-
-  // 1. 扣积分（余额不足会在 applyPoints 里被条件 UPDATE 拦下）
-  const deducted = await applyPoints(env, {
-    userId,
-    delta: -amountPoints,
-    reason: "redeem",
-    detail: `兑换中转站余额 ${symbol}${formatAmount(amount)}`,
-  })
-  if (!deducted.applied) {
-    throw new ApiError(400, "积分不足，无法兑换", "INSUFFICIENT_POINTS")
-  }
-
-  // 2. 加余额；失败则退回积分（用户不会因为一次网络抖动丢积分）
-  try {
-    await adminSetQuota(env, account.newapi_user_id, rawQuota, "add")
-  } catch (err) {
-    await applyPoints(env, {
-      userId,
-      delta: amountPoints,
-      reason: "redeem",
-      detail: `兑换失败退回（${symbol}${formatAmount(amount)}）`,
-    })
-    const msg = err instanceof Error ? err.message.slice(0, 120) : ""
-    throw new ApiError(
-      502,
-      `兑换失败，积分已退回：${msg || "中转站暂时不可用，请稍后重试"}`,
-      "REDEEM_FAILED"
-    )
-  }
-
-  await audit(
-    env,
-    userId,
-    "points.redeem",
-    `${username} 用 ${amountPoints} 积分兑换 ${symbol}${formatAmount(amount)} 中转站余额`
-  )
-
-  return {
-    ok: true,
-    balance: deducted.balance,
-    amount,
-    symbol,
-    detail: `已兑换 ${symbol}${formatAmount(amount)} 到你的中转站余额。`,
-  }
-}
-
-/** 金额展示：整数不带小数，非整数保留两位（避免 1.5 显示成 1.50 / 2 显示成 2.00） */
-function formatAmount(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(2)
 }
 
 /**

@@ -241,24 +241,4 @@ describe("统一内容自动发货", () => {
     expect(note?.body).not.toContain("提取码：1234")
   })
 
-  it("统一内容不能设为租用（一次性发出去的文字收不回来）", async () => {
-    const admin = await makeUser({ role: "admin" })
-    const res = await fetchSelf(
-      authRequest(
-        admin,
-        "/api/admin/points/products",
-        jsonInit({
-          name: "租用统一内容",
-          price: 10,
-          delivery: "content",
-          billingMode: "rental",
-          rentalDays: 30,
-          deliveryParams: { content: SAMPLE },
-        })
-      )
-    )
-    expect(res.status).toBe(400)
-    const body = (await res.json()) as { code?: string }
-    expect(body.code).toBe("RENTAL_NOT_SUPPORTED")
-  })
 })

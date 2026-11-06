@@ -57,9 +57,7 @@ import {
   getDonationRewardPoints,
   getInvitePointsConfig,
   getPointsBalance,
-  getRedeemConfig,
   listPointTransactions,
-  redeemPoints,
   transferPoints,
 } from "../points"
 import {
@@ -67,7 +65,6 @@ import {
   adminCancelOrder,
   adminResolveAfterSale,
   adminSettleOrder,
-  autoConfirmDeliveries,
   buyProduct,
   cancelAfterSale,
   clearUnusedProductCodes,
@@ -98,7 +95,6 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
   const user = await requireUser(env, request)
   const [
     balance,
-    config,
     transactions,
     products,
     orders,
@@ -106,7 +102,6 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
     boundRow,
   ] = await Promise.all([
     getPointsBalance(env, user.id),
-    getRedeemConfig(env),
     listPointTransactions(env, user.id, 50),
     // 官方商品：只要上架的。⚠️ stripContent：content 是要卖的正文，
     // 公开列表里绝不能带（不买也能看到 = 白送）。
@@ -121,7 +116,6 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
 
   return json({
     balance,
-    config,
     transactions,
     products,
     orders,
@@ -133,24 +127,6 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
     /** 各级升级价格（0 = 该等级未开放升级；键与 users.member_level 对应） */
     levelPrices: await levelPriceMap(env),
   })
-}
-
-/** POST /api/points/redeem —— 兑换中转站余额 */
-export async function redeem(env: Env, request: Request): Promise<Response> {
-  const user = await requireUser(env, request)
-  // 兑换会真实调用 NewAPI 加额度，限流防止脚本刷（1 分钟最多 5 次，
-  // 正常用户一天也就兑几次；真正的每日上限在 redeemPoints 里按配置卡）
-  await guardRateLimit(env, `points-redeem:${user.id}`, 5, 60, "操作过于频繁")
-
-  assertContentLengthWithin(request, MAX_JSON_BODY_BYTES, "请求内容过大")
-  const body = (await request.json().catch(() => ({}))) as { points?: unknown }
-  const points = Number(body.points)
-  if (!Number.isFinite(points)) {
-    throw new ApiError(400, "请填写要兑换的积分数", "INVALID_INPUT")
-  }
-
-  const result = await redeemPoints(env, user.id, user.username, points)
-  return json(result)
 }
 
 /**
@@ -472,11 +448,6 @@ export async function rejectDeliveryHandler(
   return json({ order })
 }
 
-/** 定时任务入口：用户商城自动确认收货（卖家交付满 N 天，N 由设置项控制） */
-export async function runAutoConfirmDeliveries(env: Env): Promise<number> {
-  return autoConfirmDeliveries(env)
-}
-
 /** POST /api/points/orders/:id/after-sale/decide —— 卖家处理退款申请（同意 / 拒绝） */
 export async function sellerResolveAfterSaleHandler(
   env: Env,
@@ -716,7 +687,6 @@ export async function getShopAdmin(env: Env, request: Request): Promise<Response
   const [
     products,
     orders,
-    config,
     donationRewards,
     donationDailyLimit,
     inviteConfig,
@@ -724,7 +694,6 @@ export async function getShopAdmin(env: Env, request: Request): Promise<Response
     // 商城只剩管理员发布的商品（2026-11-06：用户上架链路已下线）
     listProducts(env, { scope: "official" }),
     listOrders(env, { status, limit: 200 }),
-    getRedeemConfig(env),
     getDonationRewardPoints(env),
     getDonationDailyLimit(env),
     getInvitePointsConfig(env),
@@ -732,7 +701,6 @@ export async function getShopAdmin(env: Env, request: Request): Promise<Response
   return json({
     products,
     orders,
-    config,
     /** 邀请奖励 / 返佣的四个旋钮（编辑入口：商城 → 「邀请奖励」） */
     inviteConfig,
     // 下发**数组**（带 label 与固定顺序）而不是 { key: 分数 }：
@@ -752,11 +720,7 @@ export async function savePointsConfig(env: Env, request: Request): Promise<Resp
   const admin = await requireAdminScope(env, request, "points.official")
   assertContentLengthWithin(request, MAX_JSON_BODY_BYTES, "请求内容过大")
   const body = (await request.json().catch(() => ({}))) as {
-    enabled?: unknown
-    yuanPerPoint?: unknown
-    dailyLimit?: unknown
     /** 用户商城：卖家交付后多少天自动确认收货（0 = 关闭） */
-    autoConfirmDays?: unknown
     /** 捐献奖励：档位 → 积分数（只提交要改的档位即可） */
     donationRewards?: unknown
     /** 捐献奖励的每人每日发放次数上限（0 = 不限） */
@@ -767,32 +731,6 @@ export async function savePointsConfig(env: Env, request: Request): Promise<Resp
 
   const values: Partial<Record<SettingKey, string>> = {}
 
-  if (body.enabled !== undefined) {
-    values.points_enabled = body.enabled ? "1" : "0"
-  }
-  if (body.yuanPerPoint !== undefined) {
-    const n = Number(body.yuanPerPoint)
-    // 比例是「每 1 积分值多少元」，允许小数；0 或负数没有意义
-    if (!Number.isFinite(n) || n <= 0 || n > 100_000) {
-      throw new ApiError(400, "兑换比例需大于 0 且不超过 100000", "INVALID_INPUT")
-    }
-    values.points_yuan_per_point = String(Math.round(n * 10_000) / 10_000)
-  }
-  if (body.dailyLimit !== undefined) {
-    const n = Math.trunc(Number(body.dailyLimit))
-    if (!Number.isFinite(n) || n < 0 || n > 1000) {
-      throw new ApiError(400, "每日兑换次数上限需在 0 ~ 1000 之间", "INVALID_INPUT")
-    }
-    values.points_redeem_daily_limit = String(n)
-  }
-  if (body.autoConfirmDays !== undefined) {
-    const n = Math.trunc(Number(body.autoConfirmDays))
-    // 上限 90 天：再长就等于没有兜底（卖家永远收不到钱）
-    if (!Number.isFinite(n) || n < 0 || n > 90) {
-      throw new ApiError(400, "自动收货天数需在 0 ~ 90 之间（0 = 关闭）", "INVALID_INPUT")
-    }
-    values.shop_auto_confirm_days = String(n)
-  }
   if (body.donationRewards !== undefined) {
     const raw = body.donationRewards
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -874,7 +812,6 @@ export async function savePointsConfig(env: Env, request: Request): Promise<Resp
   )
   const donationRewards = await getDonationRewardPoints(env)
   return json({
-    config: await getRedeemConfig(env),
     donationRewards: DONATION_REWARD_KINDS.map(({ key, label }) => ({
       key,
       label,

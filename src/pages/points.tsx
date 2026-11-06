@@ -35,7 +35,7 @@ import { notifyPointsChanged } from "@/components/points-badge"
 import { fmtDateTime } from "@/lib/format"
 import { useT } from "@/i18n"
 import type { PointsOverview } from "@/types"
-import { REASON_LABEL, fmtMoney } from "@/pages/pointshop-shared"
+import { REASON_LABEL } from "@/pages/pointshop-shared"
 
 /** 会员等级 → 展示 key（0=普通 1=黄金 2=白金 3=黑金，与 users.member_level 对应） */
 const LEVEL_KEYS = ["lvl.0", "lvl.1", "lvl.2", "lvl.3"] as const
@@ -73,8 +73,6 @@ export default function PointsPage() {
   React.useEffect(() => {
     void load()
   }, [load])
-
-  const yuanPerPoint = data?.config.yuanPerPoint ?? 1
   const balance = data?.balance ?? 0
 
   /** 转账：金额不能超过自己的余额（服务端也会再挡一次） */
@@ -164,9 +162,7 @@ export default function PointsPage() {
                 <CardTitle className="flex items-baseline gap-2 text-4xl">
                   <Coins className="h-7 w-7 text-primary" />
                   {balance}
-                  <span className="text-base font-normal text-muted-foreground">
-                    ≈ ¥{fmtMoney(balance * yuanPerPoint)}
-                  </span>
+
                 </CardTitle>
               </div>
               {/**
@@ -201,9 +197,7 @@ export default function PointsPage() {
               </div>
             </CardHeader>
             <CardContent className="text-xs text-muted-foreground">
-              {t("pt.rate", { v: fmtMoney(yuanPerPoint) })}
-              {data.config.dailyLimit > 0 &&
-                ` · ${t("pt.rateDailyLimit", { n: data.config.dailyLimit })}`}
+              {t("pt.usageHint")}
             </CardContent>
           </Card>
 
@@ -368,18 +362,8 @@ export default function PointsPage() {
                 onChange={(e) => setTransferAmount(e.target.value.replace(/\D/g, ""))}
               />
               <p className="text-xs text-muted-foreground">
-                {transferValue > 0 ? (
-                  <>
-                    {t("pt.equals")}{" "}
-                    <span className="font-medium text-foreground">
-                      ¥{fmtMoney(transferValue * yuanPerPoint)}
-                    </span>
-                    {transferValue > balance && (
-                      <span className="text-destructive">
-                        {t("pt.overBalance", { n: balance })}
-                      </span>
-                    )}
-                  </>
+                {transferValue > balance ? (
+                  <span className="text-destructive">{t("pt.overBalance", { n: balance })}</span>
                 ) : (
                   t("pt.balanceSuffix", { n: balance })
                 )}
