@@ -6211,6 +6211,9 @@ export const en: Record<MessageKey, string> = {
   "adm.card.clear": "Clear number",
   "adm.card.cleared": "Card number cleared",
   "adm.card.regenerateHint": "Clearing does not issue a new number immediately — one is generated the next time the user opens the points page.",
+
+  "adm.popupOnce": "Pops up once",
+  "adm.popupEvery": "Pops up every time",
   "adm.673": "AI billing",
   "adm.674": "Basis for free subscriptions and quota conversion.",
   "adm.675": "Free subscription plan ID",

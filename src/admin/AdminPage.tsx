@@ -3121,7 +3121,14 @@ export default function AdminPage() {
                               <Clock className="h-3 w-3" />{t("adm.1029", { v0: a.publishAt ? new Date(a.publishAt).toLocaleString("zh-CN") : "" })}</Badge>
                           )}
                           {a.pinned && <Badge variant="success">{t("adm.1030")}</Badge>}
-                          <Badge variant="secondary">{a.category}</Badge>
+                          {/* 弹窗方式：后台一眼能看到这条公告会不会主动弹
+                              （none 不显示徽章；分类已收敛为「综合公告」，不再占位） */}
+                          {a.popupMode === "once" && (
+                            <Badge variant="outline">{t("adm.popupOnce")}</Badge>
+                          )}
+                          {a.popupMode === "every" && (
+                            <Badge variant="outline">{t("adm.popupEvery")}</Badge>
+                          )}
                           {/* 邮件群发进度：推送中显示 x/y，完成后显示结果与失败数 */}
                           {a.mailStatus === "sending" && (
                             <Badge variant="default" className="tabular-nums">
@@ -4332,38 +4339,18 @@ export default function AdminPage() {
                 onChange={(e) => setAnnDraft((d) => ({ ...d, body: e.target.value }))}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>{t("adm.758")}</Label>
-                <Select
-                  value={annDraft.category}
-                  onValueChange={(v) => setAnnDraft((d) => ({ ...d, category: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="general">{t("adm.759")}</SelectItem>
-                    <SelectItem value="frp">{t("adm.760")}</SelectItem>
-                    <SelectItem value="ai">{t("adm.761")}</SelectItem>
-                    <SelectItem value="proxy">{t("adm.762")}</SelectItem>
-                    <SelectItem value="storage">{t("adm.763")}</SelectItem>
-                    <SelectItem value="profile">{t("adm.764")}</SelectItem>
-                  </SelectContent>
-                </Select>
+            {/* 分类下拉已移除（2026-11-06）：frp / ai / proxy / storage / profile
+                五个分类对应的模块都已下线，分类只出现在群发邮件的一行文字里，
+                留着等于给一个没有效果的选项。历史公告的旧分类值原样保留。 */}
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">{t("adm.765")}</p>
+                <p className="text-xs text-muted-foreground">{t("adm.766")}</p>
               </div>
-              <div className="flex items-end">
-                <div className="flex w-full items-center justify-between rounded-md border p-3">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{t("adm.765")}</p>
-                    <p className="text-xs text-muted-foreground">{t("adm.766")}</p>
-                  </div>
-                  <Switch
-                    checked={annDraft.pinned}
-                    onCheckedChange={(v) => setAnnDraft((d) => ({ ...d, pinned: v }))}
-                  />
-                </div>
-              </div>
+              <Switch
+                checked={annDraft.pinned}
+                onCheckedChange={(v) => setAnnDraft((d) => ({ ...d, pinned: v }))}
+              />
             </div>
 
             <div className="space-y-2">

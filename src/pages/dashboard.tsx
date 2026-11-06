@@ -39,11 +39,11 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import {
-  announcementApi,
   eventApi,
   pointsApi,
   errMsg,
 } from "@/services/api"
+import { loadAnnouncements } from "@/lib/announcement-cache"
 import { useAuth } from "@/hooks/use-auth"
 import { useT } from "@/i18n"
 import { CheckinDialog } from "@/components/checkin-dialog"
@@ -461,9 +461,9 @@ export default function DashboardPage() {
         if (!cancelled) toast.error(errMsg(err, t("dash.err.points")))
       })
       .finally(() => !cancelled && setPointsLoading(false))
-    announcementApi
-      .list()
-      .then((res) => !cancelled && setAnnouncements(res.announcements))
+    // 与全站公告弹窗共用同一个请求（见 lib/announcement-cache.ts）
+    loadAnnouncements()
+      .then((list) => !cancelled && setAnnouncements(list))
       .catch(() => {
         // 公告拉不到就安静地空着：概览不是公告页，不该为它弹全局错误
       })

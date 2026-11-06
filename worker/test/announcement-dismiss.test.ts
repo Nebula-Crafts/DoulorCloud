@@ -3,7 +3,7 @@
 // 背景（2026-10-10 站长反馈）：公告弹窗的「不再显示」原来只写浏览器 localStorage。
 // 换设备 / 清浏览器数据 / 重装 App（WebToApp 的 WebView 存储随应用走）后记录就没了
 // —— 用户看到的是「点了不再显示，过阵子又弹」。现在这份记录落服务端（真相源），
-// localStorage 退化成首屏快读缓存（见 src/pages/dashboard.tsx 的 AnnouncementPopup）。
+// localStorage 退化成首屏快读缓存（见 src/components/announcement-popup.tsx）。
 //
 // 本文件锁死四件事：
 //   A. dismiss 之后列表接口对该用户返回 dismissed: true（且只影响这一条）；

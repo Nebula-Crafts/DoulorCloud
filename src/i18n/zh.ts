@@ -6083,6 +6083,10 @@ export const zh = {
   "adm.card.clear": "清除卡号",
   "adm.card.cleared": "卡号已清除",
   "adm.card.regenerateHint": "清除不会立刻补新号：该用户下次打开积分页时会重新生成一个随机卡号。",
+
+  // ---- 公告（2026-11-06 排查公告配置）----
+  "adm.popupOnce": "弹窗一次",
+  "adm.popupEvery": "每次弹窗",
   "adm.673": "AI 计费",
   "adm.674": "免费订阅与额度换算基准。",
   "adm.675": "免费订阅套餐 ID",

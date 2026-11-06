@@ -65,6 +65,7 @@ import { cn } from "@/lib/utils"
 import { onAttentionChanged } from "@/lib/attention-events"
 import { idlePreload, preloadRoute } from "@/lib/route-preload"
 import { SlidingPill } from "@/components/motion/sliding-pill"
+import { AnnouncementPopupGate } from "@/components/announcement-popup"
 import { toast } from "sonner"
 
 /** 角标轮询间隔（社区/聊天室/反馈/管理共用一次请求） */
@@ -758,6 +759,9 @@ export function DashboardLayout({
             </AttentionContext.Provider>
           </PageEnter>
         </main>
+        {/* 公告弹窗（全站）：挂在布局上而不是概览页 —— 用户从任何 dashboard
+            页面进来都该看到后台配置的弹窗公告（见 components/announcement-popup） */}
+        <AnnouncementPopupGate />
         <ScrollToTop />
       </div>
     </div>

@@ -16,14 +16,15 @@ import type { Env } from "../env"
  * 不预建记录；管理员通过 POST /api/admin/announcements 创建。
  */
 
-export const ANNOUNCEMENT_CATEGORIES = [
-  "general",
-  "frp",
-  "ai",
-  "proxy",
-  "storage",
-  "profile",
-] as const
+/**
+ * 公告可选分类。
+ *
+ * 2026-11-06 收敛：只留「综合公告」。原来的 frp / ai / proxy / storage / profile
+ * 五个分类对应的模块都已整体下线，而分类本身**不参与任何过滤或展示**（只出现在
+ * 群发邮件里的一行「分类：…」），保留它们等于给管理员一个没有意义的选项。
+ * 历史数据里的旧分类值不动 —— 邮件正文仍按 LABELS 显示成原来的中文。
+ */
+export const ANNOUNCEMENT_CATEGORIES = ["general"] as const
 
 /**
  * 公告状态：草稿 / 定时 / 已发布。

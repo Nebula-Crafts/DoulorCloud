@@ -32,6 +32,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/hooks/use-auth"
 import { notificationApi, pointsApi, eventApi, errMsg, HttpError } from "@/services/api"
@@ -105,6 +112,8 @@ export default function MessagesPage() {
     event: 0,
   })
   const [events, setEvents] = React.useState<EventItem[]>([])
+  /** 公告全文弹窗（点「网站动态」里的公告消息用） */
+  const [annView, setAnnView] = React.useState<Notification | null>(null)
   const [claiming, setClaiming] = React.useState<string | null>(null)
 
   const loadCategory = React.useCallback(async (c: MessageCategory) => {
@@ -250,6 +259,12 @@ export default function MessagesPage() {
       } catch {
         /* 静默 */
       }
+    }
+    // 公告消息：直接弹全文，不跳 link —— 公告广播写的 link 就是「网站动态」这个
+    // 分类页，跳到当前页等于什么都没发生（2026-11-06 用户反馈「点了无法打开」）
+    if (n.type === "announcement") {
+      setAnnView(n)
+      return
     }
     // 反馈回复关联的是反馈单，不是帖子 —— 单独跳反馈页
     if (n.type === "feedback_reply") {
@@ -442,6 +457,26 @@ export default function MessagesPage() {
           </TabsContent>
         ))}
       </Tabs>
+
+      {/*
+        公告全文弹窗（2026-11-06 修）：网站动态的消息此前带
+        `link = /dashboard/messages/site`，点它等于「跳到当前页」，看起来就是点了没反应。
+        现在点公告消息改为打开全文弹窗（标题 + Markdown 正文），不再做无意义跳转。
+      */}
+      <Dialog open={annView !== null} onOpenChange={(o) => !o && setAnnView(null)}>
+        <DialogContent className="max-h-[80vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-start gap-2 break-all">
+              <Megaphone className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">{annView?.title}</span>
+            </DialogTitle>
+            <DialogDescription>
+              {annView ? new Date(annView.createdAt).toLocaleString(t("msg.dateLocale")) : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {annView?.body && <Markdown>{annView.body}</Markdown>}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
