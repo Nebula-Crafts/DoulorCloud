@@ -1,7 +1,6 @@
 import * as React from "react"
 import {
   CalendarClock,
-  Check,
   ChevronLeft,
   ChevronRight,
   Coins,
@@ -14,11 +13,9 @@ import {
   Search,
   ShoppingBag,
   SlidersHorizontal,
-  Store,
   Trash2,
   Users,
   Wallet,
-  X,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -170,16 +167,6 @@ const AFTER_SALE_STATUS: Record<
   platform: { label: "pt.afterSale.st.platform", variant: "default" },
   closed: { label: "pt.afterSale.st.closed", variant: "secondary" },
   refunded: { label: "pt.afterSale.st.refunded", variant: "success" },
-}
-
-/** 用户商品的审核状态 → 标签 */
-const REVIEW_STATUS: Record<
-  string,
-  { label: string; variant: "default" | "outline" | "secondary" | "destructive" | "success" }
-> = {
-  pending: { label: "pt.review.pending", variant: "default" },
-  approved: { label: "ap.review.approved", variant: "success" },
-  rejected: { label: "ap.review.rejected", variant: "destructive" },
 }
 
 /** 金额展示：整数不带小数，非整数保留两位 */
@@ -532,10 +519,6 @@ function ShopTab() {
   const [deliverBusy, setDeliverBusy] = React.useState(false)
 
   // 用户商品审核弹窗
-  const [reviewTarget, setReviewTarget] = React.useState<PointProduct | null>(null)
-  const [reviewApprove, setReviewApprove] = React.useState(true)
-  const [reviewNote, setReviewNote] = React.useState("")
-  const [reviewBusy, setReviewBusy] = React.useState(false)
 
   // 兑换配置（比例语义：每 1 积分 = ? 元）
   const [cfgEnabled, setCfgEnabled] = React.useState(true)
@@ -927,50 +910,7 @@ function ShopTab() {
     }
   }
 
-  // ---- 用户商品审核 ----
-
-  const openReview = (p: PointProduct, approve: boolean) => {
-    setReviewTarget(p)
-    setReviewApprove(approve)
-    setReviewNote("")
-  }
-
-  const submitReview = async () => {
-    if (!reviewTarget) return
-    setReviewBusy(true)
-    try {
-      await adminPointsApi.reviewProduct(
-        reviewTarget.id,
-        reviewApprove,
-        reviewNote.trim() || undefined
-      )
-      toast.success(reviewApprove ? t("ap.toast.reviewApproved") : t("ap.review.rejected"))
-      setReviewTarget(null)
-      await load({ keepConfig: true })
-      notifyAttentionChanged() // 待审核商品角标当场减一
-    } catch (err) {
-      toast.error(errMsg(err, t("ap.err.review")))
-    } finally {
-      setReviewBusy(false)
-    }
-  }
-
-  const removeUserProduct = async (p: PointProduct) => {
-    if (
-      !confirm(
-        t("ap.confirm.deleteUserProduct", { name: p.name, seller: p.ownerName ?? "?" })
-      )
-    )
-      return
-    try {
-      await adminPointsApi.deleteProduct(p.id)
-      toast.success(t("pt.toast.deleted"))
-      await load({ keepConfig: true })
-      notifyAttentionChanged() // 若删的是待审核商品，角标当场减一
-    } catch (err) {
-      toast.error(errMsg(err, t("pt.err.delete")))
-    }
-  }
+  // ---- 订单：结算 / 退款 ----
 
   // ---- 用户商品订单：结算 / 退款 ----
 
@@ -1015,9 +955,7 @@ function ShopTab() {
   }
 
   const products = data?.products ?? []
-  const userProducts = data?.userProducts ?? []
   const orders = data?.orders ?? []
-  const pendingReviews = userProducts.filter((p) => p.reviewStatus === "pending").length
 
   return (
     <div className="space-y-4">
@@ -1236,126 +1174,6 @@ function ShopTab() {
       </Card>
 
       {/* 用户上架的商品 —— 审核通过后才会出现在用户端的「用户们的商城」里 */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Store className="h-4 w-4" />
-              {t("ap.userProducts")}
-              {pendingReviews > 0 && (
-                <Badge variant="default" className="text-[10px]">
-                  {t("ap.pendingReviewBadge", { n: pendingReviews })}
-                </Badge>
-              )}
-            </CardTitle>
-            <CardDescription>{t("ap.userProductsDesc")}</CardDescription>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => void load({ keepConfig: true })} disabled={loading}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            {t("common.refresh")}
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {loading && !data ? (
-            <LoadingBlock variant="list" />
-          ) : userProducts.length === 0 ? (
-            <EmptyState
-              icon={Store}
-              title={t("ap.userProductsEmpty")}
-              description={t("ap.userProductsEmptyDesc")}
-            />
-          ) : (
-            <div className="grid gap-3 lg:grid-cols-2">
-              {/* 卡片而不是表格（2026-10-01 站长反馈：表格列多，横向滚动后
-                  商品信息和「通过 / 拒绝」没法同时看到，信息也展示不全）。
-                  两列自适应、窄屏单列，永不横向滚动。 */}
-              {userProducts.map((p) => {
-                const rv = REVIEW_STATUS[p.reviewStatus] ?? REVIEW_STATUS.pending
-                return (
-                  <div key={p.id} className="flex flex-col gap-3 rounded-lg border p-3">
-                    <div className="flex items-start gap-3">
-                      <ProductThumb product={p} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="truncate font-medium">{p.name}</span>
-                          <Badge variant={rv.variant} className="text-[10px]">
-                            {t(rv.label)}
-                          </Badge>
-                          {!p.enabled && (
-                            <Badge variant="outline" className="text-[10px]">
-                              {t("ap.delisted")}
-                            </Badge>
-                          )}
-                        </div>
-                        {p.description && (
-                          <p className="mt-1 line-clamp-2 break-all text-xs text-muted-foreground">
-                            {p.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>
-                        {t("pt.sellerLabel")}{" "}
-                        <span className="text-foreground">{p.ownerName ?? "—"}</span>
-                      </span>
-                      <span>
-                        {t(PRODUCT_CATEGORY_LABELS[p.category] ?? PRODUCT_CATEGORY_LABELS.other)}
-                      </span>
-                      <span className="tabular-nums">{t("pt.pointsUnit", { n: p.price })}</span>
-                      <span className="tabular-nums">
-                        {t("ap.th.stock")} {p.stock === null ? t("pt.form.unlimited") : p.stock}
-                      </span>
-                      {p.billingMode === "rental" && <span>{rentalTerm(p.rentalDays)}</span>}
-                    </div>
-
-                    {p.reviewNote && (
-                      <p className="line-clamp-2 break-all rounded-md bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
-                        {p.reviewNote}
-                      </p>
-                    )}
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* 编辑：上架后也要能改分类/价格等（2026-10-03 站长反馈
-                          「不能对已上架的商品进行分类」—— 原来这里只有通过/拒绝/删除） */}
-                      <Button variant="outline" size="sm" onClick={() => openEdit(p)}>
-                        <Pencil className="mr-1 h-3.5 w-3.5" />
-                        {t("common.edit")}
-                      </Button>
-                      {p.reviewStatus !== "approved" && (
-                        <Button size="sm" onClick={() => openReview(p, true)}>
-                          <Check className="mr-1 h-3.5 w-3.5" />
-                          {t("ap.approve")}
-                        </Button>
-                      )}
-                      {p.reviewStatus !== "rejected" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openReview(p, false)}
-                        >
-                          <X className="mr-1 h-3.5 w-3.5" />
-                          {t("ap.reject")}
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="ml-auto text-destructive hover:text-destructive"
-                        onClick={() => void removeUserProduct(p)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        {t("common.delete")}
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* 订单 */}
       <Card>
@@ -1714,62 +1532,6 @@ function ShopTab() {
             <Button onClick={() => void submitDeliver()} disabled={deliverBusy}>
               {deliverBusy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {t("ap.confirmDeliver")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 审核用户商品 */}
-      <Dialog
-        open={!!reviewTarget}
-        onOpenChange={(o) => {
-          if (!o && !reviewBusy) setReviewTarget(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {reviewApprove ? t("ap.reviewApproveTitle") : t("ap.reject")} · {reviewTarget?.name}
-            </DialogTitle>
-            <DialogDescription>
-              {t("ap.reviewMeta", {
-                seller: reviewTarget?.ownerName ?? t("ap.reviewThisUser"),
-                price: reviewTarget?.price ?? 0,
-              })}
-              {reviewTarget?.billingMode === "rental"
-                ? t("ap.reviewRentalAppend", { n: reviewTarget.rentalDays ?? "?" })
-                : ""}
-              {t("ap.period")}
-              {reviewApprove ? t("ap.reviewApproveHint") : t("ap.reviewRejectHint")}
-              {reviewTarget?.billingMode === "rental" && t("ap.reviewRentalHint")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="reviewNote">
-              {reviewApprove ? t("ap.noteOptionalUserVisible") : t("ap.rejectReasonLabel")}
-            </Label>
-            <Textarea
-              id="reviewNote"
-              rows={3}
-              maxLength={200}
-              placeholder={
-                reviewApprove ? t("ap.notePlaceholder") : t("ap.rejectReasonPlaceholder")
-              }
-              value={reviewNote}
-              onChange={(e) => setReviewNote(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReviewTarget(null)} disabled={reviewBusy}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              variant={reviewApprove ? "default" : "destructive"}
-              onClick={() => void submitReview()}
-              disabled={reviewBusy}
-            >
-              {reviewBusy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {reviewApprove ? t("ap.confirmReviewApprove") : t("ap.confirmReviewReject")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -26,17 +26,15 @@
 
 import { describe, it, expect, afterEach } from "vitest"
 import { env } from "cloudflare:workers"
-import { makeUser, setSetting } from "./helpers"
+import { makeUser, setSetting, seedUserProduct } from "./helpers"
 import { applyPoints } from "../src/points"
 import {
   autoConfirmDeliveries,
   buyProduct,
   createProduct,
-  createUserProduct,
   deliverOrder,
   getOrder,
   refundOrderCore,
-  reviewProduct,
   sellerDeliverOrder,
 } from "../src/points-shop"
 
@@ -106,16 +104,15 @@ async function makeUserProductOrder() {
   const admin = await makeUser({ role: "admin" })
   await applyPoints(env, { userId: buyer.id, delta: 500, reason: "admin", detail: "测试充值" })
 
-  const product = await createUserProduct(env, seller, {
+  const productId = await seedUserProduct(seller, {
     name: "交付守卫测试商品",
     price: PRICE,
     delivery: "manual",
     stock: 10,
   })
-  await reviewProduct(env, admin.id, product.id, true)
 
-  const order = await buyProduct(env, buyer, product.id) // pending，买家 -100（托管）
-  return { buyer, seller, admin, product, order }
+  const order = await buyProduct(env, buyer, productId) // pending，买家 -100（托管）
+  return { buyer, seller, admin, productId, order }
 }
 
 /** 造一张「官方商品、待管理员发放」的订单（pending） */
@@ -360,14 +357,13 @@ describe("自动交付路径的同一守卫（窗口更宽：跨一次上游调�
     const seller = await makeUser()
     await applyPoints(env, { userId: buyer.id, delta: 500, reason: "admin", detail: "测试充值" })
 
-    const product = await createUserProduct(env, seller, {
+    const productId = await seedUserProduct(seller, {
       name: "用户固定内容商品",
       price: 100,
       delivery: "content",
       deliveryParams: { content: "这是一段固定内容" },
       stock: 5,
     })
-    await reviewProduct(env, admin.id, product.id, true)
 
     // content 交付不调用上游，没有天然 await 窗口 ⇒ 用 Proxy 拦那条 UPDATE
     // （仓库既有惯用法见 checkin-makeup-cards.test.ts:169）
@@ -420,7 +416,7 @@ describe("自动交付路径的同一守卫（窗口更宽：跨一次上游调�
     const patchedEnv = Object.create(env) as typeof env
     patchedEnv.DB = proxyDb as unknown as typeof env.DB
 
-    await expect(buyProduct(patchedEnv, buyer, product.id)).rejects.toMatchObject({
+    await expect(buyProduct(patchedEnv, buyer, productId)).rejects.toMatchObject({
       status: 500,
       code: "DELIVERED_ORDER_CANCELLED",
     })

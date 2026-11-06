@@ -16,14 +16,12 @@
 
 import { describe, it, expect } from "vitest"
 import { env } from "cloudflare:workers"
-import { makeUser } from "./helpers"
+import { makeUser, seedUserProduct } from "./helpers"
 import { applyPoints } from "../src/points"
 import {
   buyProduct,
-  createUserProduct,
   getOrder,
   refundOrderCore,
-  reviewProduct,
   sellerDeliverOrder,
   settleEscrow,
 } from "../src/points-shop"
@@ -38,15 +36,14 @@ async function makeDeliveredOrder() {
 
   await applyPoints(env, { userId: buyer.id, delta: 500, reason: "admin", detail: "测试充值" })
 
-  const product = await createUserProduct(env, seller, {
+  const productId = await seedUserProduct(seller, {
     name: "并发测试商品",
     price: PRICE,
     delivery: "manual",
     stock: 10,
   })
-  await reviewProduct(env, admin.id, product.id, true)
 
-  const order = await buyProduct(env, buyer, product.id) // 托管扣款：pending
+  const order = await buyProduct(env, buyer, productId) // 托管扣款：pending
   await sellerDeliverOrder(env, seller.id, order.id) // → delivered
 
   const fresh = await getOrder(env, order.id)

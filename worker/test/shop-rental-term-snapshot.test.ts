@@ -26,7 +26,7 @@
 
 import { describe, it, expect } from "vitest"
 import { env } from "cloudflare:workers"
-import { makeUser, authRequest, fetchSelf, type TestUser } from "./helpers"
+import { makeUser, authRequest, fetchSelf, seedUserProduct, type TestUser } from "./helpers"
 import { applyPoints } from "../src/points"
 
 interface ProductBody {
@@ -271,25 +271,16 @@ describe("商城租期写入取订单快照", () => {
     const buyer = await makeUser()
     await recharge(buyer)
 
-    // 卖家上架一个买断商品
-    const created = await fetchSelf(
-      jsonReq(seller, "/api/points/products", "POST", {
-        name: "租期探针 C",
-        price: 30,
-        delivery: "manual",
-        stock: 3,
-        billingMode: "one_time",
-      })
-    )
-    expect(created.status).toBe(200)
-    const product = ((await created.json()) as { product: { id: string } }).product
+    // 用户上架通道已下线（2026-11-06），直接落一条「带卖家」的商品等价于存量数据
+    const productId = await seedUserProduct(seller, {
+      name: "租期探针 C",
+      price: 30,
+      delivery: "manual",
+      stock: 3,
+      billingMode: "one_time",
+    })
 
-    const reviewed = await fetchSelf(
-      jsonReq(admin, `/api/admin/points/products/${product.id}/review`, "POST", { approve: true })
-    )
-    expect(reviewed.status).toBe(200)
-
-    const orderId = await buy(buyer, product.id)
+    const orderId = await buy(buyer, productId)
 
     // 卖家标记交付（中间态）
     const sellerDelivered = await fetchSelf(
@@ -301,7 +292,7 @@ describe("商城租期写入取订单快照", () => {
     expect(
       await putProduct(
         admin,
-        product.id,
+        productId,
         { name: "租期探针 C", price: 30, delivery: "manual" },
         { billingMode: "rental", rentalDays: 15 }
       )
@@ -326,25 +317,16 @@ describe("商城租期写入取订单快照", () => {
     const buyer = await makeUser()
     await recharge(buyer)
 
-    const created = await fetchSelf(
-      jsonReq(seller, "/api/points/products", "POST", {
-        name: "租期探针 D3",
-        price: 30,
-        delivery: "manual",
-        stock: 3,
-        billingMode: "rental",
-        rentalDays: 30,
-      })
-    )
-    expect(created.status).toBe(200)
-    const product = ((await created.json()) as { product: { id: string } }).product
+    const productId = await seedUserProduct(seller, {
+      name: "租期探针 D3",
+      price: 30,
+      delivery: "manual",
+      stock: 3,
+      billingMode: "rental",
+      rentalDays: 30,
+    })
 
-    const reviewed = await fetchSelf(
-      jsonReq(admin, `/api/admin/points/products/${product.id}/review`, "POST", { approve: true })
-    )
-    expect(reviewed.status).toBe(200)
-
-    const orderId = await buy(buyer, product.id)
+    const orderId = await buy(buyer, productId)
     const snap = await orderRow(orderId)
     expect(snap?.billing_mode).toBe("rental")
     expect(snap?.rental_days).toBe(30)
@@ -359,7 +341,7 @@ describe("商城租期写入取订单快照", () => {
     expect(
       await putProduct(
         admin,
-        product.id,
+        productId,
         { name: "租期探针 D3", price: 30, delivery: "manual" },
         { billingMode: "rental", rentalDays: 90 }
       )

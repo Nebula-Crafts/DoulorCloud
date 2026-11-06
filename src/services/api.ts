@@ -72,7 +72,6 @@ import {
   type PointProduct,
   type PointProductPayload,
   type PublicPurchase,
-  type UserProductPayload,
   type AdminPointsOverview,
   type AdminShopData,
   type DonationRewardItem,
@@ -1023,41 +1022,8 @@ export const pointsApi = {
       `/points/products/${encodeURIComponent(productId)}/purchases`
     ),
 
-  // ---- 用户商城（自己上架 / 交付 / 确认收货）----
+  // ---- 订单（购买 / 交付 / 确认收货 / 售后）----
 
-  /** 上架自己的商品（提交后进入待审核，通过后才会出现在「用户们的商城」里） */
-  uploadProduct: (payload: UserProductPayload) =>
-    request<{ product: PointProduct }>("/points/products", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  /** 改自己上架的商品（改完会重新进入待审核） */
-  updateMyProduct: (id: string, payload: UserProductPayload) =>
-    request<{ product: PointProduct }>(`/points/products/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-  /** 删自己上架的商品（还有未交付订单时会被拒绝） */
-  deleteMyProduct: (id: string) =>
-    request<{ ok: boolean }>(`/points/products/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-  /** 我的商品（卡密）的卡密池概览 */
-  getMyProductCodes: (id: string) =>
-    request<{ total: number; used: number; available: number }>(
-      `/points/products/${encodeURIComponent(id)}/codes`
-    ),
-  /** 给我的商品（卡密）追加卡密（自动去重） */
-  addMyProductCodes: (id: string, codes: string[]) =>
-    request<{ added: number; available: number }>(
-      `/points/products/${encodeURIComponent(id)}/codes`,
-      { method: "POST", body: JSON.stringify({ codes }) }
-    ),
-  /** 清空我的商品（卡密）未使用的卡密 */
-  clearMyProductCodes: (id: string) =>
-    request<{ removed: number }>(`/points/products/${encodeURIComponent(id)}/codes`, {
-      method: "DELETE",
-    }),
   /** 卖家：把订单标记为已交付（积分仍在托管，等买家确认收货） */
   sellerDeliver: (orderId: string) =>
     request<{ order: PointOrder }>(
@@ -1888,12 +1854,6 @@ export const adminPointsApi = {
       method: "POST",
       body: JSON.stringify({ note }),
     }),
-  /** 审核用户上架的商品：approve=true 通过，false 拒绝 */
-  reviewProduct: (id: string, approve: boolean, note?: string) =>
-    request<{ product: PointProduct }>(
-      `/admin/points/products/${encodeURIComponent(id)}/review`,
-      { method: "POST", body: JSON.stringify({ approve, note }) }
-    ),
   /** 卡密池概览（delivery='code'） */
   getProductCodes: (id: string) =>
     request<{ total: number; used: number; available: number }>(

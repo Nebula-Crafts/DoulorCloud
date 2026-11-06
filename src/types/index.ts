@@ -3404,10 +3404,6 @@ export interface PointsOverview {
   transactions: PointTransaction[]
   /** 官方商品（已上架） */
   products: PointProduct[]
-  /** 别人上架的商品（已上架 + 审核通过） */
-  userProducts: PointProduct[]
-  /** 我上架的商品（含待审核 / 被拒 / 已下架） */
-  myProducts: PointProduct[]
   /** 我的订单（最近 50 笔） */
   orders: PointOrder[]
   /** 我收到的订单（我是卖家） */
@@ -3486,8 +3482,6 @@ export interface DonationRewardItem {
 export interface AdminShopData {
   /** 官方商品（可编辑 / 上下架） */
   products: PointProduct[]
-  /** 用户上架的商品（走审核流程，不能直接编辑） */
-  userProducts: PointProduct[]
   orders: PointOrder[]
   config: PointsConfig
   /** 各档位的捐献奖励积分数 */
@@ -3545,34 +3539,6 @@ export interface PointProductPayload {
   rentalDays: number | null
   enabled: boolean
   sort: number
-}
-
-/**
- * 用户上架 / 编辑自己的商品时提交的字段。
- *
- * 比官方商品少很多：交付方式固定人工、没有限购 / 排序，归属与审核状态由服务端决定
- * （用户传了也会被忽略）。
- */
-export interface UserProductPayload {
-  name: string
-  description: string
-  imageUrl: string | null
-  icon: string | null
-  category: ProductCategory
-  price: number
-  stock: number | null
-  /**
-   * 交付方式（2026-10-04 放开自动发货）：用户商品允许 manual / code / content。
-   * 其余自动方式（权限 / 订阅 / 额度）是平台能力，后端会直接拒绝。
-   */
-  delivery: PointDelivery
-  /** delivery='content' 时人人相同的固定内容 */
-  deliveryParams: PointDeliveryParams | null
-  /** 计费方式：买断 / 租用（用户商品也能租 —— 但只有人工交付可租） */
-  billingMode: PointBillingMode
-  /** 租期天数；`billingMode='rental'` 时必填（1 ~ 3650），买断传 null */
-  rentalDays: number | null
-  enabled: boolean
 }
 
 // ---- 角标汇总 ----

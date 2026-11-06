@@ -110,3 +110,51 @@ export async function fetchSelf(req: Request): Promise<Response> {
   const SELF = (await import("cloudflare:test")).SELF
   return SELF.fetch(req)
 }
+
+/**
+ * 直接造一条「用户商品」（owner_id 非空）用于测试。
+ *
+ * 2026-11-06 商城收敛后，用户上架通道已下线（`createUserProduct` / `reviewProduct`
+ * 删除），但**订单状态机**（担保托管 / 交付守卫 / 售后 / 租期快照）仍要覆盖 ——
+ * 那些测试只是需要一个「带卖家」的商品。这里直接落库，等价于历史存量数据。
+ */
+export async function seedUserProduct(
+  owner: { id: string; username: string },
+  input: {
+    name?: string
+    price: number
+    delivery?: string
+    stock?: number | null
+    billingMode?: string
+    rentalDays?: number | null
+    deliveryParams?: Record<string, unknown> | null
+  }
+): Promise<string> {
+  const { env } = await import("cloudflare:workers")
+  const id = `up_${Math.random().toString(36).slice(2, 12)}`
+  const now = new Date().toISOString()
+  await env.DB.prepare(
+    `INSERT INTO point_products
+       (id, name, description, price, stock, delivery, delivery_params, enabled, sort,
+        created_at, updated_at, owner_id, owner_name, review_status, reviewed_at,
+        billing_mode, rental_days, category)
+     VALUES (?, ?, '', ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, 'approved', ?, ?, ?, 'other')`
+  )
+    .bind(
+      id,
+      input.name ?? "测试用户商品",
+      input.price,
+      input.stock === undefined ? 10 : input.stock,
+      input.delivery ?? "manual",
+      input.deliveryParams ? JSON.stringify(input.deliveryParams) : null,
+      now,
+      now,
+      owner.id,
+      owner.username,
+      now,
+      input.billingMode ?? "one_time",
+      input.rentalDays ?? null
+    )
+    .run()
+  return id
+}

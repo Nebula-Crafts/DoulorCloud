@@ -1818,7 +1818,7 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
     handle: () => pointHandlers.buyShopProduct(env, request),
   },
 
-  // ---- 用户商城（用户自己上架 / 交付 / 确认收货）----
+  // ---- 商城商品（管理员发布；封面图上传 / 公开读取）----
   {
     // 商品封面上传：返回可直接填进 imageUrl 的同源 URL（2026-10-01）
     kind: "exact",
@@ -1839,36 +1839,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
         decodeURIComponent(shopImgMatch[1]),
         decodeURIComponent(shopImgMatch[2])
       ),
-  },
-  {
-    kind: "exact",
-    path: "/points/products",
-    method: "POST",
-    handle: () => pointHandlers.createMyProduct(env, request),
-  },
-  {
-    // 带方法分流必须用 branch：regex kind 的 handle 只收 1 个参数，拿不到 method
-    kind: "branch",
-    match: (routePath: string) => routePath.match(/^\/points\/products\/([^/]+)$/),
-    handle: (myProductMatch: RegExpMatchArray, method: string) => {
-      const id = decodeURIComponent(myProductMatch[1])
-      if (method === "PUT") return pointHandlers.updateMyProduct(env, request, id)
-      if (method === "DELETE") return pointHandlers.deleteMyProduct(env, request, id)
-      return null
-    },
-  },
-  // 卖家自己的卡密池（用户商品 delivery='code'）：读概览 / 追加 / 清空未使用。
-  // 所有权在 handler 里校验（只能动自己的商品）。
-  {
-    kind: "branch",
-    match: (routePath: string) => routePath.match(/^\/points\/products\/([^/]+)\/codes$/),
-    handle: (myCodesMatch: RegExpMatchArray, method: string) => {
-      const id = decodeURIComponent(myCodesMatch[1])
-      if (method === "GET") return pointHandlers.getMyProductCodes(env, request, id)
-      if (method === "POST") return pointHandlers.addMyProductCodes(env, request, id)
-      if (method === "DELETE") return pointHandlers.clearMyProductCodes(env, request, id)
-      return null
-    },
   },
   {
     kind: "regex",
@@ -1964,13 +1934,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
       if (method === "DELETE") return pointHandlers.deleteShopProduct(env, request, id)
       return null
     },
-  },
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/points\/products\/([^/]+)\/review$/),
-    methods: ["POST"],
-    handle: (shopReviewMatch: RegExpMatchArray) =>
-      pointHandlers.reviewShopProduct(env, request, decodeURIComponent(shopReviewMatch[1])),
   },
   // 卡密池（delivery='code'）：读概览 / 追加 / 清空未使用
   {

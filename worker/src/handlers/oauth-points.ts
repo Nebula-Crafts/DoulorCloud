@@ -23,6 +23,7 @@ import { ApiError, json } from "../http"
 import { verifyAccessToken, loadClientByClientId } from "../oauth-provider"
 import { applyPoints, getPointsBalance, type PointReason } from "../points"
 import { guardRateLimit } from "../ratelimit"
+import { sanitizeUserText } from "../text-sanitize"
 import type { Env } from "../env"
 
 /** 单笔最大扣减（积分）。够买站内绝大多数商品，同时把「误授权」的损失封顶 */
@@ -103,14 +104,12 @@ export async function pointsSpend(env: Env, request: Request): Promise<Response>
     )
   }
 
-  const description =
-    typeof body?.description === "string" && body.description.trim()
-      ? body.description.trim().slice(0, 100)
-      : ""
-  const requestId =
-    typeof body?.requestId === "string" && body.requestId.trim()
-      ? body.requestId.trim().slice(0, 64)
-      : null
+  /**
+   * ⚠️ 走 sanitizeUserText 而不是裸 slice：客户端若送了非 UTF-8 的字节，
+   * 解码出来的是一串 U+FFFD，直接落库会在积分明细里显示成乱码（2026-11-06 修）。
+   */
+  const description = sanitizeUserText(body?.description, 100)
+  const requestId = sanitizeUserText(body?.requestId, 64) || null
   if (body?.requestId !== undefined && body?.requestId !== null && !requestId) {
     throw new ApiError(400, "requestId 需为 1 ~ 64 个字符", "INVALID_REQUEST_ID")
   }

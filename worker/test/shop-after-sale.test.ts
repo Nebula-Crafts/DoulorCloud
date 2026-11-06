@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest"
 import { env } from "cloudflare:workers"
 import { applyPoints, getPointsBalance } from "../src/points"
-import { authRequest, fetchSelf, makeUser } from "./helpers"
+import { authRequest, fetchSelf, makeUser, seedUserProduct } from "./helpers"
 
 type U = Awaited<ReturnType<typeof makeUser>>
 
@@ -23,18 +23,14 @@ function jsonInit(body: unknown, method = "POST"): RequestInit {
   }
 }
 
-/** 卖家上架一件商品并让管理员审核通过，返回商品 id */
-async function listedProduct(admin: U, seller: U, price: number): Promise<string> {
-  const up = await fetchSelf(
-    authRequest(seller, "/api/points/products", jsonInit({ name: "售后测试商品", price }))
-  )
-  expect(up.status).toBe(200)
-  const id = ((await up.json()) as { product: { id: string } }).product.id
-  const rv = await fetchSelf(
-    authRequest(admin, `/api/admin/points/products/${id}/review`, jsonInit({ approve: true }))
-  )
-  expect(rv.status).toBe(200)
-  return id
+/**
+ * 造一件「用户商品」（owner 非空、已通过审核），返回商品 id。
+ *
+ * 2026-11-06 商城收敛后用户上架通道已下线，但**担保售后链路**对历史订单仍然生效，
+ * 所以这里直接落库（等价于收敛前的存量商品），而不是走已删除的上架接口。
+ */
+async function listedProduct(_admin: U, seller: U, price: number): Promise<string> {
+  return seedUserProduct(seller, { name: "售后测试商品", price, stock: 10 })
 }
 
 function buy(user: U, productId: string): Promise<Response> {

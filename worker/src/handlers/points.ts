@@ -73,9 +73,7 @@ import {
   clearUnusedProductCodes,
   confirmOrder,
   createProduct,
-  createUserProduct,
   deleteProduct,
-  deleteUserProduct,
   deliverOrder,
   escalateAfterSale,
   getProductCodes,
@@ -85,11 +83,9 @@ import {
   listPublicPurchases,
   rejectDelivery,
   requestAfterSale,
-  reviewProduct,
   sellerDeliverOrder,
   sellerResolveAfterSale,
   updateProduct,
-  updateUserProduct,
 } from "../points-shop"
 import type { AfterSaleStatus, OrderStatus } from "../points-shop"
 import type { Env } from "../env"
@@ -104,8 +100,6 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
     config,
     transactions,
     products,
-    userProducts,
-    myProducts,
     orders,
     sellerOrders,
     boundRow,
@@ -116,19 +110,6 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
     // 官方商品：只要上架的。⚠️ stripContent：content 是要卖的正文，
     // 公开列表里绝不能带（不买也能看到 = 白送）。
     listProducts(env, { onlyEnabled: true, scope: "official", stripContent: true }),
-    // 用户商品：上架 + 审核通过（待审核 / 被拒的不给别人看）。
-    // 上限 200 是「用户们的商城」一页 9 个的翻页基数：前端不做服务端分页，一次拿全量。
-    // stripContent 同上 —— 用户商家的固定内容也是要卖的东西。
-    listProducts(env, {
-      onlyEnabled: true,
-      scope: "user",
-      reviewStatus: "approved",
-      limit: 200,
-      stripContent: true,
-    }),
-    // 我上架的：含待审核 / 已拒绝 / 已下架，自己要看得到进度。
-    // 不 strip —— 卖家编辑自己的商品需要回填正文。
-    listProducts(env, { ownerId: user.id, limit: 50 }),
     listOrders(env, { userId: user.id, limit: 50 }),
     // 我收到的订单（我是卖家）
     listOrders(env, { sellerId: user.id, limit: 50 }),
@@ -142,8 +123,6 @@ export async function getPoints(env: Env, request: Request): Promise<Response> {
     config,
     transactions,
     products,
-    userProducts,
-    myProducts,
     orders,
     sellerOrders,
     /** 是否已绑定中转站账号（未绑定时「兑换」与自动充值商品置灰并提示先去开通） */
@@ -372,54 +351,6 @@ export async function buyShopProduct(env: Env, request: Request): Promise<Respon
 
 // ---- 用户商品（上架 / 编辑 / 删除 / 交付 / 确认）----
 
-/** POST /api/points/products —— 上架自己的商品 */
-export async function createMyProduct(env: Env, request: Request): Promise<Response> {
-  const user = await requireUser(env, request)
-  // 上架要限流：用户商城是所有人共享的一块地方，不限流等于开放刷屏
-  await guardRateLimit(env, `points-product-new:${user.id}`, 10, 3600, "上架太频繁，请稍后再试")
-
-  assertContentLengthWithin(request, MAX_JSON_BODY_BYTES, "请求内容过大")
-  const body = await request.json().catch(() => ({}))
-  const product = await createUserProduct(
-    env,
-    { id: user.id, username: user.username },
-    body
-  )
-  await audit(
-    env,
-    user.id,
-    "points.shop.upload",
-    `${user.username} 上架商品「${product.name}」（${product.price} 积分，待审核）`
-  )
-  return json({ product })
-}
-
-/** PUT /api/points/products/:id —— 改自己的商品（改完重新待审核） */
-export async function updateMyProduct(
-  env: Env,
-  request: Request,
-  id: string
-): Promise<Response> {
-  const user = await requireUser(env, request)
-  assertContentLengthWithin(request, MAX_JSON_BODY_BYTES, "请求内容过大")
-  const body = await request.json().catch(() => ({}))
-  const product = await updateUserProduct(env, user.id, id, body)
-  await audit(env, user.id, "points.shop.upload", `${user.username} 修改商品「${product.name}」（重新待审核）`)
-  return json({ product })
-}
-
-/** DELETE /api/points/products/:id —— 删自己的商品 */
-export async function deleteMyProduct(
-  env: Env,
-  request: Request,
-  id: string
-): Promise<Response> {
-  const user = await requireUser(env, request)
-  await deleteUserProduct(env, user.id, id)
-  await audit(env, user.id, "points.shop.upload", `${user.username} 删除自己上架的商品 ${id}`)
-  return json({ ok: true })
-}
-
 /**
  * GET /api/points/products/:id/purchases —— 商品**公示出来的**购买记录（最近 10 条）。
  *
@@ -444,68 +375,6 @@ export async function getProductPurchases(
 }
 
 // ---- 卖家的卡密池（自己的商品 delivery='code'，2026-10-04 用户商品放开自动发货）----
-
-/** 卡密池三个动作共用的所有权校验：商品存在 + 是我的 + 是卡密商品 */
-async function requireMyCodeProduct(
-  env: Env,
-  userId: string,
-  productId: string
-): Promise<void> {
-  const row = await env.DB.prepare(
-    "SELECT owner_id, delivery FROM point_products WHERE id = ?"
-  )
-    .bind(productId)
-    .first<{ owner_id: string | null; delivery: string }>()
-  if (!row) throw new ApiError(404, "商品不存在", "NOT_FOUND")
-  if (row.owner_id !== userId) {
-    throw new ApiError(403, "这不是你的商品", "FORBIDDEN")
-  }
-  if (row.delivery !== "code") {
-    throw new ApiError(400, "只有「卡密/Key」交付的商品才有卡密池", "NOT_CODE_PRODUCT")
-  }
-}
-
-/** GET /api/points/products/:id/codes —— 我的商品卡密池概览 */
-export async function getMyProductCodes(
-  env: Env,
-  request: Request,
-  id: string
-): Promise<Response> {
-  const user = await requireUser(env, request)
-  await requireMyCodeProduct(env, user.id, id)
-  return json(await getProductCodes(env, id))
-}
-
-/** POST /api/points/products/:id/codes —— 给我的商品追加卡密 */
-export async function addMyProductCodes(
-  env: Env,
-  request: Request,
-  id: string
-): Promise<Response> {
-  const user = await requireUser(env, request)
-  await requireMyCodeProduct(env, user.id, id)
-  assertContentLengthWithin(request, MAX_JSON_BODY_BYTES, "请求内容过大")
-  const body = (await request.json().catch(() => ({}))) as { codes?: unknown }
-  const codes = Array.isArray(body.codes)
-    ? body.codes.filter((c): c is string => typeof c === "string")
-    : []
-  const result = await addProductCodes(env, id, codes)
-  await audit(env, user.id, "points.shop.upload", `${user.username} 给商品 ${id} 导入卡密 ${result.added} 条`)
-  return json(result)
-}
-
-/** DELETE /api/points/products/:id/codes —— 清空我的商品未使用的卡密 */
-export async function clearMyProductCodes(
-  env: Env,
-  request: Request,
-  id: string
-): Promise<Response> {
-  const user = await requireUser(env, request)
-  await requireMyCodeProduct(env, user.id, id)
-  const removed = await clearUnusedProductCodes(env, id)
-  await audit(env, user.id, "points.shop.upload", `${user.username} 清空商品 ${id} 未使用卡密 ${removed} 条`)
-  return json({ removed })
-}
 
 /** POST /api/points/orders/:id/deliver —— 卖家标记已交付 */
 export async function sellerDeliver(env: Env, request: Request, id: string): Promise<Response> {
@@ -822,15 +691,14 @@ export async function getShopAdmin(env: Env, request: Request): Promise<Response
 
   const [
     products,
-    userProducts,
     orders,
     config,
     donationRewards,
     donationDailyLimit,
     inviteConfig,
   ] = await Promise.all([
+    // 商城只剩管理员发布的商品（2026-11-06：用户上架链路已下线）
     listProducts(env, { scope: "official" }),
-    listProducts(env, { scope: "user", limit: 200 }),
     listOrders(env, { status, limit: 200 }),
     getRedeemConfig(env),
     getDonationRewardPoints(env),
@@ -839,7 +707,6 @@ export async function getShopAdmin(env: Env, request: Request): Promise<Response
   ])
   return json({
     products,
-    userProducts,
     orders,
     config,
     /** 邀请奖励 / 返佣的四个旋钮（编辑入口：商城 → 「邀请奖励」） */
@@ -1084,25 +951,6 @@ export async function clearShopProductCodes(
   const removed = await clearUnusedProductCodes(env, id)
   await audit(env, admin.id, "points.shop.product", `商品 ${id} 清空未使用卡密 ${removed} 条`)
   return json({ removed })
-}
-
-/** POST /api/admin/points/products/:id/review —— 审核用户商品 */export async function reviewShopProduct(
-  env: Env,
-  request: Request,
-  id: string
-): Promise<Response> {
-  const admin = await requireAdminScope(env, request, "points.official")
-  assertContentLengthWithin(request, MAX_JSON_BODY_BYTES, "请求内容过大")
-  const body = (await request.json().catch(() => ({}))) as {
-    approve?: unknown
-    note?: unknown
-  }
-  if (typeof body.approve !== "boolean") {
-    throw new ApiError(400, "请指明是通过还是拒绝", "INVALID_INPUT")
-  }
-  const note = typeof body.note === "string" ? body.note : undefined
-  const product = await reviewProduct(env, admin.id, id, body.approve, note)
-  return json({ product })
 }
 
 /** POST /api/admin/points/orders/:id/deliver —— 标记官方商品订单已发放 */
