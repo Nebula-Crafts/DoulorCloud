@@ -21,7 +21,7 @@ import remarkGfm from "remark-gfm"
 import remarkBreaks from "remark-breaks"
 import { Check, Loader2, Plus } from "lucide-react"
 import { toast } from "sonner"
-import { FunLinkIcon } from "@/components/fun-link-icon"
+import { LinkIcon } from "@/components/link-icon"
 import { stickerApi, errMsg } from "@/services/api"
 import { GitHubMark, isGitHubUrl } from "@/components/github-mark"
 import { useAuth } from "@/hooks/use-auth"
@@ -119,7 +119,7 @@ function LinkCard({ href }: { href: string }) {
           onError={() => setImageFailed(true)}
         />
       ) : (
-        <FunLinkIcon src={preview.icon} title={preview.title} size={80} className="rounded-none" />
+        <LinkIcon src={preview.icon} title={preview.title} size={80} className="rounded-none" />
       )}
       <div className="min-w-0 flex-1 py-2 pr-3">
         <p className="truncate text-sm font-medium text-foreground">{preview.title}</p>

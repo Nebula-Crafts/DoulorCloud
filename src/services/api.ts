@@ -83,7 +83,6 @@ import {
   type DmConversation,
   type Sticker,
 } from "@/types"
-import type { FunLinkCategory } from "@/lib/fun-links"
 import { tStatic, translateApiMessage } from "@/i18n"
 
 /**
@@ -2374,82 +2373,6 @@ export const feedbackApi = {  /** 我提交过的反馈 + 分类/状态标签（
       body: JSON.stringify({ id }),
     }),
 }
-
-// ---- 有趣的网页分享（工具箱里的精选外链）----
-//
-// 类型定义放在这里而不是 types/index.ts：与上面 OAuth 那段同样的理由 ——
-// 这个模块自成一体，也避免与同时改 types/index.ts 的另一处改动互相干扰。
-
-export interface FunLink {
-  id: string
-  title: string
-  url: string
-  description: string
-  /** 分类短键，见 `@/lib/fun-links` 的 `FUN_LINK_CATEGORIES` */
-  category: FunLinkCategory
-  /** 原始图标地址（可能为空）。渲染时请走 `/api/fun-links/icon/:id` 代理，别直接用它 */
-  iconUrl: string
-  sortOrder: number
-  /** false = 已下架（普通用户在工具箱里看不到） */
-  enabled: boolean
-  createdAt: string
-  updatedAt: string
-}
-
-export interface FunLinkInput {
-  title: string
-  url: string
-  description?: string
-  category?: FunLinkCategory
-  iconUrl?: string
-  sortOrder?: number
-  enabled?: boolean
-}
-
-/** 自动识别网页信息的结果 */
-export interface FunLinkProbe {
-  title: string
-  description: string
-  iconUrl: string
-  /** 跟随重定向后的最终地址，供前端提示「这个链接跳到了 X」 */
-  finalUrl: string
-}
-
-/**
- * 图标的展示地址。
- *
- * 走本站代理而不是直接用条目里的 `iconUrl`：第三方图标可能是 http（会被浏览器
- * 按混合内容拦掉），也可能有防盗链，代理一层两个问题都没了。
- */
-export function funLinkIconUrl(id: string): string {
-  return `${BASE}/fun-links/icon/${encodeURIComponent(id)}`
-}
-
-/** 管理面板用：含已下架 */
-export const adminFunLinksApi = {
-  list: () => request<{ links: FunLink[] }>("/admin/fun-links"),
-  create: (payload: FunLinkInput) =>
-    request<{ link: FunLink }>("/admin/fun-links", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  update: (id: string, payload: Partial<FunLinkInput>) =>
-    request<{ link: FunLink }>(`/admin/fun-links/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-  remove: (id: string) =>
-    request<{ ok: boolean }>(`/admin/fun-links/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-  /** 自动识别：把链接丢给服务端去抓标题 / 描述 / 图标（可能耗时几秒） */
-  probe: (url: string) =>
-    request<FunLinkProbe>("/admin/fun-links/probe", {
-      method: "POST",
-      body: JSON.stringify({ url }),
-    }),
-}
-
 // ---- 自定义称号（徽章式；管理面板创建 + 授予） ----
 
 /** 某个称号的一名持有者 */

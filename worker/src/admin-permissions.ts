@@ -118,7 +118,6 @@ export const ADMIN_PERMISSIONS: AdminPermCategory[] = [
 
   // ======================= 内容与运营 =======================
   { key: "announcements", label: "公告", group: "operation" },
-  { key: "funLinks", label: "趣站链接", group: "operation" },
   {
     key: "events",
     label: "活动",

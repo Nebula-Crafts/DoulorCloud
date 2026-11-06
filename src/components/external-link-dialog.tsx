@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { FunLinkIcon } from "@/components/fun-link-icon"
+import { LinkIcon } from "@/components/link-icon"
 import { hostOf, loadLinkPreview, peekLinkPreview } from "@/lib/link-preview"
 import { tStatic, useT } from "@/i18n"
 import type { LinkPreview } from "@/types"
@@ -127,7 +127,7 @@ export function ExternalLinkDialog() {
             ) : null}
             <div className="flex items-start gap-2 p-3">
               {!showImage && (
-                <FunLinkIcon
+                <LinkIcon
                   src={preview.icon}
                   title={preview.title}
                   size={32}

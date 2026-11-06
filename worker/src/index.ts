@@ -14,8 +14,6 @@ import * as myInviteHandlers from "./handlers/my-invites"
 import * as identityHandlers from "./handlers/identity"
 import * as cfQuotaHandlers from "./handlers/cf-quota"
 import * as announcementHandlers from "./handlers/announcements"
-import * as funLinkHandlers from "./handlers/fun-links"
-import * as funLinkProbeHandlers from "./handlers/fun-link-probe"
 import * as titleHandlers from "./handlers/titles"
 import * as achievementHandlers from "./handlers/achievements"
 import * as memberLevelHandlers from "./handlers/member-level"
@@ -854,61 +852,6 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
       request,
       decodeURIComponent(announcementMatch[1])
       ),
-  },
-
-  // ---- 有趣的网页分享（工具箱里的精选外链，内容由管理面板维护）----
-  {
-    kind: "exact",
-    path: "/fun-links",
-    method: "GET",
-    handle: () => funLinkHandlers.listFunLinks(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/fun-links",
-    method: "GET",
-    handle: () => funLinkHandlers.adminListFunLinks(env, request),
-  },
-
-  {
-    kind: "exact",
-    path: "/admin/fun-links",
-    method: "POST",
-    handle: () => funLinkHandlers.createFunLink(env, request),
-  },
-
-  // 自动识别：服务端去把对方的标题 / 描述 / 图标抓回来（管理面板「自动识别」按钮）
-  {
-    kind: "exact",
-    path: "/admin/fun-links/probe",
-    method: "POST",
-    handle: () => funLinkProbeHandlers.probeFunLink(env, request),
-  },
-
-  // 图标代理：只认库里存过的图标地址，不是开放代理
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/fun-links\/icon\/([^/]+)$/),
-    methods: ["GET"],
-    handle: (iconMatch: RegExpMatchArray) =>
-      funLinkProbeHandlers.getFunLinkIcon(env, request, decodeURIComponent(iconMatch[1])),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/fun-links\/([^/]+)$/),
-    methods: ["PUT"],
-    handle: (funLinkMatch: RegExpMatchArray) =>
-      funLinkHandlers.updateFunLink(env, request, decodeURIComponent(funLinkMatch[1])),
-  },
-
-  {
-    kind: "regex",
-    match: (routePath: string) => routePath.match(/^\/admin\/fun-links\/([^/]+)$/),
-    methods: ["DELETE"],
-    handle: (funLinkMatch: RegExpMatchArray) =>
-      funLinkHandlers.deleteFunLink(env, request, decodeURIComponent(funLinkMatch[1])),
   },
 
   // ---- 自定义称号（徽章式，管理面板维护 + 授予指定用户）----

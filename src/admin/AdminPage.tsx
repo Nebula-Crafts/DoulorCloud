@@ -2,7 +2,6 @@ import * as React from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import {
   Ban,
-  Compass,
   ChevronLeft,
   ChevronRight,
   KeyRound,
@@ -54,7 +53,6 @@ import { FeedbackPanel } from "@/pages/admin-feedback"
 import { PerfPanel } from "@/pages/admin-perf"
 import { AuditPanel } from "@/pages/admin-audit"
 import { PointsAdminPanel } from "@/pages/admin-points"
-import { FunLinksAdminPanel } from "@/pages/admin-fun-links"
 import { TitlesAdminPanel } from "@/pages/admin-titles"
 import { ModerationAdminPanel } from "@/pages/admin-moderation"
 import { AdminNoticesPanel } from "@/pages/admin-notices"
@@ -657,7 +655,6 @@ const TAB_GROUP: Record<string, string> = {
   moderation: "adm.215",
   notices: "adm.215",
   announcements: "adm.226",
-  funLinks: "adm.226",
   events: "adm.226",
   points: "adm.226",
   community: "adm.226",
@@ -679,7 +676,7 @@ const ADMIN_TAB_KEYS = new Set([
   "users", "invites", "inviteQuotas", "reserved", "titles", "points",
   "feedback", "announcements", "events", "community", "moderation", "notices",
   "analytics", "cfQuota", "audit",
-  "oauth", "settings", "funLinks", "permissions", "perf",
+  "oauth", "settings", "permissions", "perf",
 ])
 
 export default function AdminPage() {
@@ -938,7 +935,6 @@ export default function AdminPage() {
   // ---- 2026-09-26 补齐：以下设置项后端一直有默认值，但面板从没有输入框 ----
   /** 免费订阅套餐 id（0 = 不自动开订阅） */
   /** quota ↔ 金额换算率的可编辑值 */
-  const [quotaPerUnitInput, setQuotaPerUnitInput] = React.useState("500000")
   /** 邀请奖励总开关 */
   /** 邀请奖励：反代绑定奖励套餐 id */
   /** 邀请奖励：AI 渠道捐献奖励套餐 id */
@@ -1313,7 +1309,6 @@ export default function AdminPage() {
       // 捐献 baseUrl 黑名单：后端存的是归一化后的文本，这里原样回显（前端不再加工，
       // 免得两套归一化口径打架）
       // ---- 2026-09-26 补齐的设置项 ----
-      setQuotaPerUnitInput(s.newapi_quota_per_unit ?? "500000")
       setInviteRewardAiPlanId(s.invite_reward_ai_plan_id ?? "3")
       setAchievementRewardEnabled(isSettingOn(s.achievement_reward_enabled, false))
       setAchievementRewardPlanId(s.achievement_reward_plan_id ?? "4")
@@ -1410,7 +1405,6 @@ export default function AdminPage() {
         sensenova_base_url: sensenovaBaseUrl.trim(),
         // 空串是合法值（= 通道未配置、捐献转人工），要原样提交才能「清空」
         sensenova_channel_id: sensenovaChannelId.trim(),
-        newapi_quota_per_unit: Math.max(1, Math.round(Number(quotaPerUnitInput) || 500000)),
         invite_reward_ai_plan_id: Math.max(0, Math.round(Number(inviteRewardAiPlanId) || 0)),
         achievement_reward_enabled: achievementRewardEnabled,
         achievement_reward_plan_id: Math.max(0, Math.round(Number(achievementRewardPlanId) || 0)),
@@ -2386,7 +2380,6 @@ export default function AdminPage() {
               </NavGroup>
               <NavGroup label={t("adm.226")} open={groupOpen("adm.226")} onToggle={() => toggleGroup("adm.226")}>
                 {canSeeTab("announcements") && <NavItem active={activeTab === "announcements"} icon={Megaphone} label={t("adm.227")} onClick={() => handleTabChange("announcements")} />}
-                {canSeeTab("funLinks") && <NavItem active={activeTab === "funLinks"} icon={Compass} label={t("adm.228")} onClick={() => handleTabChange("funLinks")} />}
                 {/* 角标 = 活动奖励里「自动发放失败、要人工发」的条数（见各活动的「领取名单」） */}
                 {canSeeTab("events") && (
                   <NavItem
@@ -3211,10 +3204,6 @@ export default function AdminPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="funLinks">
-          <FunLinksAdminPanel />
-        </TabsContent>
-
         <TabsContent value="titles">
           <TitlesAdminPanel />
         </TabsContent>
@@ -3944,30 +3933,6 @@ export default function AdminPage() {
 
               {/* 积分系统的配置（开关 / 比例 / 每日上限）已挪到 管理面板 → 积分 → 商城，
                   因为「兑换」现在就是商城里的一件商品（2026-09-28 站长要求）。 */}
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t("adm.673")}</CardTitle>
-                  <CardDescription>{t("adm.674")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">{t("adm.1108")}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="quotaPerUnitInput">{t("adm.1109")}</Label>
-                    <Input
-                      id="quotaPerUnitInput"
-                      inputMode="numeric"
-                      value={quotaPerUnitInput}
-                      onChange={(e) => setQuotaPerUnitInput(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("adm.676")}
-                      <strong>{t("adm.1110")}</strong>{t("adm.1111")}</p>
-                  </div>
-                </CardContent>
-              </Card>
 
               {/* 「AI实验室 Agent 提示词」已搬到独立的「AI 实验室」栏目
                   （见 components/admin-lab-tab.tsx）—— 它的兄弟配置项
