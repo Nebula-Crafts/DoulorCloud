@@ -268,7 +268,7 @@ export const SETTING_DEFAULTS = {
    *   点通过之后，该应用才能被授权页使用（未通过的会直接拒绝授权）。
    *
    * ⚠️ 与开关无关的固定护栏（2026-10-06）：
-   *   · 应用名含敏感词（官方 / 客服 / 验证 / Doulor…）一律拒绝——防钓鱼仿冒；
+   *   · 应用名含敏感词（官方 / 客服 / 验证 / doulor / xceedcloud…）一律拒绝——防钓鱼仿冒；
    *   · 用户**改了回调地址会重新回到待审核**——否则先提交安全地址过审、
    *     再改成钓鱼地址，审核就形同虚设；
    *   · 每人最多 `OAUTH_MAX_CLIENTS_PER_USER` 个应用；创建接口有限流。
@@ -341,7 +341,7 @@ export const SETTING_DEFAULTS = {
    * 所以不能填 no-reply@doulor.cn 这类别名。若 Posta 后台换用支持自有域名的
    * SMTP 服务商，这里同步改成 doulor.cn 的地址即可。
    */
-  posta_from: "Doulor Cloud <DoulorCloud@foxmail.com>",
+  posta_from: "XceedCloud <DoulorCloud@foxmail.com>",
   /**
    * Brevo（Sendinblue）API key —— **支持多把，逗号/换行分隔，额度叠加**（只写不读）。
    *
@@ -353,7 +353,7 @@ export const SETTING_DEFAULTS = {
   /** Brevo 发件人邮箱（需在 Brevo 后台验证过该地址） */
   brevo_sender_email: "",
   /** Brevo 发件人显示名 */
-  brevo_sender_name: "Doulor Cloud",
+  brevo_sender_name: "XceedCloud",
   /**
    * 公告群发的首选通道（posta / brevo），默认 posta。
    *

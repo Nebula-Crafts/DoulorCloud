@@ -2058,7 +2058,7 @@ function buildRoutes(env: Env, request: Request, ctx?: ExecutionContext): RouteR
       cfQuotaHandlers.getCloudflareQuota(env, request),
   },
 
-  // ================= OAuth 2.0 授权服务器（Doulor Cloud 作为身份提供方）=================
+  // ================= OAuth 2.0 授权服务器（XceedCloud 作为身份提供方）=================
   //
   // ⚠️ 为什么全部挂在 /api 下、而不是根级的 /oauth/authorize：
   //   本站在 Cloudflare 上跑两个 Worker。API Worker 只被挂了

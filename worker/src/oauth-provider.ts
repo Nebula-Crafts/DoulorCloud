@@ -1,7 +1,7 @@
 /**
- * OAuth 2.0 授权服务器核心逻辑（Doulor Cloud 作为身份提供方 / IdP）。
+ * OAuth 2.0 授权服务器核心逻辑（XceedCloud 作为身份提供方 / IdP）。
  *
- * ⚠️ 方向：本模块让**别的站点**用 Doulor Cloud 账号登录我们，
+ * ⚠️ 方向：本模块让**别的站点**用 XceedCloud 账号登录我们，
  * 不是让我们去登录别人。首个消费者是 NewAPI。
  *
  * 为什么是「OIDC 兼容」而不是完整 OIDC：
@@ -62,7 +62,7 @@ export function isClientUsable(client: { review_status?: string | null; disabled
  * 应用名里禁止出现的词（防钓鱼仿冒）。
  *
  * 为什么必须有：同意页展示给用户的就是「应用名 + 权限」，用户判断「这是不是官方的」
- * 基本只看名字。放任用户起名「Doulor Cloud 官方验证」「账号申诉客服」，等于把
+ * 基本只看名字。放任用户起名「XceedCloud 官方验证」「账号申诉客服」，等于把
  * 钓鱼工具直接发到他手上。
  *
  * 匹配是**大小写不敏感的子串**匹配（中文没有大小写，英文一并规范化），
@@ -70,6 +70,7 @@ export function isClientUsable(client: { review_status?: string | null; disabled
  */
 const FORBIDDEN_NAME_PARTS = [
   "doulor",
+  "xceedcloud",
   "官方",
   "客服",
   "管理",

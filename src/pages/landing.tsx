@@ -248,7 +248,7 @@ export default function LandingPage() {
       <section className="flex flex-col items-center gap-6 py-20 text-center sm:py-28">
         <Badge variant="secondary" className="gap-1.5 px-3 py-1">
           <ShieldCheck className="h-3 w-3" />
-          Doulor Cloud
+          XceedCloud
         </Badge>
         <h1 className="max-w-3xl text-balance text-4xl font-semibold tracking-tight sm:text-6xl">
           {t("landing.heroLine1")}
@@ -358,7 +358,7 @@ export default function LandingPage() {
       {/* 下载：网页 PWA + 安卓 + Windows */}
       <DownloadSection />
 
-      {/* 卖点：为什么选 Doulor Cloud */}
+      {/* 卖点：为什么选 XceedCloud */}
       <section className="motion-reveal py-12 sm:py-16">
         <div className="mb-10 text-center">
           <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -475,7 +475,7 @@ export default function LandingPage() {
           开源项目里访客/贡献者最常找的就是这里，放页脚是最不打扰、也最符合直觉的位置。 */}
       <footer className="mt-8 flex flex-col items-center justify-between gap-3 border-t py-8 text-sm text-muted-foreground sm:flex-row">
         <p className="text-center sm:text-left">
-          © {new Date().getFullYear()} Doulor Cloud
+          © {new Date().getFullYear()} XceedCloud
           <span className="mx-2 hidden sm:inline">·</span>
           <span className="block sm:inline">{t("landing.footer.builtWith")}</span>
         </p>

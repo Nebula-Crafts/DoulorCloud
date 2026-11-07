@@ -1,5 +1,5 @@
 /**
- * Doulor Cloud 的 PWA Service Worker。
+ * XceedCloud 的 PWA Service Worker。
  *
  * 策略刻意保守，不能破坏站上已有的「chunk 哈希变了 → 旧 HTML → 404 → 自动刷新」自愈：
  *   - 导航（HTML）：**网络优先**，失败才回退缓存（离线还能打开壳）。这样每次更新都能拿到新 HTML，

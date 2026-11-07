@@ -20,7 +20,7 @@ import type { Env } from "./env"
 
 /** 发件人：必须是 wrangler.toml 里 allowed_sender_addresses 列出的地址 */
 export const MAIL_FROM = "no-reply@doulor.cn"
-export const MAIL_FROM_NAME = "Doulor Cloud"
+export const MAIL_FROM_NAME = "XceedCloud"
 
 export interface SendMailInput {
   to: string
@@ -116,7 +116,7 @@ function isQuotaResponse(status: number, body: string): boolean {
  * ⚠️ `from` 取自设置项 `posta_from`（可配置），**默认不是站点的 no-reply 地址**。
  *   原因：Posta 背后若是 QQ SMTP，信封 `MAIL FROM` 必须等于授权登录账号，否则报
  *   `501 Mail from address must be same as authorization user`（2026-09-27 实测）。
- *   所以默认值是与登录账号一致的 `Doulor Cloud <DoulorCloud@foxmail.com>`。
+ *   所以默认值是与登录账号一致的 `XceedCloud <DoulorCloud@foxmail.com>`。
  *   若之后 Posta 换用支持自有域名的 SMTP，只改设置项即可，无需改代码。
  */
 async function sendViaPosta(env: Env, input: SendMailInput): Promise<void> {
@@ -442,8 +442,8 @@ export function renderMail(
   // 用 <img> 外链而不是内联 SVG —— Gmail/Outlook 等主流客户端会剥掉 <svg>，
   // 图片是邮件里唯一可靠的品牌位；加 ?v= 绕开站点对 /favicon.png 的一年 immutable 缓存。
   const brand = `<a href="https://cloud.doulor.cn/dashboard" target="_blank" style="display:inline-block;margin:0 0 20px;text-decoration:none">
-      <img src="https://cloud.doulor.cn/favicon.png?v=2" width="40" height="40" alt="Doulor Cloud" style="border-radius:10px;display:inline-block;vertical-align:middle;border:0">
-      <span style="display:inline-block;vertical-align:middle;margin-left:10px;font-size:21px;font-weight:700;letter-spacing:-0.02em;color:#111827">Doulor Cloud</span>
+      <img src="https://cloud.doulor.cn/favicon.png?v=2" width="40" height="40" alt="XceedCloud" style="border-radius:10px;display:inline-block;vertical-align:middle;border:0">
+      <span style="display:inline-block;vertical-align:middle;margin-left:10px;font-size:21px;font-weight:700;letter-spacing:-0.02em;color:#111827">XceedCloud</span>
     </a>`
   const html = `<!doctype html><html><body style="margin:0;background:#f6f7f9;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'PingFang SC','Microsoft YaHei',sans-serif">
   <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e7eb">
@@ -463,7 +463,7 @@ export function renderMail(
         : ""
     }
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0" />
-    <p style="margin:0;font-size:12px;color:#9ca3af">Doulor Cloud · 请勿回复本邮件</p>
+    <p style="margin:0;font-size:12px;color:#9ca3af">XceedCloud · 请勿回复本邮件</p>
   </div>
 </body></html>`
   return { text, html }

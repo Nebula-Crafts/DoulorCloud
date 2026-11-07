@@ -583,7 +583,7 @@ async function previewInternalPost(
     description: summary || "（无正文）",
     image,
     icon: null,
-    siteName: "Doulor Cloud 社区",
+    siteName: "XceedCloud 社区",
     internal: true,
     postId,
   }
@@ -1250,11 +1250,11 @@ async function maybeSendMail(env: Env, recipientId: string, postId: string): Pro
   const u = await env.DB.prepare("SELECT email, notify_enabled FROM users WHERE id=?").bind(recipientId).first<{ email: string; notify_enabled: number }>()
   if (!u || !u.notify_enabled) return
   const link = `https://cloud.doulor.cn/community/${postId}`
-  const { text, html } = renderMail("你在 Doulor Cloud 社区有新互动", [
+  const { text, html } = renderMail("你在 XceedCloud 社区有新互动", [
     "有人回复了你的帖子或评论。",
     `查看：${link}`,
   ])
-  try { await sendMail(env, { to: u.email, subject: "【Doulor Cloud】社区新互动", text, html }) } catch {}
+  try { await sendMail(env, { to: u.email, subject: "【XceedCloud】社区新互动", text, html }) } catch {}
 }
 
 /**

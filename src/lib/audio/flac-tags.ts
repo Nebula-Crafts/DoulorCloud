@@ -165,7 +165,7 @@ function buildVorbisComment(tags: FlacTags): Uint8Array {
   put("DESCRIPTION", tags.comment)
   put("LYRICS", tags.lyrics)
 
-  const vendor = encodeStr("DoulorCloud Audio Tag Editor")
+  const vendor = encodeStr("XceedCloud Audio Tag Editor")
   const parts: Uint8Array[] = []
   const pushU32LE = (n: number) => {
     const b = new Uint8Array(4)

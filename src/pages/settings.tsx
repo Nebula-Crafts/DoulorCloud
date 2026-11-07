@@ -754,7 +754,7 @@ export default function SettingsPage() {
         <OAuthEndpointsCard />
         )}
 
-        {/* 我创建的 OAuth 应用：把「用 Doulor Cloud 登录」接到自己的站点 */}
+        {/* 我创建的 OAuth 应用：把「用 XceedCloud 登录」接到自己的站点 */}
         {show("api") && (
         <OAuthAppsCard />
         )}

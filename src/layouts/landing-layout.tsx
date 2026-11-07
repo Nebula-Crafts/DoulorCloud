@@ -127,7 +127,7 @@ export function LandingLayout() {
           <div className="flex items-center gap-4">
             <Link to="/terms" className="hover:text-foreground">{t("legal.terms")}</Link>
             <Link to="/privacy" className="hover:text-foreground">{t("legal.privacy")}</Link>
-            <p>© {new Date().getFullYear()} Doulor Cloud</p>
+            <p>© {new Date().getFullYear()} XceedCloud</p>
           </div>
         </div>
       </footer>

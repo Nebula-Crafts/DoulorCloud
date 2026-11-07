@@ -164,7 +164,7 @@ export const en: Record<MessageKey, string> = {
   "pt.card.closed": "Not open",
   "pt.card.balance": "Your points",
   "pt.card.no": "Card number",
-  "pt.card.brand": "DOULOR",
+  "pt.card.brand": "XCEED",
   "pt.card.brandEm": "Cloud",
   "pt.card.reached": "Unlocked",
   "pt.card.locked": "Locked",
@@ -213,7 +213,7 @@ export const en: Record<MessageKey, string> = {
   "nav.admin": "Admin",
   "pwa.install": "Install app",
   "pwa.iosTitle": "Add to Home Screen",
-  "pwa.iosDesc": "iOS can't install in one tap — follow these steps to add Doulor Cloud to your home screen:",
+  "pwa.iosDesc": "iOS can't install in one tap — follow these steps to add XceedCloud to your home screen:",
   "pwa.iosStep1": "Open this page in Safari and tap the Share button at the bottom",
   "pwa.iosStep2": "Choose \"Add to Home Screen\" from the menu",
   "pwa.iosStep3": "Tap \"Add\" and the icon will appear on your home screen",
@@ -222,7 +222,7 @@ export const en: Record<MessageKey, string> = {
   "pwa.guideAndroid1": "Tap the \"⋮\" menu at the top right of the browser",
   "pwa.guideAndroid2": "Choose \"Install app\" or \"Add to Home screen\"",
   "pwa.guideDesktop1": "Click the install icon in the address bar (monitor + down arrow)",
-  "pwa.guideDesktop2": "Or pick \"Install Doulor Cloud\" from the browser's top-right menu",
+  "pwa.guideDesktop2": "Or pick \"Install XceedCloud\" from the browser's top-right menu",
   "nav.achievements": "Achievements",
   "nav.leaderboard": "Leaderboard",
   "lb.title": "Leaderboard",
@@ -407,7 +407,7 @@ export const en: Record<MessageKey, string> = {
     "Why contribute? Storage, API quota and bandwidth are paid for out of the admin's own pocket and are limited. Letting contributors go first keeps the service reliable — more so than first-come-first-served or a paywall.",
 
   // —— Landing · why us ——
-  "landing.whyTitle": "Why Doulor Cloud",
+  "landing.whyTitle": "Why XceedCloud",
   "landing.why1.title": "All in one place",
   "landing.why1.desc":
     "Domains, email, storage and AI share one account and one interface — no switching between services.",
@@ -939,7 +939,7 @@ export const en: Record<MessageKey, string> = {
   "space.backToConsole": "Back to console",
   "space.console": "Console",
   "space.back": "Back",
-  "space.brandLine": "Doulor Cloud · Personal space",
+  "space.brandLine": "XceedCloud · Personal space",
   "space.viewCard": "View card",
   "space.isOwner": "This is your space",
   "space.joined": "@{username} · joined {days} days ago ({date})",
@@ -1717,7 +1717,7 @@ export const en: Record<MessageKey, string> = {
   // —— Activity share page ——
   "act.notFound": "This event doesn't exist, or hasn't been published yet",
   "act.backPrev": "Back",
-  "act.brandLine": "Doulor Cloud · Events",
+  "act.brandLine": "XceedCloud · Events",
   "act.limitPeople": "Up to {n} participants",
   "act.limitClaims": "Limited to {n} claims",
   "act.joinedCount": ", {n} joined",
@@ -1827,38 +1827,38 @@ export const en: Record<MessageKey, string> = {
   "ai.disabledDesc": "The admin has temporarily turned off the AI gateway.",
   "ai.bind.title": "Finish password binding",
   "ai.bind.ready":
-    "Your gateway account is ready — enter your Doulor Cloud password to finish binding and start using it.",
+    "Your gateway account is ready — enter your XceedCloud password to finish binding and start using it.",
   "ai.bind.now": "Bind now",
   "ai.rebind.title": "Re-enter your password",
   "ai.rebind.desc":
-    "Your gateway sign-in has expired (the password may have been changed on the gateway). Enter your Doulor Cloud password to re-link — your keys and quota are untouched.",
+    "Your gateway sign-in has expired (the password may have been changed on the gateway). Enter your XceedCloud password to re-link — your keys and quota are untouched.",
   "ai.activate.title": "Activate the AI gateway",
-  "ai.activate.desc": "Sign in to the gateway with your Doulor Cloud account — trial quota included",
-  "ai.activate.b1": "· Sign in with your Doulor Cloud account; no separate registration",
-  "ai.activate.b2": "· Reuses your existing Doulor Cloud password",
+  "ai.activate.desc": "Sign in to the gateway with your XceedCloud account — trial quota included",
+  "ai.activate.b1": "· Sign in with your XceedCloud account; no separate registration",
+  "ai.activate.b2": "· Reuses your existing XceedCloud password",
   "ai.activate.b3": "· Browse available models and create API keys yourself",
   "ai.activate.now": "Activate now",
   "ai.activate.checkingAccount": "Checking your gateway account…",
   "ai.activate.step2":
-    "Sign in with Doulor Cloud in the window that just opened — this page continues automatically.",
+    "Sign in with XceedCloud in the window that just opened — this page continues automatically.",
   "ai.activate.step3":
-    "Your gateway account is ready — enter your Doulor Cloud password to finish activation.",
+    "Your gateway account is ready — enter your XceedCloud password to finish activation.",
   "ai.activate.needAccount":
-    "You need to sign in to the gateway with Doulor Cloud first to create an account.",
+    "You need to sign in to the gateway with XceedCloud first to create an account.",
   "ai.activate.checking": "Checking…",
   "ai.activate.waiting":
-    "Waiting for authorization… click “Sign in with Doulor Cloud” in the popup window and allow access; this page continues automatically.",
+    "Waiting for authorization… click “Sign in with XceedCloud” in the popup window and allow access; this page continues automatically.",
   "ai.activate.reopen": "Didn't see the window? Open it again",
-  "ai.activate.passwordLabel": "Your Doulor Cloud password",
+  "ai.activate.passwordLabel": "Your XceedCloud password",
   "ai.activate.passwordPlaceholder":
-    "The password you use to sign in to Doulor Cloud (not a new one)",
+    "The password you use to sign in to XceedCloud (not a new one)",
   "ai.activate.passwordNote.a": "Enter your ",
-  "ai.activate.passwordNote.bold": "existing Doulor Cloud password",
+  "ai.activate.passwordNote.bold": "existing XceedCloud password",
   "ai.activate.passwordNote.b": " — you're not setting a new one.",
   "ai.activate.passwordNote.c":
     "We'll verify it and sync it as your gateway password, so both sides share the same one.",
   "ai.activate.noAccountYet":
-    "no gateway account created with Doulor Cloud sign-in yet.",
+    "no gateway account created with XceedCloud sign-in yet.",
   "ai.activate.goLogin": "Go to gateway sign-in",
   "ai.activate.processing": "Working…",
   "ai.activate.submit": "Activate",
@@ -1934,7 +1934,7 @@ export const en: Record<MessageKey, string> = {
   "ai.err.copy": "Copy failed — select and copy manually",
   "ai.err.tokenExpired": "Your gateway session expired — re-enter your password to rebind",
   "ai.err.unreachable": "Can't reach the gateway",
-  "ai.err.enterPassword": "Please enter your Doulor Cloud password",
+  "ai.err.enterPassword": "Please enter your XceedCloud password",
   "ai.err.activate": "Activation failed",
   "ai.err.sync": "Sync failed",
   "ai.err.claimFirst": "Claim the free plan before creating an API key",
@@ -2472,7 +2472,7 @@ export const en: Record<MessageKey, string> = {
 
   // —— Achievements ——
   "ach.title": "Achievements",
-  "ach.desc": "A record of your journey on Doulor Cloud",
+  "ach.desc": "A record of your journey on XceedCloud",
   "ach.locked": "Locked",
   "ach.unlocked": "Unlocked",
   "ach.unlockedAt": "Unlocked",
@@ -2819,7 +2819,7 @@ export const en: Record<MessageKey, string> = {
   "oc.scope.points.desc": "Query balance and spend points within authorized limits (max 5000 per request, 20000 per day).",
   "oc.scope.unknown": "(unknown permission — grant with caution)",
   "oc.title": "Authorize sign-in",
-  "oc.wantsAccess": "wants to use your Doulor Cloud account",
+  "oc.wantsAccess": "wants to use your XceedCloud account",
   "oc.requestFrom": "From site:",
   "oc.verifyHost":
     "Check that the domain above is really the site you're signing in to — the app name is entered by its owner and can't be trusted; only the domain can.",
@@ -2987,7 +2987,7 @@ export const en: Record<MessageKey, string> = {
   // External-link confirmation dialog (2026-10-07; the key above is only the
   // fallback for when the dialog component is not mounted)
   "link.leaveTitle": "Leaving this site",
-  "link.leaveDesc": "This link points outside Doulor Cloud. Open it?",
+  "link.leaveDesc": "This link points outside XceedCloud. Open it?",
   "link.leaveOpen": "Open link",
   "link.leaveNote": "Off-site content is provided by the destination site. We cannot vouch for its safety or accuracy — mind your privacy.",
   "link.leavePreviewLoading": "Fetching details about the destination…",
@@ -3177,8 +3177,8 @@ export const en: Record<MessageKey, string> = {
   "ts2.localNote": "This tool runs entirely in your browser — nothing is uploaded to the server.",
 
   // —— 法律文本标题 ——
-  "legal.termsTitle": "Doulor Cloud Terms of Service",
-  "legal.privacyTitle": "Doulor Cloud Privacy Policy",
+  "legal.termsTitle": "XceedCloud Terms of Service",
+  "legal.privacyTitle": "XceedCloud Privacy Policy",
   "legal.updatedAt": "Updated 2026-09-27 · Effective 2026-09-27",
   "legal.privacyUpdatedAt": "Updated 2026-09-27",
 
@@ -3671,7 +3671,7 @@ export const en: Record<MessageKey, string> = {
     "Once approved, open My requests and click Generate config to get config.toml. frp exposes your local service to the internet — make sure it's secure.",
   "frp.dlg.submit": "Submit request",
   "frp.cfg.noTunnels": "# You haven't added any tunnels yet — add one on the web page and regenerate",
-  "frp.cfg.generatedBy": "# Generated by Doulor Cloud · {at}",
+  "frp.cfg.generatedBy": "# Generated by XceedCloud · {at}",
   "frp.cfg.locale": "en-US",
   "frp.err.picknode": "Pick a node first",
   "frp.err.enterPort": "Enter a port number",
@@ -3693,7 +3693,7 @@ export const en: Record<MessageKey, string> = {
 
   // —— Community square ——
   "cm.title": "Community",
-  "cm.subtitle": "Doulor Cloud's discussion area · an invite-only circle",
+  "cm.subtitle": "XceedCloud's discussion area · an invite-only circle",
   "cm.tagline": "Catch up with friends and share what you find.",
   "cm.emoji": "Emoji",
   "img.dropHint": "Drop to upload image",
@@ -3801,7 +3801,7 @@ export const en: Record<MessageKey, string> = {
   "cm.active.empty": "nobody posted this week yet.",
   "cm.about.title": "About",
   "cm.about.desc":
-    "The Doulor Cloud community square is an invite-only discussion area. Content is publicly readable; posting and interacting require signing in. Be kind — rule-breaking content is removed by admins.",
+    "The XceedCloud community square is an invite-only discussion area. Content is publicly readable; posting and interacting require signing in. Be kind — rule-breaking content is removed by admins.",
   "cm.empty": "The square is quiet",
   "cm.emptyDesc": "Be the first to post and break the silence.",
   "cm.notif.title": "Interactions",
@@ -3968,7 +3968,7 @@ export const en: Record<MessageKey, string> = {
   "ao.apps.desc": "Each integrated site is one app",
   "ao.apps.add": "Add app",
   "ao.apps.empty": "no apps yet",
-  "ao.apps.emptyDesc": "Add an app so that site can sign in with Doulor Cloud.",
+  "ao.apps.emptyDesc": "Add an app so that site can sign in with XceedCloud.",
   "ao.copyClientId": "Copy Client ID",
   "ao.copyTitle": "Copy {label}",
   "ao.field.redirect": "Redirect URIs",
@@ -3990,7 +3990,7 @@ export const en: Record<MessageKey, string> = {
   "ao.secret.lost": "Didn't save it? You'll have to Reset secret to generate a new one (the old one dies instantly).",
   "ao.del.title": "Delete app",
   "ao.del.desc":
-    "Deleting “{name}” invalidates all of its access tokens and grants immediately; sites using it can no longer sign in with Doulor Cloud.",
+    "Deleting “{name}” invalidates all of its access tokens and grants immediately; sites using it can no longer sign in with XceedCloud.",
   "ao.del.confirm": "Delete",
   "ao.confirmReset": "Reset the secret for “{name}”?\n\nThe old secret dies immediately — sites using it can't sign in until you update their config.",
   "ao.err.load": "Couldn't load OAuth apps",
@@ -4007,7 +4007,7 @@ export const en: Record<MessageKey, string> = {
   "ao.apps.manualReview": "Currently: users can submit, but needs your approval before it works",
   "ao.policy.title": "User-created apps",
   "ao.policy.desc":
-    "Whether users may create their own OAuth apps (to offer “Sign in with Doulor Cloud” on their sites).",
+    "Whether users may create their own OAuth apps (to offer “Sign in with XceedCloud” on their sites).",
   "ao.policy.autoApprove": "Skip review (takes effect immediately)",
   "ao.policy.onHint":
     "On: user-created apps work right away. You can still disable or delete problematic ones below.",
@@ -4026,7 +4026,7 @@ export const en: Record<MessageKey, string> = {
   "ao.review.note": "Rejection reason: {note}",
 
   "oapp.title": "My OAuth apps",
-  "oapp.desc": "Create OAuth apps to offer “Sign in with Doulor Cloud” on your own site.",
+  "oapp.desc": "Create OAuth apps to offer “Sign in with XceedCloud” on your own site.",
   "oapp.autoApprove": "no review: goes live immediately",
   "oapp.manualReview": "Takes effect after the admin approves it",
   "oapp.quota": "{used}/{max} used",
@@ -4065,7 +4065,7 @@ export const en: Record<MessageKey, string> = {
     "Once closed, the Client Secret can never be shown again (you'd have to delete and recreate the app).",
   "oapp.delete.title": "Delete app",
   "oapp.delete.desc":
-    "Delete “{name}”? Sites using it will immediately lose Doulor Cloud sign-in.",
+    "Delete “{name}”? Sites using it will immediately lose XceedCloud sign-in.",
 
   // —— Admin · Feedback ——
   "af.desc": "Tickets submitted from the Feedback page; replying notifies the user on-site and by email.",
@@ -4247,7 +4247,7 @@ export const en: Record<MessageKey, string> = {
   "cq.err.savePlan": "Couldn't save the plan",
   "cq.err.load": "Couldn't load Cloudflare quota",
 
-  "lt.1": "{b}Important notice:{/b} Welcome to Doulor Cloud (hereinafter referred to as “the Site” or “the Service”). The Site is an online service platform built and operated by {b}an individual (Doulor){/b} for the purposes of technical research and sharing, and provides developers and other technical users with features including domain email, subdomain hosting, DNS management, AI model API forwarding (the AI gateway), cloud storage (the cloud drive), tunneling, proxy nodes, the temporary share box, personal cards, the community, and account login (OAuth).",
+  "lt.1": "{b}Important notice:{/b} Welcome to XceedCloud (hereinafter referred to as “the Site” or “the Service”). The Site is an online service platform built and operated by {b}an individual (XceedCloud){/b} for the purposes of technical research and sharing, and provides developers and other technical users with features including domain email, subdomain hosting, DNS management, AI model API forwarding (the AI gateway), cloud storage (the cloud drive), tunneling, proxy nodes, the temporary share box, personal cards, the community, and account login (OAuth).",
   "lt.2": "Before using the Service, you (hereinafter referred to as “the User” or “you”) must read, carefully and in full, and fully understand these Terms. By clicking “Sign up”, “Create account”, “Log in” or otherwise actually using the Service in any manner, you indicate that you have read, understood and agreed to accept all of the provisions of these Terms. If you do not agree to any part of these Terms, please immediately stop registering for, logging in to and using the Service.",
   "lt.3": "The Site reserves the right to revise these Terms from time to time to the extent permitted by laws and regulations. The revised Terms will be published on this page and in a prominent location on the Site. Your continued use of the Service constitutes acceptance of the revised Terms; if you do not agree to the revisions, you should stop using the Service. You may contact the operator through the on-site feedback feature or the publicly available contact details on the Site to raise opinions, file complaints or exercise your relevant rights.",
   "lt.4": "1. Definitions",
@@ -4315,7 +4315,7 @@ export const en: Record<MessageKey, string> = {
   "lt.66": "2. If any provision of these Terms is held to be invalid or unenforceable, the validity of the remaining provisions shall not be affected.",
   "lt.67": "3. The failure or delay of the Site in exercising any right under these Terms shall not constitute a waiver of that right.",
   "lt.68": "4. If you have any questions about these Terms or the Service, you may contact the operator through the on-site feedback feature.",
-  "lp.1": "This Privacy Policy explains how Doulor Cloud (the “Site”, operated by the individual Doulor) collects, uses, stores and protects your personal information, and the related rights you enjoy. By using the Service you indicate that you have read and understood this Policy.",
+  "lp.1": "This Privacy Policy explains how XceedCloud (the “Site”, operated by XceedCloud) collects, uses, stores and protects your personal information, and the related rights you enjoy. By using the Service you indicate that you have read and understood this Policy.",
   "lp.2": "1. What Information We Collect",
   "lp.3": "We collect the following information only to the extent necessary to provide the Service:",
   "lp.4": "Registration information you voluntarily provide: username, email address and password (stored with irreversible hash encryption; the Site cannot recover the plaintext).",
@@ -5732,7 +5732,7 @@ export const en: Record<MessageKey, string> = {
   "adm.310": "e.g. Gateway wallet credit +5",
   "adm.311": "e.g. 100",
   "adm.312": "Set a verification code (e.g. a QQ group passphrase)",
-  "adm.313": "owner/repo, e.g. Doulor/DoulorCloud",
+  "adm.313": "owner/repo, e.g. Nebula-Crafts/DoulorCloud",
   "adm.314": "Pick a bucket",
   "adm.315": "Bucket #2 network2",
   "adm.316": "no nickname set",
@@ -7587,12 +7587,12 @@ export const en: Record<MessageKey, string> = {
   // Optional localization override for manifest text (the manifest itself is served
   // from the backend with Chinese defaults — see localized() in collection.tsx).
   "col.plugin.invest.name": "Online Trading",
-  "col.plugin.invest.tagline": "Multiplayer candlestick contracts · long or short Doulor Coin",
+  "col.plugin.invest.tagline": "Multiplayer candlestick contracts · long or short Xceed Coin",
   "col.plugin.invest.description": "Use your points as margin: go long if you expect a rise, short if you expect a fall, with 1–20x leverage. Candles are driven by everyone's orders — more buying pushes the price up, more selling pushes it down — plus random noise and mean reversion. Your counterparty is the site's market pool, which holds only what other players have lost. Liquidations, fees and isolated margin included.",
 
   // —— Online Trading (the first collection plugin) ——
   "inv.title": "Online Trading",
-  "inv.subtitle": "Multiplayer candlestick contracts · long or short Doulor Coin",
+  "inv.subtitle": "Multiplayer candlestick contracts · long or short Xceed Coin",
   "inv.disabled": "The game isn't open yet",
   "inv.disabledDesc": "The owner hasn't enabled it in Collection settings yet.",
   "inv.goSettings": "Arcade settings",

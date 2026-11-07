@@ -245,7 +245,7 @@ export interface NewApiUser {
   group?: string
   role?: number
   status?: number
-  /** OIDC 绑定标识（= Doulor Cloud 的 users.id，即我方 OAuth 的 sub） */
+  /** OIDC 绑定标识（= XceedCloud 的 users.id，即我方 OAuth 的 sub） */
   oidc_id?: string
   /** 软删除时间（非空 = 已注销）。绑定流程必须排除，否则 adminSetUserPassword 会 record not found */
   DeletedAt?: string | null
@@ -467,7 +467,7 @@ export interface NewApiHealth {
  * 复核结论：**这条链已经作废，不是「还没接线」，所以直接删掉**（四个函数全删）。
  *
  * 为什么会作废 —— 开通中转站账号的路径在 2026-10-12 换成了 OIDC：
- *   1. 现在建号由**用户在中转站点「用 Doulor Cloud 登录」**完成（OIDC），
+ *   1. 现在建号由**用户在中转站点「用 XceedCloud 登录」**完成（OIDC），
  *      账号上的 `oidc_id` = 本站 users.id（见 `resolveMyRelayAccount` 的认人判据）；
  *   2. 回到本站走 `POST /api/dev/bind`（handlers/newapi.ts）：用 OIDC + 复用本站密码
  *      给账号补密码，然后 `login()` 换长期 access token。

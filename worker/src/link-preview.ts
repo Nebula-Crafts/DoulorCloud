@@ -126,7 +126,7 @@ async function fetchPreview(url: string): Promise<LinkPreview | null> {
         headers: {
           // 伪装成普通浏览器，避免部分站点对非浏览器 UA 返回 403
           "User-Agent":
-            "Mozilla/5.0 (compatible; DoulorCloudBot/1.0; +https://cloud.doulor.cn)",
+            "Mozilla/5.0 (compatible; XceedCloudBot/1.0; +https://cloud.doulor.cn)",
           Accept: "text/html,application/xhtml+xml",
         },
       })

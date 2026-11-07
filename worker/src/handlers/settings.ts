@@ -226,7 +226,7 @@ export async function verifyRealEmail(env: Env, request: Request): Promise<Respo
   try {
     await sendMail(env, {
       to: email,
-      subject: "【Doulor Cloud】邮箱验证码",
+      subject: "【XceedCloud】邮箱验证码",
       text,
       html,
     })
@@ -435,7 +435,7 @@ export async function changeRealEmail(env: Env, request: Request): Promise<Respo
     try {
       await sendMail(env, {
         to: next,
-        subject: "【Doulor Cloud】修改邮箱验证码",
+        subject: "【XceedCloud】修改邮箱验证码",
         text,
         html,
       })
@@ -580,7 +580,7 @@ export async function requestDeleteCode(env: Env, request: Request): Promise<Res
   try {
     await sendMail(env, {
       to: email,
-      subject: "【Doulor Cloud】注销账号验证码",
+      subject: "【XceedCloud】注销账号验证码",
       text,
       html,
     })

@@ -344,7 +344,7 @@ const ACHIEVEMENTS: AchievementDef[] = [
     desc: "授权其他应用使用账号登录",
     icon: "key-round",
     group: "usage",
-    how: "在第三方应用的授权页同意使用 Doulor Cloud 登录。",
+    how: "在第三方应用的授权页同意使用 XceedCloud 登录。",
     tiers: [1, 2, 5],
     tierNames: ["首次授权", "多端通行", "身份中枢"],
     tierReqs: ["授权 1 个应用", "授权 2 个应用", "授权 5 个应用"],

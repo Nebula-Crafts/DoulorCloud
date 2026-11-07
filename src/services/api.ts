@@ -1930,7 +1930,7 @@ export const adminPointsApi = {
     ),
 }
 
-// ---- OAuth 授权服务器（Doulor Cloud 作为身份提供方）----
+// ---- OAuth 授权服务器（XceedCloud 作为身份提供方）----
 //
 // 类型定义放在这里而不是 types/index.ts：本组接口自成一体，
 // 也避免与同时改 types/index.ts 的另一处改动互相干扰。

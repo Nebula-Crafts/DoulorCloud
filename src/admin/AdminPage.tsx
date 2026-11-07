@@ -328,7 +328,7 @@ function emptyEventDraft(): EventDraft {
     conditionType: "always",
     conditionFeature: "ai",
     conditionCode: "",
-    conditionRepo: "Doulor/DoulorCloud",
+    conditionRepo: "Nebula-Crafts/DoulorCloud",
     lotteryWinners: "10",
     lotteryPool: "1000",
     lotteryMode: "even",
@@ -1003,7 +1003,7 @@ export default function AdminPage() {
   const [postaKey, setPostaKey] = React.useState("")
   const [postaFrom, setPostaFrom] = React.useState("")
   const [brevoSenderEmail, setBrevoSenderEmail] = React.useState("")
-  const [brevoSenderName, setBrevoSenderName] = React.useState("Doulor Cloud")
+  const [brevoSenderName, setBrevoSenderName] = React.useState("XceedCloud")
   // 临时分享箱
   /** 新反馈通知邮箱（空 = 不通知） */
   const [feedbackNotifyEmail, setFeedbackNotifyEmail] = React.useState("")
@@ -1333,7 +1333,7 @@ export default function AdminPage() {
       setPostaUrl(s.posta_url ?? "")
       setPostaFrom(s.posta_from ?? "")
       setBrevoSenderEmail(s.brevo_sender_email ?? "")
-      setBrevoSenderName(s.brevo_sender_name ?? "Doulor Cloud")
+      setBrevoSenderName(s.brevo_sender_name ?? "XceedCloud")
       // 密钥明文不回传，输入框清空
       setPostaKey("")
     } catch (err) {
@@ -1694,7 +1694,7 @@ export default function AdminPage() {
             conditionType: ev.conditionType,
             conditionFeature: String(ev.conditionParams?.feature ?? "ai"),
             conditionCode: String(ev.conditionParams?.code ?? ""),
-            conditionRepo: String(ev.conditionParams?.repo ?? "Doulor/DoulorCloud"),
+            conditionRepo: String(ev.conditionParams?.repo ?? "Nebula-Crafts/DoulorCloud"),
             lotteryWinners: String(ev.conditionParams?.winners ?? "10"),
             lotteryPool: String(ev.conditionParams?.pool ?? "1000"),
             lotteryMode: ev.conditionParams?.mode === "random" ? "random" : "even",

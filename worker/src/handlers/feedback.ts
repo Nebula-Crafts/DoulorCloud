@@ -442,14 +442,14 @@ export async function createFeedback(env: Env, request: Request): Promise<Respon
         `分类：${FEEDBACK_CATEGORY_LABELS[parseCategory(body.category)] ?? "其他"}`,
         `标题：${title}`,
         `内容：${text}`,
-        "请到 Doulor Cloud 管理面板「反馈」处理。",
+        "请到 XceedCloud 管理面板「反馈」处理。",
       ]
       const { text: mailText, html } = renderMail("新的用户反馈", lines)
       for (const to of recipients) {
         try {
           await sendMail(env, {
             to,
-            subject: `【Doulor Cloud】新的用户反馈（${user.username}）`,
+            subject: `【XceedCloud】新的用户反馈（${user.username}）`,
             text: mailText,
             html,
           })
@@ -743,7 +743,7 @@ export async function replyMyFeedback(env: Env, request: Request): Promise<Respo
         try {
           await sendMail(env, {
             to,
-            subject: `【Doulor Cloud】反馈「${existing.title}」有新回复`,
+            subject: `【XceedCloud】反馈「${existing.title}」有新回复`,
             text: mailText,
             html,
           })
@@ -1005,7 +1005,7 @@ export async function replyFeedback(env: Env, request: Request): Promise<Respons
       .first<{ email: string; notify_enabled: number }>()
     if (author && author.notify_enabled === 1 && author.email) {
       const { text, html } = renderMail("你的反馈有新回复", [
-        `你在 Doulor Cloud 提交的反馈「${existing.title}」收到了管理员的回复：`,
+        `你在 XceedCloud 提交的反馈「${existing.title}」收到了管理员的回复：`,
         reply,
         // 只有真的发出去（不是幂等命中）才提奖励，否则会重复告诉用户
         ...(reward && !reward.duplicated
@@ -1015,7 +1015,7 @@ export async function replyFeedback(env: Env, request: Request): Promise<Respons
       ])
       await sendMail(env, {
         to: author.email,
-        subject: `【Doulor Cloud】你的反馈「${existing.title}」有新回复`,
+        subject: `【XceedCloud】你的反馈「${existing.title}」有新回复`,
         text,
         html,
       })

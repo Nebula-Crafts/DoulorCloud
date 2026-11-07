@@ -1,7 +1,7 @@
 {
-  "name": "Doulor Cloud",
-  "short_name": "Doulor",
-  "description": "域名、邮箱、网盘、AI 中转站，一个账号开箱即用。",
+  "name": "XceedCloud",
+  "short_name": "Xceed",
+  "description": "社区、积分商城与开放登录，一个账号开箱即用。",
   "lang": "zh-CN",
   "start_url": "/",
   "scope": "/",

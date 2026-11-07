@@ -1007,7 +1007,7 @@ export async function forgotPassword(env: Env, request: Request): Promise<Respon
     try {
       await sendMail(env, {
         to: user.email,
-        subject: "【Doulor Cloud】重置密码",
+        subject: "【XceedCloud】重置密码",
         text: `${text}\n\n${link}`,
         html: `${html.replace(
           "</body></html>",

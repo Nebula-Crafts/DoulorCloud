@@ -826,7 +826,7 @@ export interface NewApiPreflight {
   username: string
   /** 中转站是否已存在同名账号 */
   exists: boolean
-  /** 该账号是否已用 Doulor Cloud 登录（OIDC）绑定（oidc_id === 本站用户 id） */
+  /** 该账号是否已用 XceedCloud 登录（OIDC）绑定（oidc_id === 本站用户 id） */
   oidcBound: boolean
   /**
    * 是否走的是「重新绑定 / 刷新凭据」而不是首次开通（2026-10-05）。

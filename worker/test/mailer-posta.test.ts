@@ -69,7 +69,7 @@ describe("Posta 发信载荷", () => {
   it("未配置发件人时回落默认值（QQ SMTP 要求 MAIL FROM = 登录账号）", async () => {
     await sendMail(env, { to: "a@example.com", subject: "s", text: "t" })
     expect((captured as Record<string, unknown>).from).toBe(
-      "Doulor Cloud <DoulorCloud@foxmail.com>"
+      "XceedCloud <DoulorCloud@foxmail.com>"
     )
     expect((captured as Record<string, unknown>).html).toBeUndefined()
   })

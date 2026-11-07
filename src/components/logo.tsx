@@ -42,13 +42,13 @@ export function Logo({
       </span>
       {tagline ? (
         <span className="flex min-w-0 flex-col leading-tight">
-          <span>Doulor Cloud</span>
+          <span>XceedCloud</span>
           <span className="truncate pl-[2em] text-[10px] font-normal text-muted-foreground">
             {t("logo.tagline")}
           </span>
         </span>
       ) : (
-        <span>Doulor Cloud</span>
+        <span>XceedCloud</span>
       )}
     </Link>
   )

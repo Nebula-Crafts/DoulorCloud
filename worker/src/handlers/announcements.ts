@@ -269,9 +269,9 @@ export async function runAnnouncementMailJob(
   const { text: mailText, html } = renderMail(ann.title, [
     ann.body,
     `分类：${ANNOUNCEMENT_CATEGORY_LABELS[ann.category] ?? "公告"}`,
-    "详见 Doulor Cloud 消息中心「网站动态」。",
+    "详见 XceedCloud 消息中心「网站动态」。",
   ])
-  const subject = `【Doulor Cloud】${ann.title}`
+  const subject = `【XceedCloud】${ann.title}`
 
   // maxBatches 用于 cron 续跑时限制单次时长，避免一个 cron 跑太久
   const maxBatches = opts.maxBatches ?? Number.POSITIVE_INFINITY

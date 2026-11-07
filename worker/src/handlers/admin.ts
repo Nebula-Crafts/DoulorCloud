@@ -1505,13 +1505,13 @@ export async function testMail(env: Env, request: Request): Promise<Response> {
     throw new ApiError(400, "请提供有效的收件邮箱", "INVALID_EMAIL")
   }
 
-  const { text, html } = renderMail("【Doulor Cloud】邮件自检", [
+  const { text, html } = renderMail("【XceedCloud】邮件自检", [
     "如果你收到这封邮件，说明 Worker 的出站邮件已配置成功。",
     "此功能用于：真实邮箱验证、账号找回、以及站内通知。",
   ])
 
   try {
-    await sendMail(env, { to, subject: "【Doulor Cloud】邮件自检", text, html })
+    await sendMail(env, { to, subject: "【XceedCloud】邮件自检", text, html })
   } catch (err) {
     if (err instanceof ApiError) {
       return json({ ok: false, code: err.code, error: err.message }, err.status)

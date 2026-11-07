@@ -419,7 +419,7 @@ export async function startTotpSetup(env: Env, request: Request): Promise<Respon
     otpauthUrl: totpAuthUrl({
       secret,
       account: user.username,
-      issuer: "Doulor Cloud",
+      issuer: "XceedCloud",
     }),
   })
 }
@@ -771,14 +771,14 @@ export async function sendLoginCodeMail(
   const rendered = renderMail(
     "登录验证码",
     [
-      `你正在登录 Doulor Cloud，验证码是：${code}`,
+      `你正在登录 XceedCloud，验证码是：${code}`,
       `验证码 ${CODE_TTL_MS / 60000} 分钟内有效。如果这不是你本人的操作，说明有人已经知道了你的密码，请立刻修改密码。`,
     ],
     code
   )
   await sendMail(env, {
     to,
-    subject: "Doulor Cloud 登录验证码",
+    subject: "XceedCloud 登录验证码",
     text: rendered.text,
     html: rendered.html,
   })
