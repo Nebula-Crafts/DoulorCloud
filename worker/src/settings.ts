@@ -309,17 +309,11 @@ export const SETTING_DEFAULTS = {
    * 普通邮件的发送顺序（逗号分隔），前面的优先，失败向后回退。
    * 收件人命中 mail_cf_targets 白名单时不走这个顺序，直接走 CF。
    *
-   * ⚠️ **`posta` 绝不能排在第一位**（2026-09-30 踩过的坑）：
-   *   Posta 是**异步队列** —— HTTP 200 只表示「已排队」，真正的投递失败发生在那之后，
-   *   本站完全看不到。于是 sendMail 会把它当成「已发送」直接 return，
-   *   **后面的 Brevo 永远不会被用到**（当时第二、三把 Brevo Key 明明还有 400+ 额度）。
-   *   那阵子 posta 的上游是一台腾讯免费邮箱（foxmail），它对**非 QQ 域名**的收件人
-   *   一律 550 拒信 —— 结果是「发 QQ 邮箱能收到、其他所有人静默收不到」。
-   *   把 posta 放在 Brevo **之后**就不会遮挡主通道：Brevo 能发就发，发不了才轮到它。
-   *
-   * 末尾的 cf 是兜底（未配置 posta/brevo 时仍能发已验证邮箱，向后兼容）。
+   * ⚠️ **`smtp` 是同步协议**（DATA 250 = 服务器真实受理，失败当场抛错），
+   * 不存在 Posta 时代「异步队列把失败吞掉、遮挡后面通道」的问题，排第一没问题。
+   * 末尾的 cf 是兜底（未配置 smtp/brevo 时仍能发已验证邮箱，向后兼容）。
    */
-  mail_transport_order: "brevo,posta,cf",
+  mail_transport_order: "smtp,brevo,cf",
   /**
    * 走 CF Email Routing 发信的收件邮箱白名单（逗号分隔，管理员在面板手动配置）。
    * CF 只能发「已验证 destination」，送达率高且免费 —— 适合「目标固定、量大」的通知
@@ -328,20 +322,28 @@ export const SETTING_DEFAULTS = {
    */
   mail_cf_targets: "",
   /**
-   * Posta 网关的**基础地址**（不要带路径），如 https://xxx.doulor.cn。
-   * 发信接口固定为 `${posta_url}/api/v1/emails/send`（见 mailer.ts 的 sendViaPosta）。
+   * SMTP 服务器主机名（2026-11-07 起 Posta 网关换成直连 SMTP，见 mailer.ts 的
+   * sendViaSmtp 与 ./smtp.ts）。如 smtp.qq.com / smtp.163.com / smtp.gmail.com。
    */
-  posta_url: "",
-  /** Posta 的 API key（psk_ 开头，需含 send 权限；只写不读，GET 不返回明文） */
-  posta_key: "",
+  smtp_host: "",
+  /** SMTP 端口：465（隐式 TLS，绝大多数邮箱的推荐值）或 587（STARTTLS）。空 = 465 */
+  smtp_port: "465",
+  /** SMTP 登录账号（通常就是发件邮箱地址） */
+  smtp_username: "",
   /**
-   * Posta 通道的发件人（RFC 5322 显示名格式，如 `Name <addr>`）。
-   * 默认用 QQ 邮箱授权账号 —— QQ SMTP 强制要求信封 MAIL FROM 与登录账号一致
-   * （否则 501 "Mail from address must be same as authorization user"，实测 2026-09-28），
-   * 所以不能填 no-reply@doulor.cn 这类别名。若 Posta 后台换用支持自有域名的
-   * SMTP 服务商，这里同步改成 doulor.cn 的地址即可。
+   * SMTP 密码 / 授权码（只写不读，GET 不返回明文）。
+   * ⚠️ QQ / 163 这类个人邮箱要在邮箱后台开 SMTP 并生成「授权码」，登录密码不行。
    */
-  posta_from: "XceedCloud <DoulorCloud@foxmail.com>",
+  smtp_password: "",
+  /**
+   * 发件地址（信封 MAIL FROM 与 From 头）。空 = 用 smtp_username。
+   * ⚠️ QQ / 163 强制要求 MAIL FROM = 授权登录账号（否则 501 Mail from address
+   * must be same as authorization user），所以默认跟账号一致；换了支持自有域名的
+   * SMTP 服务商，再显式配置成 no-reply@<自有域>。
+   */
+  smtp_from_email: "",
+  /** 发件显示名（From 头，可空；空 = 站点名 XceedCloud） */
+  smtp_from_name: "",
   /**
    * Brevo（Sendinblue）API key —— **支持多把，逗号/换行分隔，额度叠加**（只写不读）。
    *
@@ -355,7 +357,7 @@ export const SETTING_DEFAULTS = {
   /** Brevo 发件人显示名 */
   brevo_sender_name: "XceedCloud",
   /**
-   * 公告群发的首选通道（posta / brevo），默认 posta。
+   * 公告群发的首选通道（smtp / brevo），默认 smtp。
    *
    * 为什么单独一项而不是复用 mail_transport_order：群发 200+ 封会吃满第三方
    * 免费额度（Brevo 免费版 300 封/天），而日常单封通知的量级完全不同。
@@ -364,7 +366,7 @@ export const SETTING_DEFAULTS = {
    * 只影响优先级：命中 mail_cf_targets 白名单的仍走 CF；首选通道失败时
    * 依然按 mail_transport_order 回退（见 mailer.ts 的 sendMail opts.prefer）。
    */
-  announcement_mail_transport: "posta",
+  announcement_mail_transport: "smtp",
 
   /* ---- 积分系统 ---------------------------------------------------------
    * 积分是落库的余额（见 points.ts），与「成就点」无关。

@@ -1217,7 +1217,7 @@ export interface LeaderboardResponse {
  * `brevoKeys` 是**中间打码**的 Key 列表，顺序 = 发送时的轮询顺序。
  */
 export interface MailSecrets {
-  postaConfigured: boolean
+  smtpConfigured: boolean
   brevoConfigured: boolean
   brevoKeyCount: number
   brevoKeys: string[]

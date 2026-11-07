@@ -66,6 +66,8 @@ import { SlidingPill } from "@/components/motion/sliding-pill"
 import { AdminPermissionsPanel } from "@/components/admin-permissions"
 import { AdminCardNumbersCard } from "@/components/admin-card-numbers-card"
 import { AdminUserCardNoDialog } from "@/components/admin-user-card-no"
+import { BrevoQuotaPanel } from "@/pages/admin-brevo-quota"
+import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -996,14 +998,22 @@ export default function AdminPage() {
   const [downloadAndroidUrl, setDownloadAndroidUrl] = React.useState("")
   const [downloadWindowsUrl, setDownloadWindowsUrl] = React.useState("")
   // 出站邮件通道
-  const [mailTransportOrder, setMailTransportOrder] = React.useState("posta,brevo,cf")
-  const [announcementMailTransport, setAnnouncementMailTransport] = React.useState("posta")
+  const [mailTransportOrder, setMailTransportOrder] = React.useState("smtp,brevo,cf")
+  const [announcementMailTransport, setAnnouncementMailTransport] = React.useState("smtp")
   const [mailCfTargets, setMailCfTargets] = React.useState("")
-  const [postaUrl, setPostaUrl] = React.useState("")
-  const [postaKey, setPostaKey] = React.useState("")
-  const [postaFrom, setPostaFrom] = React.useState("")
+  const [smtpHost, setSmtpHost] = React.useState("")
+  const [smtpPort, setSmtpPort] = React.useState("465")
+  const [smtpUsername, setSmtpUsername] = React.useState("")
+  const [smtpPassword, setSmtpPassword] = React.useState("")
+  const [smtpFromEmail, setSmtpFromEmail] = React.useState("")
+  const [smtpFromName, setSmtpFromName] = React.useState("")
   const [brevoSenderEmail, setBrevoSenderEmail] = React.useState("")
   const [brevoSenderName, setBrevoSenderName] = React.useState("XceedCloud")
+  // Brevo 多把 Key：明文永不回前端，这里存的是「中间打码」的列表（顺序 = 轮询顺序）
+  const [smtpConfigured, setSmtpConfigured] = React.useState(false)
+  const [brevoKeys, setBrevoKeys] = React.useState<string[]>([])
+  const [brevoAddInput, setBrevoAddInput] = React.useState("")
+  const [brevoBusy, setBrevoBusy] = React.useState(false)
   // 临时分享箱
   /** 新反馈通知邮箱（空 = 不通知） */
   const [feedbackNotifyEmail, setFeedbackNotifyEmail] = React.useState("")
@@ -1327,15 +1337,21 @@ export default function AdminPage() {
       // 积分系统的开关/比例/每日上限不在这里：改由 管理面板 → 积分 → 商城 维护
       // （见 admin-points.tsx 商品表第一行的「内置商品」行，接口是 PUT /api/admin/points/config）
       // 出站邮件通道
-      setMailTransportOrder(s.mail_transport_order ?? "posta,brevo,cf")
-      setAnnouncementMailTransport(s.announcement_mail_transport ?? "posta")
+      setMailTransportOrder((s.mail_transport_order ?? "smtp,brevo,cf").split(",").map((t) => t.trim()).map((t) => (t === "posta" ? "smtp" : t)).join(","))
+      setAnnouncementMailTransport(s.announcement_mail_transport === "posta" ? "smtp" : (s.announcement_mail_transport ?? "smtp"))
       setMailCfTargets(s.mail_cf_targets ?? "")
-      setPostaUrl(s.posta_url ?? "")
-      setPostaFrom(s.posta_from ?? "")
+      setSmtpHost(s.smtp_host ?? "")
+      setSmtpPort(s.smtp_port ?? "465")
+      setSmtpUsername(s.smtp_username ?? "")
+      setSmtpFromEmail(s.smtp_from_email ?? "")
+      setSmtpFromName(s.smtp_from_name ?? "")
       setBrevoSenderEmail(s.brevo_sender_email ?? "")
       setBrevoSenderName(s.brevo_sender_name ?? "XceedCloud")
       // 密钥明文不回传，输入框清空
-      setPostaKey("")
+      setSmtpPassword("")
+      // 邮件通道密钥「是否已配置」与 Brevo 打码 Key 列表（明文永不回前端）
+      setSmtpConfigured(Boolean(res.mailSecrets?.smtpConfigured))
+      setBrevoKeys(res.mailSecrets?.brevoKeys ?? [])
     } catch (err) {
       toast.error(err instanceof HttpError ? err.message : t("adm.39"))
     } finally {
@@ -1426,9 +1442,12 @@ export default function AdminPage() {
         mail_transport_order: mailTransportOrder.trim(),
         announcement_mail_transport: announcementMailTransport,
         mail_cf_targets: mailCfTargets.trim(),
-        posta_url: postaUrl.trim(),
-        posta_key: postaKey.trim(),
-        posta_from: postaFrom.trim(),
+        smtp_host: smtpHost.trim(),
+        smtp_port: String(Math.max(1, Math.round(Number(smtpPort) || 465))),
+        smtp_username: smtpUsername.trim(),
+        smtp_password: smtpPassword,
+        smtp_from_email: smtpFromEmail.trim(),
+        smtp_from_name: smtpFromName.trim(),
         // brevo_api_key 不在这里提交：明文永不回前端，前端只有打码串、无法原样回传。
         brevo_sender_email: brevoSenderEmail.trim(),
         brevo_sender_name: brevoSenderName.trim(),
@@ -1461,6 +1480,49 @@ export default function AdminPage() {
     } finally {
       setPermBusy(false)
     }
+  }
+
+  /**
+   * 保存 Brevo Key 列表（改完立刻生效，不等下面的「保存设置」）。
+   *
+   * 为什么用 keep:<n> 协议：明文永不回前端，前端拿不到「原 Key」，
+   * 只能用序号表示「保留第 n 把」，后端据此把原值取回来。
+   * 传空数组 = 一把都不留 ⇒ 后端清空全部。
+   */
+  const saveBrevoKeys = async (keepIndices: number[], newKeys: string[]) => {
+    const parts = [...keepIndices.map((i) => `keep:${i}`), ...newKeys]
+    setBrevoBusy(true)
+    try {
+      const res = await adminApi.updateSettings({ brevo_api_key: parts.join(",") })
+      setBrevoKeys(res.mailSecrets?.brevoKeys ?? [])
+      return true
+    } catch (err) {
+      toast.error(err instanceof HttpError ? err.message : t("adm.42"))
+      return false
+    } finally {
+      setBrevoBusy(false)
+    }
+  }
+
+  const handleAddBrevoKey = async () => {
+    const added = brevoAddInput
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (added.length === 0) {
+      toast.error(t("adm.43"))
+      return
+    }
+    const keep = brevoKeys.map((_, i) => i + 1)
+    if (await saveBrevoKeys(keep, added)) {
+      setBrevoAddInput("")
+      toast.success(t("adm.932", { v0: added.length }))
+    }
+  }
+
+  const handleRemoveBrevoKey = async (index1Based: number) => {
+    const keep = brevoKeys.map((_, i) => i + 1).filter((n) => n !== index1Based)
+    if (await saveBrevoKeys(keep, [])) toast.success(t("adm.44"))
   }
 
   const loadInviteQuotas = React.useCallback(async () => {
@@ -3899,6 +3961,250 @@ export default function AdminPage() {
                     <p className="text-xs text-muted-foreground">
                       {t("adm.670")}
                     </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 邮件发送通道（2026-11-07 恢复：概览改版时误删，导致后台看不到
+                  任何发信配置 —— SMTP/Brevo/通道顺序都只存在于设置表里） */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">{t("adm.690")}</CardTitle>
+                  <CardDescription>
+                    {t("adm.691")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="mailOrder">{t("adm.692")}</Label>
+                    <Input
+                      id="mailOrder"
+                      value={mailTransportOrder}
+                      onChange={(e) => setMailTransportOrder(e.target.value)}
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("adm.693")}
+                      {t("adm.694")}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("adm.695")}</Label>
+                    <Select
+                      value={announcementMailTransport}
+                      onValueChange={setAnnouncementMailTransport}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="smtp">{t("adm.696")}</SelectItem>
+                        <SelectItem value="brevo">{t("adm.697")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {t("adm.698")}
+                      {t("adm.699")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{t("adm.1114", { v0: t("adm.700") })}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mailCfTargets">{t("adm.701")}</Label>
+                    <Textarea
+                      id="mailCfTargets"
+                      rows={3}
+                      value={mailCfTargets}
+                      onChange={(e) => setMailCfTargets(e.target.value)}
+                      placeholder={"admin@foxmail.com\nanother@qq.com"}
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("adm.702")}
+                      {t("adm.703")}
+                    </p>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-3 rounded-md border p-3">
+                    <p className="text-sm font-medium">{t("adm.704")}</p>
+                    <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpHost">{t("adm.smtp.host")}</Label>
+                        <Input
+                          id="smtpHost"
+                          value={smtpHost}
+                          onChange={(e) => setSmtpHost(e.target.value)}
+                          placeholder="smtp.qq.com"
+                          className="font-mono text-xs"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpPort">{t("adm.smtp.port")}</Label>
+                        <Input
+                          id="smtpPort"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          value={smtpPort}
+                          onChange={(e) => setSmtpPort(e.target.value)}
+                          className="font-mono text-xs"
+                        />
+                        <p className="text-xs text-muted-foreground">{t("adm.smtp.portHint")}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtpUsername">{t("adm.smtp.user")}</Label>
+                      <Input
+                        id="smtpUsername"
+                        value={smtpUsername}
+                        onChange={(e) => setSmtpUsername(e.target.value)}
+                        placeholder="someone@qq.com"
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtpPassword">
+                        {t("adm.smtp.pass")}
+                        {smtpConfigured && t("adm.1115")}
+                      </Label>
+                      <Input
+                        id="smtpPassword"
+                        type="password"
+                        value={smtpPassword}
+                        onChange={(e) => setSmtpPassword(e.target.value)}
+                        placeholder={smtpConfigured ? t("adm.1116") : t("adm.smtp.passPlaceholder")}
+                      />
+                      <p className="text-xs text-muted-foreground">{t("adm.smtp.passHint")}</p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpFromEmail">
+                          {t("adm.smtp.from")}
+                          <span className="ml-1 text-xs text-muted-foreground">{t("adm.smtp.fromOptional")}</span>
+                        </Label>
+                        <Input
+                          id="smtpFromEmail"
+                          value={smtpFromEmail}
+                          onChange={(e) => setSmtpFromEmail(e.target.value)}
+                          placeholder={smtpUsername || "no-reply@example.com"}
+                          className="font-mono text-xs"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpFromName">{t("adm.smtp.fromName")}</Label>
+                        <Input
+                          id="smtpFromName"
+                          value={smtpFromName}
+                          onChange={(e) => setSmtpFromName(e.target.value)}
+                          placeholder="XceedCloud"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t("adm.smtp.hint1")}
+                      {t("adm.smtp.hint2")}
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 rounded-md border p-3">
+                    <p className="text-sm font-medium">{t("adm.710")}</p>
+                    <div className="space-y-2">
+                      <Label>
+                        API Key
+                        {brevoKeys.length > 0 && t("adm.1118", { v0: brevoKeys.length })}
+                      </Label>
+
+                      {/* 已配置的 Key 列表：只显示中间打码的串，明文永不回前端 */}
+                      {brevoKeys.length > 0 ? (
+                        <ul className="space-y-1">
+                          {brevoKeys.map((k, i) => (
+                            <li
+                              key={`${i}-${k}`}
+                              className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5"
+                            >
+                              <span className="flex items-center gap-2 overflow-hidden">
+                                <span className="shrink-0 text-[11px] text-muted-foreground">{t("adm.1119", { v0: i + 1 })}</span>
+                                <span className="truncate font-mono text-xs">{k}</span>
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 shrink-0 px-2 text-xs text-destructive hover:text-destructive"
+                                disabled={brevoBusy}
+                                onClick={() => void handleRemoveBrevoKey(i + 1)}
+                              >
+                                {t("adm.711")}
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground">
+                          {t("adm.712")}
+                        </p>
+                      )}
+
+                      {/* 添加：支持一次粘多把（逗号 / 换行分隔） */}
+                      <div className="flex gap-2">
+                        <Input
+                          id="brevoKeyAdd"
+                          type="password"
+                          value={brevoAddInput}
+                          onChange={(e) => setBrevoAddInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault()
+                              void handleAddBrevoKey()
+                            }
+                          }}
+                          placeholder={t("adm.304")}
+                          className="font-mono text-xs"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          disabled={brevoBusy || !brevoAddInput.trim()}
+                          onClick={() => void handleAddBrevoKey()}
+                        >
+                          {t("adm.713")}
+                        </Button>
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        {t("adm.714")}
+                        {t("adm.715")}
+                        <span className="font-medium">
+                          {t("adm.716")}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="brevoSenderEmail">{t("adm.717")}</Label>
+                        <Input
+                          id="brevoSenderEmail"
+                          value={brevoSenderEmail}
+                          onChange={(e) => setBrevoSenderEmail(e.target.value)}
+                          placeholder="no-reply@doulor.cn"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="brevoSenderName">{t("adm.718")}</Label>
+                        <Input
+                          id="brevoSenderName"
+                          value={brevoSenderName}
+                          onChange={(e) => setBrevoSenderName(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t("adm.719")}
+                    </p>
+                    <BrevoQuotaPanel />
                   </div>
                 </CardContent>
               </Card>

@@ -1,20 +1,19 @@
 /**
- * 出站邮件（Cloudflare Email Service 的 send_email 绑定）。
+ * 出站邮件多通道路由（三条通道，按序回退）：
  *
- * 为什么不用 SMTP：Workers 运行时**没有 TCP socket**，无法连接
- * smtp.qq.com / SES SMTP 之类的外部 SMTP 服务。Cloudflare 提供的
- * send_email 绑定就是官方替代方案，无需自建邮件服务。
+ *   1. **smtp** —— 管理员配置的 SMTP 邮箱账户，Workers 用 `cloudflare:sockets`
+ *      的出站 TCP 直连（465 / 587 STARTTLS，见 ./smtp.ts）。可发任意邮箱，
+ *      2026-11-07 起的主通道（取代早期的 Posta 自建网关）。
+ *   2. **brevo** —— Brevo HTTP API，多把 Key 轮询 + 当日额度预检。
+ *   3. **cf** —— Cloudflare send_email 绑定。
  *
- * ⚠️ 重要限制（决定「验证真实邮箱」能否工作）：
- *   在把 doulor.cn 到面板 **Compute > Email Service > Email Sending** 完成
- *   Onboard 之前，绑定**只能发往账户内「已验证的 destination address」**。
- *   未验证的收件人会报错，此时：
- *     - 给真实邮箱发验证码：需要先 Onboard 发送域名
- *     - 找回账号、群发公告：同上
- *   未 Onboard 时，这类发送会抛出 E_SENDER_NOT_VERIFIED / 收件人未验证之类错误，
- *   本模块会把它转成明确的业务错误返回给前端，而不是静默失败。
+ * ⚠️ cf 通道的重要限制：在把发送域名到面板 **Compute > Email Service > Email
+ * Sending** 完成 Onboard 之前，绑定只能发往账户内「已验证的 destination address」。
+ * 未验证的收件人会报 E_RECIPIENT_NOT_VERIFIED / E_SENDER_NOT_VERIFIED，
+ * 本模块把它转成明确的业务错误返回给前端，而不是静默失败。
  */
 import { ApiError } from "./http"
+import { smtpSend } from "./smtp"
 import { getSetting } from "./settings"
 import type { Env } from "./env"
 
@@ -95,7 +94,7 @@ async function sendViaCf(env: Env, input: SendMailInput): Promise<void> {
  * 「暂停本轮、把剩余收件人留在 pending」。
  *
  * 依据：Brevo 免费版每天 300 封，用完后 POST /v3/smtp/email 返回 400
- * （code 形如 `max_emails_per_day_exceeded`）；超速率则返回 429。posta 网关同理。
+ * （code 形如 `max_emails_per_day_exceeded`）；超速率则返回 429。
  */
 function isQuotaResponse(status: number, body: string): boolean {
   if (status === 429 || status === 402) return true
@@ -105,54 +104,39 @@ function isQuotaResponse(status: number, body: string): boolean {
 }
 
 /**
- * 通过自建 Posta 网关发信（HTTP API + Bearer，背后是用户自己配的 SMTP）—— 可发任意邮箱。
+ * 通过管理员配置的 **SMTP 邮箱账户** 直发（2026-11-07 取代 Posta 自建网关）。
  *
- * 接口契约（Posta v1，`/openapi.json`）：`POST /api/v1/emails/send`，
- * `Authorization: Bearer <api-key>`（需 send 权限），请求体：
- *   { from, to: string[], subject, text?, html? }
- * `html` 是一等字段 —— renderMail 的卡片样式在 Posta 通道直接生效
- * （这正是从 Posthorn 换到 Posta 的原因：Posthorn 1.x 只能发纯文本）。
+ * Workers 侧用 `cloudflare:sockets` 的出站 TCP 直连 SMTP 服务器
+ * （协议实现见 ./smtp.ts）—— 465 隐式 TLS / 587 STARTTLS / AUTH PLAIN / LOGIN，
+ * 可接 QQ / 163 / Gmail / 企业邮箱等任意 SMTP。
  *
- * ⚠️ `from` 取自设置项 `posta_from`（可配置），**默认不是站点的 no-reply 地址**。
- *   原因：Posta 背后若是 QQ SMTP，信封 `MAIL FROM` 必须等于授权登录账号，否则报
- *   `501 Mail from address must be same as authorization user`（2026-09-27 实测）。
- *   所以默认值是与登录账号一致的 `XceedCloud <DoulorCloud@foxmail.com>`。
- *   若之后 Posta 换用支持自有域名的 SMTP，只改设置项即可，无需改代码。
+ * 配置项：`smtp_host` / `smtp_port` / `smtp_username` / `smtp_password`（密钥）/
+ * `smtp_from_email`（默认 = username）/ `smtp_from_name`（默认 = 站点名）。
+ * ⚠️ QQ / 163 这类个人邮箱要求信封 MAIL FROM = 授权登录账号，所以 fromEmail
+ *    默认跟 username 一致；换了支持自有域名的 SMTP 再显式配 smtp_from_email。
  */
-async function sendViaPosta(env: Env, input: SendMailInput): Promise<void> {
-  const url = (await getSetting(env, "posta_url")).trim()
-  const key = (await getSetting(env, "posta_key")).trim()
-  if (!url || !key) {
-    throw new ApiError(503, "Posta 网关未配置", "MAIL_NOT_CONFIGURED")
+async function sendViaSmtp(env: Env, input: SendMailInput): Promise<void> {
+  const host = (await getSetting(env, "smtp_host")).trim()
+  const port = Number((await getSetting(env, "smtp_port")).trim() || 465)
+  const username = (await getSetting(env, "smtp_username")).trim()
+  const password = await getSetting(env, "smtp_password")
+  if (!host || !username || !password) {
+    throw new ApiError(503, "SMTP 未配置（主机 / 账号 / 密码）", "MAIL_NOT_CONFIGURED")
   }
-  // 存的是基础地址（如 https://xxx.doulor.cn）；兼容直接粘完整端点的情况
-  const base = url.replace(/\/+$/, "")
-  const endpoint = base.endsWith("/send") ? base : `${base}/api/v1/emails/send`
-  // 发件人可配置：QQ SMTP 要求 MAIL FROM = 登录账号（见 posta_from 的注释）
-  const from =
-    (await getSetting(env, "posta_from")).trim() || `${MAIL_FROM_NAME} <${MAIL_FROM}>`
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [input.to],
-      subject: input.subject,
-      text: input.text,
-      ...(input.html ? { html: input.html } : {}),
-    }),
-  })
-  if (!res.ok) {
-    const body = (await res.text()).slice(0, 200)
-    const quota = isQuotaResponse(res.status, body)
-    throw new ApiError(
-      quota ? 429 : 502,
-      `Posta 发信失败: ${res.status} ${body}`,
-      quota ? "MAIL_QUOTA_EXCEEDED" : "MAIL_SEND_FAILED"
-    )
+  const account = {
+    host,
+    port: Number.isFinite(port) && port > 0 ? port : 465,
+    username,
+    password,
+    fromEmail: (await getSetting(env, "smtp_from_email")).trim() || username,
+    fromName: (await getSetting(env, "smtp_from_name")).trim() || MAIL_FROM_NAME,
+  }
+  try {
+    await smtpSend(account, input)
+  } catch (err) {
+    if (err instanceof ApiError) throw err
+    const message = err instanceof Error ? err.message : String(err)
+    throw new ApiError(502, `SMTP 发信失败：${message}`, "MAIL_SEND_FAILED")
   }
 }
 
@@ -238,6 +222,17 @@ function markBrevoExhausted(key: string): void {
   brevoKeyHealth.set(key, { credits: 0, checkedAt: Date.now() })
 }
 
+/**
+ * 清空 Brevo Key 健康缓存（额度「已用尽」标记）。
+ *
+ * 什么时候用：管理员补了新 Key / 次日额度恢复 —— 缓存本来的 TTL 是 5 分钟，
+ * 但「公告群发额度用尽 → 换 Key 立刻重试」是合理诉求，不必等缓存过期。
+ * 测试里也用它模拟「次日额度恢复」。
+ */
+export function resetBrevoKeyHealth(): void {
+  brevoKeyHealth.clear()
+}
+
 /** 通过 Brevo（Sendinblue）发信（HTTP API）—— 可发任意邮箱，支持多把 Key 叠加额度 */
 async function sendViaBrevo(env: Env, input: SendMailInput): Promise<void> {
   const keys = parseBrevoKeys(await getSetting(env, "brevo_api_key"))
@@ -255,7 +250,7 @@ async function sendViaBrevo(env: Env, input: SendMailInput): Promise<void> {
   //    （代码注释里原先假设的「400 max_emails_per_day_exceeded」并不成立。）
   //
   //    于是「res.ok 就当成功」的写法会让一把用完额度的**死 Key 把整封邮件吃掉**：
-  //    既不轮转到下一把，也不回退 Posta/CF，而调用方还拿到「已发送」。
+  //    既不轮转到下一把，也不回退 SMTP/CF，而调用方还拿到「已发送」。
   //    实测那天第 1 把 Key（bdoulor@gmail.com）在 16:23 之后彻底停止受理，
   //    而它又因为「模块级游标在冷启动 isolate 里恒为 0」被优先命中，
   //    导致相当比例的验证码邮件凭空消失。
@@ -321,14 +316,14 @@ async function sendViaBrevo(env: Env, input: SendMailInput): Promise<void> {
 }
 
 /** 可用的出站通道标识 */
-export type MailTransport = "posta" | "brevo" | "cf"
+export type MailTransport = "smtp" | "brevo" | "cf"
 
 /**
  * 发送一封邮件（多通道路由）。
  *
  * 路由规则：
  *   1. 收件人命中 `mail_cf_targets` 白名单 → 直接走 CF（管理员等固定目标，送达率高且免费）。
- *   2. 否则按 `mail_transport_order` 顺序逐个尝试（默认 posta → brevo → cf），
+ *   2. 否则按 `mail_transport_order` 顺序逐个尝试（默认 smtp → brevo → cf），
  *      前一个失败自动回退到下一个，全部失败抛出最后一个错误。
  *
  * `opts.prefer` 用于「公告群发」这类需要管理员指定主通道的场景：把该通道提到
@@ -336,9 +331,8 @@ export type MailTransport = "posta" | "brevo" | "cf"
  * 临时故障时邮件照样发得出去，不会因为一个下拉框而全军覆没。
  *
  * `opts.chain` 用于**显式指定**整条通道链（以值为准，不再读 mail_transport_order）。
- * 公告群发靠它把 posta 摘掉：posta 是异步队列，HTTP 200 只代表"已排队"，上游
- * 真实失败对调用方不可见，混进回退链会把「没发出去」记成「已发送」（见
- * handlers/announcements.ts 的 ANNOUNCE_CHAIN）。
+ * 公告群发曾靠它把「Posta 异步队列」摘出回退链；SMTP 直发是同步协议（DATA 250
+ * 就是真实送达确认），没有这个问题，不再需要摘链。
  *
  * 失败时抛出可读的业务错误。
  */
@@ -378,7 +372,7 @@ export async function sendMail(
   const failures: { transport: string; err: unknown }[] = []
   for (const t of effective) {
     try {
-      if (t === "posta") await sendViaPosta(env, input)
+      if (t === "smtp") await sendViaSmtp(env, input)
       else if (t === "brevo") await sendViaBrevo(env, input)
       else if (t === "cf") await sendViaCf(env, input)
       else continue

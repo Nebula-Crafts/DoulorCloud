@@ -1592,7 +1592,7 @@ export async function mailStatus(env: Env, request: Request): Promise<Response> 
  * 满世界传 —— 它们归 `handlers/admin-lab.ts` 管，那边的接口只回尾号。
  */
 const SECRET_SETTING_KEYS = new Set<string>([
-  "posta_key",
+  "smtp_password",
   "brevo_api_key",
   "lab_admin_api_key",
   "lab_admin_channels",
@@ -1620,7 +1620,7 @@ function maskKeyForDisplay(key: string): string {
 
 /** 邮件通道密钥的展示信息（明文不返回；GET 与 PUT 共用） */
 function mailSecretsOf(settings: Record<SettingKey, string>): {
-  postaConfigured: boolean
+  smtpConfigured: boolean
   brevoConfigured: boolean
   brevoKeyCount: number
   /** 已配置的 Brevo Key 列表（中间打码，顺序 = 轮询顺序） */
@@ -1628,7 +1628,7 @@ function mailSecretsOf(settings: Record<SettingKey, string>): {
 } {
   const brevoKeys = parseBrevoKeys(settings.brevo_api_key)
   return {
-    postaConfigured: Boolean(settings.posta_key),
+    smtpConfigured: Boolean(settings.smtp_host) && Boolean(settings.smtp_password),
     brevoConfigured: brevoKeys.length > 0,
     brevoKeyCount: brevoKeys.length,
     brevoKeys: brevoKeys.map(maskKeyForDisplay),

@@ -12,6 +12,7 @@
 //     否则它们会被 resumeAnnouncementMails 捞起来发信，污染后续断言。
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { env } from "cloudflare:workers"
+import { resetBrevoKeyHealth } from "../src/mailer"
 import { makeUser, authRequest, fetchSelf, setSetting } from "./helpers"
 import { runAnnouncementMailJob, resumeAnnouncementMails } from "../src/handlers/announcements"
 import { uuid } from "../src/crypto"
@@ -38,16 +39,6 @@ function stubMail(): void {
       }
     })()
 
-    if (url.includes("posta.test")) {
-      // Posta 契约：to 是收件人地址数组（见 mailer-posta.test.ts）
-      const to = String((body.to as string[] | undefined)?.[0] ?? "")
-      if (quotaFor.has(to)) {
-        return new Response('{"code":"max_emails_per_day_exceeded"}', { status: 400 })
-      }
-      if (failFor.has(to)) return new Response("boom", { status: 500 })
-      mailCalls.push({ channel: "posta", to })
-      return new Response(JSON.stringify({ ok: true }), { status: 200 })
-    }
     if (url.includes("api.brevo.com")) {
       const to = ((body.to as { email: string }[] | undefined)?.[0]?.email) ?? ""
       if (quotaFor.has(to)) {
@@ -66,10 +57,12 @@ function stubMail(): void {
 
 beforeEach(async () => {
   stubMail()
-  await setSetting("posta_url", "https://posta.test/api/send")
-  await setSetting("posta_key", "test-key")
-  // 只留 posta：brevo 未配置时回退会直接 503，让「失败」用例的语义更清楚
-  await setSetting("mail_transport_order", "posta")
+  // SMTP 直发走 TCP socket，测试环境无法 stub —— 公告链路的通道级行为改用
+    // brevo（fetch 可拦）验证；smtp 通道的协议正确性由人工 + 真实邮箱验收兜底。
+    await setSetting("brevo_api_key", "xkeysib-test")
+    await setSetting("brevo_sender_email", "no-reply@test.local")
+    await setSetting("announcement_mail_transport", "brevo")
+    await setSetting("mail_transport_order", "brevo")
   // 把上一轮遗留的「推送中」公告收尾，避免被 resumeAnnouncementMails 捞起来干扰
   await env.DB.prepare(
     "UPDATE announcements SET mail_status='done' WHERE mail_status='sending'"
@@ -302,16 +295,16 @@ describe("公告邮件队列：cron 续跑", () => {
   })
 
   it("maxBatchesPerAnnouncement 限制单次处理量，剩余留给下次", async () => {
-    // 25 个收件人、每批 20 → 至少 2 批；限制 1 批则只发 20 封
+    // 25 个收件人、每批 10（brevo 档）→ 至少 3 批；限制 1 批则只发 10 封
     const emails = Array.from({ length: 25 }, (_, i) => `batch${i}@example.com`)
     const annId = await seedSendingAnnouncement(emails)
 
     const r = await resumeAnnouncementMails(env, { maxBatchesPerAnnouncement: 1 })
-    expect(r.processed).toBe(20)
+    expect(r.processed).toBe(10)
 
     const mid = await readMailState(annId)
     expect(mid?.mail_status).toBe("sending")
-    expect(mid?.mail_sent).toBe(20)
+    expect(mid?.mail_sent).toBe(10)
 
     // 再跑一次收尾
     await resumeAnnouncementMails(env, { maxBatchesPerAnnouncement: 10 })
@@ -464,6 +457,9 @@ describe("公告邮件队列：额度用尽", () => {
     expect(pending?.c).toBe(2)
 
     // 额度恢复（次日）→ cron 续跑把剩下的发完
+    // Brevo 的「当日已用尽」标记缓存在 isolate 内（5 分钟 TTL），不清掉的话
+    // 续跑会直接 503，走不到「额度恢复」这个分支
+    resetBrevoKeyHealth()
     quotaFor.clear()
     await resumeAnnouncementMails(env, { maxBatchesPerAnnouncement: 10 })
 

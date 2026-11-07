@@ -156,25 +156,19 @@ export async function dismissAnnouncement(
 /**
  * 计算公告群发实际使用的通道链。
  *
- * 规则：以 `mail_transport_order`（管理员配的全局顺序）为底，把首选通道提到
- * 最前面；**当首选是 brevo 时，把 posta 从回退链里摘掉**。
- *
- * 为什么必须摘掉 posta：posta 是异步队列，HTTP 200 只代表「已排队」，上游
- * （个人 QQ SMTP）的真实失败对调用方完全不可见 —— 混在回退链里会把「没发出去」
- * 记成「已发送」。2026-09-28 实测：某批 99 封里 46 封静默失败，worker 侧全部
- * 显示成功，只能去 posta 后台核对才发现。
- * 公告最怕的就是「以为发了、其实没发」：宁可如实记 failed 让管理员点重发，
- * 也不要留一个假的成功。首选 posta 时保持完整回退（那是管理员明确的选择）。
+ * 规则：以 `mail_transport_order`（管理员配的全局顺序）为底，把首选通道提到最前。
+ * 三条通道（smtp / brevo / cf）都是**同步协议** —— 失败当场抛错、调用方如实记账，
+ * 不需要再像 Posta 时代那样把某条通道从回退链里摘掉（Posta 是异步队列，HTTP 200
+ * 只代表「已排队」，真实失败不可见，那才是当年摘链的原因；2026-11-07 已下线）。
  */
 async function announcementChain(env: Env, prefer: MailTransport): Promise<MailTransport[]> {
   const configured = (await getSetting(env, "mail_transport_order"))
     .split(",")
     .map((s) => s.trim().toLowerCase())
-    .filter((t): t is MailTransport => t === "posta" || t === "brevo" || t === "cf")
+    .filter((t): t is MailTransport => t === "smtp" || t === "brevo" || t === "cf")
   const base: MailTransport[] =
-    configured.length > 0 ? configured : ["posta", "brevo", "cf"]
-  const ordered = [prefer, ...base.filter((t) => t !== prefer)]
-  return prefer === "brevo" ? ordered.filter((t) => t !== "posta") : ordered
+    configured.length > 0 ? configured : ["smtp", "brevo", "cf"]
+  return [prefer, ...base.filter((t) => t !== prefer)]
 }
 
 /**
@@ -187,11 +181,11 @@ async function announcementChain(env: Env, prefer: MailTransport): Promise<MailT
  * Brevo：`POST /v3/smtp/email` 的限流是 1000 RPS，速率完全不是瓶颈 ——
  *   真正的约束是**免费版 300 封/天**。所以这里不追速度，而是把节奏放慢，
  *   降低「短时间内大量同主题投递」被收件方判定为群发的概率。
- * Posta：出口是个人的 QQ SMTP，突发流量必被风控，同样要慢。
+ * smtp：直连个人邮箱（QQ/163）的 SMTP，突发流量必被风控，同样要慢。
  */
 const MAIL_BATCH_PROFILE: Record<MailTransport, { size: number; delayMs: number }> = {
+  smtp: { size: 20, delayMs: 1000 },
   brevo: { size: 10, delayMs: 2000 },
-  posta: { size: 20, delayMs: 1000 },
   cf: { size: 20, delayMs: 1000 },
 }
 
@@ -260,9 +254,9 @@ export async function runAnnouncementMailJob(
     .first<{ title: string; body: string; category: string; mail_status: string }>()
   if (!ann) return 0
 
-  // 首选通道：管理员在设置里选的（posta / brevo）。非法值回落 posta。
+  // 首选通道：管理员在设置里选的（smtp / brevo）。非法值回落 smtp。
   const preferRaw = (await getSetting(env, "announcement_mail_transport")).trim().toLowerCase()
-  const prefer: MailTransport = preferRaw === "brevo" ? "brevo" : "posta"
+  const prefer: MailTransport = preferRaw === "brevo" ? "brevo" : "smtp"
   const chain = await announcementChain(env, prefer)
   const { size: batchSize, delayMs: batchDelayMs } = MAIL_BATCH_PROFILE[prefer]
 
